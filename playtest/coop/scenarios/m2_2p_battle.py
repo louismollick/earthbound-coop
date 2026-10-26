@@ -26,11 +26,12 @@ def menu_turn(s, title, focus):
     expect(s.title() == title and st.focus == focus, f"the {title} command menu, focus={focus}", st.players_line)
 
 
-def defend(s, player):
+def defend(s, player, last=False):
+    """P``player`` picks Defend; ``last``: the turn's last command, so the round starts (no wait for a menu)."""
     s.do(f"P{player} press RIGHT; wait 5; P{player} press DOWN; wait 5")
     opts, sel = s.menu()
     expect(opts[sel] == "Defend", f"P{player}'s cursor on Defend", (opts, sel))
-    return s.said(f"P{player} press A; until input 300; wait 10")
+    return s.said(f"P{player} press A; wait 10" if last else f"P{player} press A; until input 300; wait 10", met=True)
 
 
 def run(ctx):
@@ -67,8 +68,8 @@ def run(ctx):
     # Poo (P2): Defend.
     menu_turn(s, "Poo P2", "P2")
     unchanged(s, "press A; wait 10; press DOWN; wait 10", "P1 on Poo's menu")
-    said = defend(s, 2)  # the round starts: defending goes first
-    said += s.said("until input 3000 P2 advance")
+    said = defend(s, 2, last=True)  # the round starts: defending goes first
+    said += s.said("until input 3000 P2 advance", met=True)
     for want in ("Ness tried", "Paula is on guard", "Jeff attacks", "Poo is on guard"):
         expect(want in said, f"'{want}' in the round's text", said)
 

@@ -502,6 +502,32 @@ bool coop_borrowed_step(CoopStepKind kind, uint16_t pad, CoopBody *b, int16_t sl
     return moved;
 }
 
+/* NPCs (not enemies) the Walker at (x, y) already overlaps get their collision
+ * turned off for this step, so it can walk off them; `saved` keeps each NPC
+ * slot's collided_objects for unshade_overlapped_npcs. Vanilla followers walk
+ * through NPCs and cutscenes line them up regardless, so a follower may stand
+ * on one when it becomes a Walker; the Leader's step it borrows would then find
+ * that NPC in every direction (and the NPC's own moves find the Walker), so
+ * neither could ever move. Once clear, the NPC blocks again. */
+static void shade_overlapped_npcs(int16_t x, int16_t y, int16_t slot, int16_t saved[INIT_ENTITY_SLOT]) {
+    int16_t collided = entities.collided_objects[INIT_ENTITY_SLOT];
+    for (int i = 0; i < INIT_ENTITY_SLOT; i++)
+        saved[i] = entities.collided_objects[i];
+    int16_t k;
+    while ((k = npc_collision_check(x, y, slot)) >= 0)
+        entities.collided_objects[k] = ENTITY_COLLISION_DISABLED;
+    /* An overlapped enemy still counts: touching it starts the battle */
+    for (int i = 0; i < INIT_ENTITY_SLOT; i++)
+        if ((uint16_t)entities.npc_ids[i] >= 0x8000)
+            entities.collided_objects[i] = saved[i];
+    entities.collided_objects[INIT_ENTITY_SLOT] = collided;
+}
+
+static void unshade_overlapped_npcs(const int16_t saved[INIT_ENTITY_SLOT]) {
+    for (int i = 0; i < INIT_ENTITY_SLOT; i++)
+        entities.collided_objects[i] = saved[i];
+}
+
 /* One frame of Player p's Walker: the borrowed Leader step with p's pad, the
  * leash against the other Walkers, then the Walker's trail write (as
  * position_buffer_write). */
@@ -509,6 +535,8 @@ static void walker_step(int p, CoopWalker *w) {
     int16_t slot = member_entity(w->chain[0]);
     CoopBody b = { w->x, w->y, w->x_frac, w->y_frac, w->direction, w->surface, w->walking_style };
     int16_t touched;
+    int16_t npc_collision[INIT_ENTITY_SLOT];
+    shade_overlapped_npcs((int16_t)w->x, (int16_t)w->y, slot, npc_collision);
     bool stepped = coop_borrowed_step(COOP_STEP_WALKER, coop.walk_pad[p], &b, slot, &touched);
 
     uint16_t x_frac = b.x_frac, x = b.x;
@@ -529,6 +557,7 @@ static void walker_step(int p, CoopWalker *w) {
         y = w->y;
         y_frac = w->y_frac;
     }
+    unshade_overlapped_npcs(npc_collision);
     bool moved = stepped && (x != w->x || x_frac != w->x_frac || y != w->y || y_frac != w->y_frac);
     w->x = x;
     w->x_frac = x_frac;

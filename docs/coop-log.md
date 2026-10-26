@@ -1,5 +1,56 @@
 # Co-op build log
 
+## Summary for Louis (read this first)
+
+M0 to M4, M6 and M7 are done. M5 (Windows) is with the session on your desktop. Nothing is blocked. The `coop` branch builds clean at both viewports, and with one Player the game is bit-identical to upstream (32 regress cases, every frame hashed). 80 co-op scenarios pass, also under ASan+UBSan and across a save/restore in a fresh process. A bot soaked all 36 story saves for 30 in-game minutes with 4 Players, and a 30-minute online Session ran with 100 ms latency, 30 ms jitter and 2% loss without a desync.
+
+### What works
+- **Joining:** up to 4 Players, local, online or mixed. Press Start on an unjoined pad to join. Hold Select+Start for 2 s to leave.
+- **Heroes:** dealt round-robin by join order. With 2 Players, P1 has Ness and Jeff and P2 has Paula and Poo.
+- **Walking:** each Player walks their first Hero with the game's own movement and collision, and their other Heroes trail them. The camera frames everyone, and a leash keeps everyone on screen. Doors, stairs and cutscenes regroup the Party behind the Leader.
+- **Interacting:** any Player can talk, check or open the menu. Whoever starts an interaction drives it (shops, phone and save, ATM, hotel, Escargo), and the menu cursor starts on their Hero.
+- **Battle:** a Player claims a command menu by pressing A, so nobody waits on anyone. Each Hero's menu takes only its Owner's pad. The tiny `P2` tag in the menu title shows whose turn it is. Run Away stays with the Leader's Owner. When the battle waits, a small box shows who still has to pick.
+- **Party changes:**
+  - A Player with no Hero in the Party walks a Guest if one is free (Bubble Monkey, the Flying Men, Pokey and so on). Otherwise they walk their own Mr. Saturn. Mr. Saturn can read signs and chat, but anything that would change the game just gets a sound.
+  - In Solo Chapters, the solo Hero's battle menu rotates through every Player, one turn each.
+  - KO'd Heroes trail as ghosts, and their Owner walks their next conscious Hero.
+- **Online:** input lockstep. A mid-game join gets the Host's state. A dropped Player is removed after 10 s. Desyncs are detected and dumped. Mismatched builds are refused by name.
+- **Fixed along the way (in vanilla too):** the Runaway Five bus (an upstream asset-packing bug), plus several cases of state not restored after a savestate load in a fresh process: battle tables, the HP/PP window palettes, menu texts, and two unsaved globals.
+
+### Play local co-op on the Mac
+```
+scripts/coop-setup.sh                       # once; builds everything (needs earthbound.sfc in the repo root)
+port/unix/build-wide/earthbound             # 320x240, the comfortable view for co-op
+```
+- **P1, keyboard:** arrows, X = A, Z = B, Enter = Start, Right Shift = Select, Q/W = L/R.
+- **P2, keyboard:** I/J/K/L to move, U = A, O = B, P = Start, `[` = Select.
+- **Controllers:** they join in connection order. The first is P1 (alongside the keyboard), the second P2, and so on. Buttons are SNES-positional: the right face button is A.
+- **Joining:** load your file, then press Start on P2 (P on the keyboard). `--players 2` joins P2 at launch.
+
+### Try online on localhost
+```
+port/unix/build-wide/earthbound --host 7744                         # window 1: Host, P1
+port/unix/build-wide/earthbound --join 127.0.0.1:7744               # window 2: P2
+```
+- **Joining:** the client gets the Host's game when it connects.
+- **Input delay:** `--input-delay N` sets it (default 3 frames). Over the internet, use ping/16.7 + 1.
+- **Several local Players:** `--local-players 2` puts two Players on one machine.
+- **Networking:** there's no NAT traversal. Use Tailscale, or forward UDP 7744. Full guide in `docs/coop-online.md`.
+
+### What I'd like you to playtest by feel
+1. **The leash and camera with 2 Players:** does the midpoint camera feel calm, and is the leash margin too tight?
+2. **Claimed battle menus:** is pressing A to claim a menu intuitive? Is the "P1 P2" waiting box clear enough, or would you rather have sequential menus back?
+3. **Mr. Saturn:** is it fun, and does the "can't do that" sound read clearly? It hides during any dialogue that locks the Party.
+4. **Online over Tailscale with a real person:** at what input delay does it stop feeling heavy?
+5. **Solo Chapters with friends:** is battle rotation fun, or annoying in long fights?
+
+### Known limitations
+- **Not tested end to end:** real controllers and the IJKL layout in a window (headless tests drive pads directly), the later Sky Runner ride, and hotspot-only transitions.
+- **Mr. Saturn:** it uses one of the 22 NPC slots, and gives it up whenever the game needs it. It can reappear in a boxed-in spot.
+- **Walker stuck behind a wall:** it holds the Leader back through the leash. If that's annoying in play, the fix is a "warp to Leader" button combo.
+- **Online:** IPv4 only, the same commit and viewport on every machine, and the joiner's music restarts.
+
+
 One entry per PLAN.md item: what changed, gate results, decisions and deviations.
 
 ## M0 Foundation
@@ -188,3 +239,30 @@ One entry per PLAN.md item: what changed, gate results, decisions and deviations
 - `m7c`: Mr. Saturn Companion for every absent non-Stand-in Player, Look-only scan (`coop_look.c`; 605 of 1314 NPC texts look-only, 0 item boxes), sound 114 otherwise. Merged with a regenerated `state_layout.h`.
 - After the merge, the `globals` guard caught two unclassified statics from the Companion work (`step_kind`, `sfx_trace_hook`); both are transient/host-only and are classified. `net_join_midgame` had an off-by-one: a hash point landing exactly on the (timing-dependent) JOIN frame is taken before the join applies; it now checks strictly later frames.
 - Gates `--full`: PASS (regress 0/32 vs build-base-fix, co-op 73/73, ASan 73/73, globals, continuity).
+
+### M7 review (GPT 6.1 Sol, one pass)
+- No battle ownership bug, claim deadlock or misclassified Look-only text found.
+- Risk: a hidden Companion keeps its NPC slot, so normal NPC allocations can fail (synthetic probe). Bug: a cutscene that freezes the Party without moving the Leader leaves Mr. Saturn visible. Risk: `find_entity_by_sprite_id(171)` can return a Companion. Test gaps: `m7_companion_look` doesn't compare inventory; `m7_companion_lifecycle` has a silent `until` timeout. All five to a fix agent (m7fix).
+
+### M7 review fixes (m7fix)
+- Hidden now means removed: a hidden Companion holds no entity, script slot, sprite VRAM or spritemaps. It hides whenever the game controls movement (`WALK_CONTROLLED`, the Leader moving or not) or a battle is coming, checked every frame in `coop_companion_watch` (`coop_tick`), which runs while entity ticks are frozen. `CoopCompanion.shown` dropped (`spawned` = out and visible); `state_layout.h` regenerated.
+- The game's entities always win: `entity_init` removes every Companion when it has no entity or script slot in its range, and `create_entity` retries once after removing them when it fails on sprite VRAM or spritemap space (`coop_companion_reclaim`). The Companion spawns through `create_entity_raw` only into a free slot and comes back next to the Leader when there is room. `find_entity_by_sprite_id` / `find_entity_by_npc_id` skip Companion entities (`coop_companion_slot`). All three hooks are inert without a spawned Companion, so solo is unchanged.
+- Harness: `goods`, `npc ID [SCRIPT]`, `find sprite|npc ID`, `freeze on|off`, and the `until` conditions `choose` and `command`. lib: `do(..., met=True)` / `said(..., met=True)` fail on any `UNTIL TIMEOUT`; `Session.goods()`; `command_menu` waits with `until command` (no polling timeouts) and asserts the claimed menu opens.
+- Scenarios: new `m7_companion_room` (NPC fill gets the solo slots 3-21, Mr. Saturn removed and stays hidden while every slot is full, back after a map reload; `find sprite 171` = -1 throughout), `m7_companion_lifecycle` (stationary `freeze on` after the cold restore hides it, `freeze off` brings it back; the battle now waits for `choose`, claims and requires the menu, every `until` met), `m7_companion_look` (each Hero's goods unchanged by every muted interaction). On the pre-fix C code: room fails (sprite lookup finds slot 21; the fill gets 3-20), lifecycle fails (still shown under the freeze). The goods check fails when a `give` is slipped into the muted interaction. No real cutscene was found that freezes a solo Party before moving it, so `freeze` calls the routine `set_player_lock 255` calls.
+- Silent `UNTIL TIMEOUT`s are gone from the suite except `prefix_forms_4p`'s, which is deliberate. `m2_2p_battle`'s last Defend no longer waits for a menu that the round's start never opens.
+### M4 finish: Solo Chapters, the bus, Sky Runner (m4b)
+- Scenarios, each chapter start to end at 2 and 4 Players, shared checks in `scenarios/_solo.py`. (a) the solo Hero's Owner walks it, absent Players stand in for free Guests in order or walk a Mr. Saturn, no stale Walker; (b) Battle rotation round every Player and back to the Owner; (c) the restored Party: everyone walks their own Hero, Companions gone, focus on the Leader's Owner; (d) every cutscene reaches control.
+  - `m4_solo_mu` (23-Summers): Magic Cake dream → Poo alone (P2 of 2, P4 of 4) → Mu training (only Poo's Owner answers) → Poo joins at the beach. The dream has enemies off, so the battle is a cheat (Poo teleported into Magicant's pink maze).
+  - `m4_solo_magicant` (33-FireSpring): Carbon Dog (debug win), the sanctuary walk, the melody → Ness alone; the Flying Man joins and P2 switches from Mr. Saturn to standing in for him; rotation in the Nightmare fight; montage and the Saturn Valley wakeup.
+  - `m4_solo_winters` (10-ToThreed, then 11-Winters): Paula's prayer in the Threed jail (teleported past the bus and hotel trap) → Jeff alone; Bubble Monkey's Stand-in; Cave Boy rotation; the Sky Runner with everyone spread out (they regroup onto Jeff at boarding), the ~9200-frame flight and crash → Ness and Paula in the jail, everyone landed with them; Jeff joins.
+  - `m4_solo_paula` (18-DeptStore, 21-Monotoli): the real blackout (store door and escalator arm hotspots 11 and 10) → Ness and Jeff, Paula's Owner walks a Mr. Saturn; a dark-store battle where each Hero's menu goes to its Owner (two Heroes left, so no rotation); Monotoli's confession adds Paula back. Moonside to Monotoli isn't played.
+  - `m4_bus_2p` (10-ToThreed, 2 and 3 Players): Walkers apart before boarding, everyone regrouped and hidden on board, only P1's presses at the prompts, arrival in the solo arrival line, independent again. Removed from Blocked.
+- Bug fixed (`m4_walker_npc_overlap` and `m4_solo_magicant` 4P failed before): vanilla followers walk through NPCs, so a follower can stand on one when it becomes a Walker (the Magicant wakeup lines Poo up on a Saturn Valley Mr. Saturn); the borrowed Leader step then met that NPC in every direction and the NPC's own moves met the Walker, so neither moved again. `walker_step` turns off the collision of non-enemy NPCs the Walker already overlaps for its step; once clear they block again. No state.
+- Harness fix: `idle`'s leader-frozen check read entity slot 24 (Ness's), stale when Ness is out of the Party, so after any battle with Jeff or Poo leading the harness (and `teleport`) said the Leader was frozen while he walked fine. It now reads the Leader's entity. No regress or framehash change.
+- Noted, not fixed: a Companion parked next to the Leader can land in a boxed-in spot (Jeff's bed edge; `spot_clear` checks only the footprint) and has to walk out the one open way. The Andonuts lab Sky Runner to Summers isn't tested (same ride code).
+- Gates `--framehash --full`: PASS. regress 0 of 32 differ, framehash 0 of 31 cases / 0 frames, pytest 1831 passed / 5 skipped, co-op 79/79, ASan+UBSan 79/79, globals, continuity 79/79. The Solo Chapter and bus scenarios also pass at 256x224 (`m4_walker_npc_overlap` needs the wide build's timing to put Poo on the NPC). `rotation_battle` counts an enemies' surprise turn as a used place, as `m7_rotation` does. Contact sheet read: the Saturns around the solo Hero, the Flying Man Stand-in, "Ness/Jeff/Poo P#" rotation tags, the empty bus stop at boarding, the crash in the jail, and the restored Parties walking apart.
+
+### M4 review (GPT 6.1 Sol, one pass)
+- Rebutted as a faithfulness fix: binding `npc_ai_table` at init changes `get_npc_max_hp()` before the first battle (a Flying Man joining in Magicant gets `party_npc_1_hp` 300 instead of 0, likewise King 999). The original reads `NPC_AI_TABLE` straight from ROM (`asm/overworld/party/update_npc_party_lineup.asm:79-200`), so 300 is the original's value; the baseline port's 0 came from the lazy binding. Recorded as an intended difference from the baseline (no regress case covers it).
+- Rebutted (documented, upstream edge case): restoring a title-screen snapshot after entering gameplay in the same process loses the title sprites (`free_title_screen_script_data` clears pointers that a restore doesn't rebind). Cold restores of title snapshots work, so netplay joins are unaffected; it's in the audit's class (d).
+- Bug, to an agent: the soak frozen-detector lets an animated softlock pass (a stall whose background still animates never fails). Risk, to the same agent: the Solo Chapter scenarios skip the Winters Monkey join / Tony / Tessie handoffs and Paula's Moonside-to-Monotoli return.

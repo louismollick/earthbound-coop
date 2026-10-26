@@ -14,6 +14,7 @@
  *   DEACTIVATE_ENTITY       (asm/overworld/deactivate_entity.asm)
  */
 #include "entity/entity.h"
+#include "coop/coop_companion.h"
 #include "entity/sprite.h"
 #include "entity/script.h"
 #include "data/event_script_data.h"
@@ -33,6 +34,16 @@ SpritePriorityQueue sprite_priority[4];
 
 /* Consolidated entity runtime state */
 EntityRuntimeState ert;
+
+/* entity_init's two allocations would succeed now (see entity.h). */
+bool entity_slot_available(uint16_t min_slot, uint16_t max_slot) {
+    if (ert.last_allocated_script < 0)
+        return false;
+    for (int16_t cur = entities.last_entity; cur >= 0; cur = entities.next_entity[cur])
+        if (cur >= (int16_t)min_slot && cur < (int16_t)max_slot)
+            return true;
+    return false;
+}
 
 /*
  * ALLOCATE_ENTITY_SLOT (C09C02)
@@ -302,6 +313,10 @@ int16_t entity_init(uint16_t script_id, int16_t x, int16_t y) {
     uint16_t saved_min = entities.alloc_min_slot;
     uint16_t saved_max = entities.alloc_max_slot;
 
+    /* Co-op: a Companion's entity never keeps the game's own from spawning */
+    if (coop_companion_spawned() && !entity_slot_available(saved_min, saved_max))
+        coop_companion_reclaim();
+
     int16_t ent_offset;
     if (!allocate_entity_slot(&ent_offset)) {
         entities.alloc_min_slot = saved_min;
@@ -406,6 +421,16 @@ void deactivate_entity(int16_t entity_offset) {
  */
 int16_t create_entity(uint16_t sprite, uint16_t script, int16_t index,
                       int16_t x, int16_t y) {
+    int16_t ent = create_entity_raw(sprite, script, index, x, y);
+    /* Co-op: out of sprite VRAM or spritemap space while a Companion holds
+     * some (entity_init makes room for the slot itself): remove them, retry */
+    if (ent < 0 && coop_companion_reclaim())
+        ent = create_entity_raw(sprite, script, index, x, y);
+    return ent;
+}
+
+int16_t create_entity_raw(uint16_t sprite, uint16_t script, int16_t index,
+                          int16_t x, int16_t y) {
     /* ASM line 38-44: debug mode check (skip in port) */
 
     /* ASM lines 46-55: Load sprite group properties */
@@ -642,7 +667,8 @@ void display_animated_naming_sprite(uint16_t start_entry) {
 int16_t find_entity_by_sprite_id(uint16_t sprite_id) {
     for (int slot = 0; slot < MAX_ENTITIES; slot++) {
         int16_t ent_offset = ENT(slot);
-        if (entities.sprite_ids[ent_offset] == (int16_t)sprite_id)
+        /* Co-op: a Companion's Mr. Saturn is no entity the game looks for */
+        if (entities.sprite_ids[ent_offset] == (int16_t)sprite_id && !coop_companion_slot(ent_offset))
             return (int16_t)slot;
     }
     return -1;
@@ -658,7 +684,7 @@ int16_t find_entity_by_sprite_id(uint16_t sprite_id) {
 int16_t find_entity_by_npc_id(uint16_t npc_id) {
     int16_t ent = entities.first_entity;
     while (ent >= 0) {
-        if (entities.npc_ids[ent] == npc_id)
+        if (entities.npc_ids[ent] == npc_id && !coop_companion_slot(ent))
             return ent;
         ent = entities.next_entity[ent];
     }

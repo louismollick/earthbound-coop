@@ -134,7 +134,8 @@ event scripts that expect no input (and `until text` ends at the first
 printed character, mid-cutscene).
 
 `until` conditions: `idle`, `input`, `battle` (enemy touched / battle
-started), `text` (any text printed), `said:WORD` (printed text contains WORD),
+started), `choose` (a co-op battle waits for a command menu claim),
+`command` (a battle command menu is open or waits for a claim), `text` (any text printed), `said:WORD` (printed text contains WORD),
 `in:MODE` / `out:MODE` (mode name such as `BATTLE`, `SELECTION_MENU`,
 `TEXT_PROMPT`, or number). `in`/`out`/`idle`/`input` must hold 3 frames in a
 row, with buttons released, so a following `press` is not lost. PATTERN is
@@ -167,6 +168,10 @@ Instant (no frame passes):
 | `flag N [0\|1]` | read / set an event flag |
 | `give ITEM [CHAR]` | give item id to char 1-6 (default: first with room). Prints `GIVE item N (Name) -> char C Name`, or `FAILED` when the inventory (or every inventory) is full |
 | `status CHAR GROUP VALUE` | set an affliction: `afflictions[GROUP-1] = VALUE` (GROUP 1-7 as in PARTY `st=`, VALUE 0 clears), or GROUP 8 = `party_status` (CHAR ignored). E.g. `status 2 2 2` possesses Paula. In a battle it also sets the member's battler, which the battle copies back over the char afflictions |
+| `goods` | print `GOODS 1:177,196 \| 2:- \| 3:... \| 4:...`: each Hero's (Ness..Poo) inventory as item ids |
+| `npc ID [SCRIPT]` | create NPC ID at the Leader with event SCRIPT (default 44, static), as a text script's `create_prepared_entity_npc`; prints `NPC id=ID slot=S` (`-1`: no room) |
+| `find sprite\|npc ID` | print `FIND sprite ID = SLOT`: what a script's lookup by sprite / NPC id finds (`-1`: none) |
+| `freeze on\|off` | disable / enable the Party's and the init entity's movement (`disable_character_movement(0xFF)`, a text script's `set_player_lock 255`) |
 | `debug on\|off` | set `ow.debug_flag` (battle debug keys, B+R debug menu) without opening the debug menu |
 | `money N`, `hp CHAR N`, `pp CHAR N`, `heal` | edit the party (`hp`/`pp` set the current value and its rolling target; `heal` fills every member's HP/PP). In a battle they also set the member's battler, so the next hit is taken from the new HP |
 | `rng [A B]` | print `RNG A B`, the game RNG state (`rng_state` / the asm's `RAND_A`/`RAND_B`); with 2 numbers, set it first. RAND isn't saved in SRAM, so seed both sides with it before comparing RNG-dependent steps against the original |

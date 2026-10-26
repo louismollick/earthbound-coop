@@ -266,10 +266,11 @@ class Session:
             self.lines.put(ln.rstrip("\n"))
         self.lines.put(None)
 
-    def do(self, cmds, timeout=None, strict=True):
+    def do(self, cmds, timeout=None, strict=True, met=False):
         """Send ``;``/newline-separated commands; return the lines printed until they finish.
 
         ``strict``: raise on an ``ERR`` line (else it is returned with the rest).
+        ``met``: raise unless every ``until`` in ``cmds`` was met (no ``UNTIL TIMEOUT``).
         """
         self.seq += 1
         cmd_list = split_commands(cmds)
@@ -287,6 +288,9 @@ class Session:
             if ln is None:
                 raise ScenarioError(f"game exited during {cmds!r} (rc={self.proc.poll()}, last lines: {out[-5:]})")
             if ln.startswith(marker):
+                timeouts = [x for x in out if x.startswith("UNTIL TIMEOUT")]
+                if met and timeouts:
+                    raise ScenarioError(f"every until met in {cmds!r}, saw {timeouts[0]} (last lines: {out[-5:]})")
                 return out
             if strict and ln.startswith("ERR"):
                 raise ScenarioError(f"script error during {cmds!r}: {ln}")
@@ -315,9 +319,19 @@ class Session:
     def players(self):
         return self.state().players
 
-    def said(self, cmds, timeout=None):
-        """Run ``cmds``; return the game text they printed (the TEXT lines, joined)."""
-        return " ".join(ln[5:] for ln in self.do(cmds, timeout) if ln.startswith("TEXT "))
+    def said(self, cmds, timeout=None, met=False):
+        """Run ``cmds``; return the game text they printed (the TEXT lines, joined). ``met``: as do()."""
+        return " ".join(ln[5:] for ln in self.do(cmds, timeout, met=met) if ln.startswith("TEXT "))
+
+    def goods(self):
+        """Each Hero's inventory, ``goods``'s GOODS line: {1: [item ids], ..., 4: [...]} (Ness..Poo)."""
+        for ln in self.do("goods"):
+            if ln.startswith("GOODS"):
+                return {
+                    int(h): [] if items == "-" else [int(i) for i in items.split(",")]
+                    for h, items in re.findall(r" (\d):(\S+)", ln)
+                }
+        raise ScenarioError("no GOODS line for goods")
 
     def menu(self):
         """The menu being driven now: (options, cursor index), or None (``text``'s MENU line)."""
@@ -350,13 +364,10 @@ class Session:
         presses A for one.
         """
         who = f"P{claimer} " if claimer > 1 else ""
-        for _ in range(max(1, frames // 100)):
-            if any(ln.startswith("UNTIL met") for ln in self.do("until in:BATTLE_MENU 100 advance")):
-                return
-            if self.state().choose:
-                self.do(f"{who}press A; until in:BATTLE_MENU 300")
-                return
-        raise ScenarioError(f"expected a battle command menu within {frames} frames, saw {self.state().state}")
+        if not any(ln.startswith("UNTIL met") for ln in self.do(f"until command {frames} advance")):
+            raise ScenarioError(f"expected a battle command menu within {frames} frames, saw {self.state().state}")
+        if self.state().choose:
+            self.do(f"{who}press A; until in:BATTLE_MENU 300", met=True)
 
     def boot(self):
         """Boot the save's file 1 (Continue) until the Leader can walk."""

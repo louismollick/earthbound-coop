@@ -32,6 +32,10 @@
  *                      text          any window text was printed
  *                      said:WORD     printed text contained WORD
  *                      battle        an enemy was touched / a battle started
+ *                      choose        a co-op battle waits for a command menu
+ *                                    claim (PLAYERS ... | choose=P1,P2)
+ *                      command       a battle command menu is open
+ *                                    (BATTLE_MENU) or waits for a claim
  *   end | quit       stop playback and quit the game
  *
  * Players (co-op): a pad command (N BUTTONS, wait, press, until, hold,
@@ -69,6 +73,15 @@
  *                    the text CCs; 0 clears), or party_status if GROUP is 8.
  *                    In a battle, also sets the member's battler
  *   debug on|off     set ow.debug_flag (no debug menu, unlike aux F5)
+ *   goods            print each Hero's inventory (item ids): GOODS 1:a,b | 2:- ...
+ *   npc ID [SCRIPT]  create NPC ID (NPC_CONFIG_TABLE's sprite) at the Leader with
+ *                    event SCRIPT (default 44, a static NPC), as a text script's
+ *                    create_prepared_entity_npc: prints NPC id=ID slot=S (-1: no room)
+ *   find sprite|npc ID
+ *                    the entity a script's lookup by sprite / NPC id finds
+ *                    (find_entity_by_sprite_id / _npc_id): FIND sprite ID = SLOT
+ *   freeze on|off    disable / enable the Party's and the init entity's movement
+ *                    (DISABLE_CHARACTER_MOVEMENT 0xFF, a text script's set_player_lock)
  *   money N          set money on hand
  *   rng [A B]        print / set the game RNG state (rng_state.a/.b, the
  *                    asm's RAND_A/RAND_B), for seeding port vs emu runs
@@ -161,7 +174,7 @@ static int cmd_player;
 static uint16_t sticky_hold[PLATFORM_MAX_PLAYERS];
 
 /* Active 'until' command */
-enum { UC_IN, UC_OUT, UC_IDLE, UC_INPUT, UC_TEXT, UC_SAID, UC_BATTLE };
+enum { UC_IN, UC_OUT, UC_IDLE, UC_INPUT, UC_TEXT, UC_SAID, UC_BATTLE, UC_CHOOSE, UC_COMMAND };
 static bool until_active;
 static int until_kind;
 static int until_mode;
@@ -497,7 +510,9 @@ static const char *not_idle_reason(void) {
         return "interaction";
     if (ow.input_disable_frame_counter)
         return "input-disabled";
-    if (entities.tick_callback_hi[PARTY_LEADER_ENTITY_INDEX] & (OBJECT_TICK_DISABLED | OBJECT_MOVE_DISABLED))
+    /* The Leader's entity: slot 24 is Ness's, which isn't the Leader (and may
+     * hold a stale frozen entity) when Ness is out of the Party */
+    if (entities.tick_callback_hi[game_state.current_party_members] & (OBJECT_TICK_DISABLED | OBJECT_MOVE_DISABLED))
         return "leader-frozen";
     /* The leader moves by itself: an escalator ride, a stairs walk, a
      * camera_mode auto-move, or a replayed auto-movement (door/escalator
@@ -1062,6 +1077,8 @@ static bool until_met(void) {
     case UC_INPUT: return until_settled(waiting_for_input());
     case UC_TEXT: return until_said_len > 0;
     case UC_SAID: return strstr(until_said, until_word) != NULL;
+    case UC_CHOOSE: return until_settled(coop_battle_choosers() != 0);
+    case UC_COMMAND: return until_settled(mode_on_stack(GAME_MODE_BATTLE_MENU) || coop_battle_choosers() != 0);
     case UC_BATTLE:
         return ow.battle_mode || ow.battle_swirl_countdown || ow.enemy_has_been_touched ||
                mode_on_stack(GAME_MODE_BATTLE);
@@ -1143,6 +1160,10 @@ static bool start_until(const char *line) {
         until_kind = UC_TEXT;
     } else if (strcmp(cond, "battle") == 0) {
         until_kind = UC_BATTLE;
+    } else if (strcmp(cond, "choose") == 0) {
+        until_kind = UC_CHOOSE;
+    } else if (strcmp(cond, "command") == 0) {
+        until_kind = UC_COMMAND;
     } else {
         script_error("unknown until condition '%s'", cond);
         return false;
@@ -1327,6 +1348,50 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
                 printf(" (%s)", status_names[v2 - 1][v3]);
             printf("\n");
         }
+    } else if (strcmp(cmd, "goods") == 0) {
+        printf("GOODS");
+        for (int h = 0; h < COOP_HERO_COUNT; h++) {
+            const CharStruct *c = &party_characters[h];
+            printf("%s %d:", h ? " |" : "", h + 1);
+            bool any = false;
+            for (size_t i = 0; i < sizeof(c->items); i++) {
+                if (!c->items[i])
+                    continue;
+                printf("%s%u", any ? "," : "", c->items[i]);
+                any = true;
+            }
+            if (!any)
+                printf("-");
+        }
+        printf("\n");
+    } else if (strcmp(cmd, "npc") == 0) {
+        if (nv < 1 || v1 < 0) {
+            script_error("usage: npc ID [SCRIPT]%s", "");
+        } else {
+            ow.entity_prepared_x = (int16_t)game_state.leader_x_coord;
+            ow.entity_prepared_y = (int16_t)game_state.leader_y_coord;
+            ow.entity_prepared_direction = 4;
+            int16_t slot = create_prepared_entity_npc((uint16_t)v1, (uint16_t)(nv >= 2 ? v2 : 44));
+            printf("NPC id=%d slot=%d\n", v1, slot);
+        }
+    } else if (strcmp(cmd, "find") == 0) {
+        char kind[8] = "";
+        int id = -1;
+        if (sscanf(line, "%*s %7s %d", kind, &id) != 2 || id < 0 ||
+            (strcmp(kind, "sprite") != 0 && strcmp(kind, "npc") != 0)) {
+            script_error("usage: find sprite|npc ID%s", "");
+        } else {
+            int16_t e = strcmp(kind, "sprite") == 0 ? find_entity_by_sprite_id((uint16_t)id)
+                                                    : find_entity_by_npc_id((uint16_t)id);
+            printf("FIND %s %d = %d\n", kind, id, e);
+        }
+    } else if (strcmp(cmd, "freeze") == 0) {
+        if (strcmp(arg, "on") == 0)
+            disable_character_movement(0xFF);
+        else if (strcmp(arg, "off") == 0)
+            enable_character_movement(0xFF);
+        else
+            script_error("usage: freeze on|off%s", "");
     } else if (strcmp(cmd, "record") == 0) {
         /* Pause / resume --record-video/--record-audio (no-op otherwise) */
         if (strcmp(arg, "on") == 0)

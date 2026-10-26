@@ -79,13 +79,13 @@ typedef struct {
     uint16_t surface;              /* like game_state.trodden_tile_type */
     uint16_t walking_style;        /* normal, or ladder/rope while on one */
     int16_t entity;                /* its entity slot (0-21) while `spawned` */
-    uint8_t spawned;               /* 1: `entity` is this Player's Mr. Saturn */
-    uint8_t shown;                 /* 1: visible and walking; 0: hidden, parked next to the
-                                    * Leader when shown again */
+    uint8_t spawned;               /* 1: out and visible, `entity` is this Player's Mr. Saturn;
+                                    * 0: hidden (no entity), parked next to the Leader when it
+                                    * spawns again */
     uint8_t moved;                 /* it moved this frame */
     uint8_t anim;                  /* walking frames, for the 2-frame walk cycle */
     uint8_t retry;                 /* frames to wait before the next spawn attempt */
-    uint8_t unused;                /* explicit padding (savestates hash every byte) */
+    uint8_t unused[2];             /* explicit padding (savestates hash every byte) */
 } CoopCompanion;
 
 typedef struct {
