@@ -157,6 +157,11 @@ class Session:
             args += ["--players", str(players)]
         self.timeout = timeout
         self.seq = 0
+        self.players_arg = players
+        self.start_save = (self.dir / "save.srm").read_bytes()
+        # Every command batch sent with do(), in order (sync markers left out): with
+        # start_save and players_arg it replays this session (continuity.py)
+        self.history = []
         self.log = (self.dir / "log.txt").open("w")
         self.stderr = (self.dir / "stderr.txt").open("w")
         self.proc = subprocess.Popen(  # noqa: S603
@@ -181,10 +186,15 @@ class Session:
             self.lines.put(ln.rstrip("\n"))
         self.lines.put(None)
 
-    def do(self, cmds, timeout=None):
-        """Send ``;``/newline-separated commands; return the lines printed until they finish."""
+    def do(self, cmds, timeout=None, strict=True):
+        """Send ``;``/newline-separated commands; return the lines printed until they finish.
+
+        ``strict``: raise on an ``ERR`` line (else it is returned with the rest).
+        """
         self.seq += 1
-        body = split_commands(cmds) + [f"sync {self.seq}"]
+        cmd_list = split_commands(cmds)
+        self.history.append(cmd_list)
+        body = cmd_list + [f"sync {self.seq}"]
         os.write(self.fifo, ("\n".join(body) + "\n").encode())
         marker = f"SYNC {self.seq} "
         out = []
@@ -198,7 +208,7 @@ class Session:
                 raise ScenarioError(f"game exited during {cmds!r} (rc={self.proc.poll()}, last lines: {out[-5:]})")
             if ln.startswith(marker):
                 return out
-            if ln.startswith("ERR"):
+            if strict and ln.startswith("ERR"):
                 raise ScenarioError(f"script error during {cmds!r}: {ln}")
             out.append(ln)
 
