@@ -4,6 +4,7 @@
 #include "coop/coop_input.h"
 
 #include "coop/coop.h"
+#include "coop/coop_battle.h"
 #include "coop/coop_companion.h"
 #include "coop/coop_look.h"
 #include "coop/coop_walk.h"
@@ -107,15 +108,11 @@ static int decide_focus(const uint16_t pressed[PLATFORM_MAX_PLAYERS]) {
         return 0;
     }
     if (in_battle()) {
-        if (!coop.focus_in_battle) {
-            /* Battle entry: the lock ends, everyone may act until battle code
-             * (M2) moves the focus to a Hero's Owner */
-            coop.focus_in_battle = 1;
-            coop.focus_locked = 0;
-            coop.focus_request = COOP_FOCUS_ALL;
-        }
-        int f = coop.focus_request;
-        return f < PLATFORM_MAX_PLAYERS && coop_player_joined(f) ? f : COOP_FOCUS_ALL;
+        /* Battle entry ends the lock; from then on the battle routine's
+         * own state says whose pad it is */
+        coop.focus_in_battle = 1;
+        coop.focus_locked = 0;
+        return coop_battle_focus();
     }
     coop.focus_in_battle = 0;
     if (!overworld_play()) {
@@ -151,16 +148,16 @@ uint16_t coop_input_feed(uint16_t p1_pad, bool unwinding) {
         coop.focus = (uint8_t)want;
     }
     coop.focus_new = focused(pressed, want);
+    if (coop.focus_in_battle) {
+        coop_battle_note_claims(pressed, want);  /* A queues for the next command menu */
+        coop_battle_retitle();  /* the open command menu's tag names its Player */
+    }
     uint16_t pad = focused(held, want);
     if (remap) {
         coop.focus_new = a_as_l(coop.focus_new);
         pad = a_as_l(pad);
     }
     return pad;
-}
-
-void coop_set_focus(int focus) {
-    coop.focus_request = (uint8_t)(focus >= 0 && focus < PLATFORM_MAX_PLAYERS ? focus : COOP_FOCUS_ALL);
 }
 
 int coop_focus(void) {

@@ -200,7 +200,7 @@ _Static_assert(sizeof(g_mode_stack)         == 3964,  "ABI: g_mode_stack");
 _Static_assert(sizeof(overworld_spritemaps) == 900,   "ABI: overworld_spritemaps");
 _Static_assert(sizeof(loaded_bg_data_layer1)== 124,   "ABI: loaded_bg_data_layer1");
 _Static_assert(sizeof(text_render_state)    == 6,     "ABI: text_render_state");
-_Static_assert(sizeof(coop)                 == 8482,   "ABI: coop");
+_Static_assert(sizeof(coop)                 == 8492,   "ABI: coop");
 #ifdef EB_ENABLE_AUDIO
 _Static_assert(sizeof(audio_state)          == 6,     "ABI: audio_state");
 #endif

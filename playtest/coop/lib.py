@@ -134,6 +134,12 @@ class State:
         m = re.search(r"\| focus=(\S+( locked)?)", self.players_line)
         return m.group(1) if m else None
 
+    @property
+    def choose(self):
+        """PLAYERS ``| choose=P1,P2``: the Players a battle is waiting on to claim a command menu ([] if none)."""
+        m = re.search(r"\| choose=(\S+)", self.players_line)
+        return [int(p[1:]) for p in m.group(1).split(",")] if m else []
+
     def hp(self, member):
         """Party member ``member``'s (1-4) current HP from the PARTY line, or None."""
         m = re.search(rf"(?:^PARTY|\|) {member}:\S+ L\d+ HP (\d+)/", self.party)
@@ -221,6 +227,11 @@ class Session:
             args += ["--players", str(players)]
         self.timeout = timeout
         self.seq = 0
+        self.players_arg = players
+        self.start_save = (self.dir / "save.srm").read_bytes()
+        # Every command batch sent with do(), in order (sync markers left out): with
+        # start_save and players_arg it replays this session (continuity.py)
+        self.history = []
         self.log = (self.dir / "log.txt").open("w")
         self.stderr = (self.dir / "stderr.txt").open("w")
         self.proc = subprocess.Popen(  # noqa: S603
@@ -245,10 +256,15 @@ class Session:
             self.lines.put(ln.rstrip("\n"))
         self.lines.put(None)
 
-    def do(self, cmds, timeout=None):
-        """Send ``;``/newline-separated commands; return the lines printed until they finish."""
+    def do(self, cmds, timeout=None, strict=True):
+        """Send ``;``/newline-separated commands; return the lines printed until they finish.
+
+        ``strict``: raise on an ``ERR`` line (else it is returned with the rest).
+        """
         self.seq += 1
-        body = split_commands(cmds) + [f"sync {self.seq}"]
+        cmd_list = split_commands(cmds)
+        self.history.append(cmd_list)
+        body = cmd_list + [f"sync {self.seq}"]
         os.write(self.fifo, ("\n".join(body) + "\n").encode())
         marker = f"SYNC {self.seq} "
         out = []
@@ -262,7 +278,7 @@ class Session:
                 raise ScenarioError(f"game exited during {cmds!r} (rc={self.proc.poll()}, last lines: {out[-5:]})")
             if ln.startswith(marker):
                 return out
-            if ln.startswith("ERR"):
+            if strict and ln.startswith("ERR"):
                 raise ScenarioError(f"script error during {cmds!r}: {ln}")
             out.append(ln)
 
@@ -316,6 +332,21 @@ class Session:
             if m:
                 return m.group(1)
         return None
+
+    def command_menu(self, frames=900, claimer=1):
+        """Advance text until a battle's command menu is up (the BATTLE_MENU mode).
+
+        In a co-op battle the turn's menus wait to be claimed (``choose=`` on the PLAYERS line): then P``claimer``
+        presses A for one.
+        """
+        who = f"P{claimer} " if claimer > 1 else ""
+        for _ in range(max(1, frames // 100)):
+            if any(ln.startswith("UNTIL met") for ln in self.do("until in:BATTLE_MENU 100 advance")):
+                return
+            if self.state().choose:
+                self.do(f"{who}press A; until in:BATTLE_MENU 300")
+                return
+        raise ScenarioError(f"expected a battle command menu within {frames} frames, saw {self.state().state}")
 
     def boot(self):
         """Boot the save's file 1 (Continue) until the Leader can walk."""

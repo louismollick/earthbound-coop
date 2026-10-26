@@ -101,6 +101,7 @@
 #include "core/memory.h"
 #include "core/mode_stack.h"
 #include "coop/coop.h"
+#include "coop/coop_battle.h"
 #include "coop/coop_companion.h"
 #include "game/audio.h"
 #include "coop/coop_walk.h"
@@ -522,7 +523,7 @@ static bool text_prompt_waiting(void) {
 }
 
 static bool waiting_for_input(void) {
-    if (player_idle() || text_prompt_waiting())
+    if (player_idle() || text_prompt_waiting() || coop_battle_choosers())
         return true;
     switch (top_mode()) {
     case GAME_MODE_SELECTION_MENU:
@@ -594,12 +595,13 @@ static void print_surface(uint16_t sf) {
     printf(")");
 }
 
-/* PLAYERS P1:joined owns=Ness,Jeff walker=Ness pos=(X,Y) dir=UP walk=0 | P2:joined owns=- walker=- spectator | P3:- | P4:- | focus=P1
+/* PLAYERS P1:joined owns=Ness,Jeff walker=Ness pos=(X,Y) dir=UP walk=0 | P2:joined owns=- walker=- spectator | P3:- | P4:- | focus=P1 [| choose=P1,P2]
  * owns = the Player's Heroes present in the Party (Party order); walker = coop_walker_info(), a Guest's
  * battler name plus " standin" for a Stand-in (P2:joined owns=- walker=Bubble Monkey standin pos=...),
  * or "Mr. Saturn companion" plus its pos=... or " hidden" for a Companion
  * (pos/dir/walk: the Leader's globals, an independent Walker's state, else its entity);
- * focus = the input focus, P1-P4 (" locked": holding the overworld lock) or ALL */
+ * focus = the input focus, P1-P4 (" locked": holding the overworld lock) or ALL;
+ * choose = the Players a battle waits on to claim a command menu, if it does */
 static void print_players(void) {
     printf("PLAYERS");
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
@@ -649,9 +651,15 @@ static void print_players(void) {
     /* The input focus (coop/coop_input.h): whose pad feeds the game */
     int f = coop_focus();
     if (f < PLATFORM_MAX_PLAYERS)
-        printf(" | focus=P%d%s\n", f + 1, coop_focus_locked() ? " locked" : "");
+        printf(" | focus=P%d%s", f + 1, coop_focus_locked() ? " locked" : "");
     else
-        printf(" | focus=ALL\n");
+        printf(" | focus=ALL");
+    /* A battle waiting for a command menu claim (coop/coop_battle.h): who may claim */
+    uint8_t choosers = coop_battle_choosers();
+    for (int p = 0, n = 0; p < PLATFORM_MAX_PLAYERS; p++)
+        if (choosers & (1u << p))
+            printf("%sP%d", n++ ? "," : " | choose=", p + 1);
+    printf("\n");
 }
 
 /* Netplay prints the PLAYERS line at every hash point (net/session.c). */

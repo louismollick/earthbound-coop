@@ -38,6 +38,17 @@ file(GLOB_RECURSE NET_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/net
 add_executable(earthbound main.c ${PLATFORM_SOURCES} ${NET_SOURCES})
 target_include_directories(earthbound PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
+# The game revision for the netplay compatibility check (net/build_id.cmake),
+# refreshed on every build.
+set(NET_BUILD_ID_DIR "${CMAKE_CURRENT_BINARY_DIR}/net_generated")
+add_custom_target(net_build_id
+    COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_CURRENT_SOURCE_DIR}/../..
+        -DOUT=${NET_BUILD_ID_DIR}/net_build_id.h -P ${CMAKE_CURRENT_SOURCE_DIR}/net/build_id.cmake
+    BYPRODUCTS ${NET_BUILD_ID_DIR}/net_build_id.h
+    COMMENT "Netplay build id")
+add_dependencies(earthbound net_build_id)
+target_include_directories(earthbound PRIVATE ${NET_BUILD_ID_DIR})
+
 target_link_libraries(earthbound earthbound_game)
 
 if(TARGET SDL2::SDL2)

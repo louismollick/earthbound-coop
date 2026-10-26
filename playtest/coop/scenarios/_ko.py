@@ -13,7 +13,8 @@ def battle_ko(ctx, member, players=2):
     s.do(BATTLE)
     st = s.state()
     expect("BATTLE" in st.state, "a desert battle", st.state)
-    s.do(f"status {member} 1 1; debug on; press SELECT+START; until idle 3000 advance")
+    # P1 claims a command menu (M7: menus are claimed), whose debug SELECT+START wins
+    s.do(f"status {member} 1 1; press A; until input 300; debug on; press SELECT+START; until idle 3000 advance")
     st = s.state()
     expect(st.idle == "yes" and "BATTLE" not in st.state, "back on the overworld", st.state)
     expect(f"{member}:" in st.party and "unconscious" in st.party, f"member {member} unconscious", st.party)
