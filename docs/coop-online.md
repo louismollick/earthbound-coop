@@ -54,6 +54,7 @@ IPv4 only.
 ## Disconnects
 
 - **A Player's connection drops:** everyone freezes. After 10 seconds without packets, the Host removes that Player and the game continues. To come back, they start the game again with `--join`. That is a fresh join, and they usually get the same Player number back.
+- **A Player restarts their game while still connected** (a crash, or a quit the Host never heard about): the Host never lets a new connection replace an open one. If the restarted game reaches the Host from the same address and port as before (for example through the same NAT mapping), it prints `waiting for it to time out` and waits up to 10 seconds, until the Host drops the old connection. Then it joins as usual.
 - **A Player quits normally:** they leave immediately.
 - **The Host quits or disappears:** every client stops with `the Host ended the Session` or `lost the connection to the Host`.
 
@@ -76,18 +77,26 @@ A desync is a bug, usually game state that lives outside the savestate. Please s
 
 ## Limitations
 
-- Every machine needs the same build at the same viewport size (`EB_VIEWPORT_WIDTH`/`HEIGHT`) and the same ROM. A mismatched build is turned away when it connects.
+- Every machine needs a compatible build. When a client connects, it sends a fingerprint of its build, and the Host turns away any difference with a message that names it, for example `viewport: Host 320x240, this machine 256x224`. The fingerprint covers:
+  - the viewport size (`EB_VIEWPORT_WIDTH`/`HEIGHT`);
+  - the build options that change game logic: audio, ROM verification, the battle letterbox and B-opens-menu (the smooth camera and frame skip don't matter);
+  - the game revision: the git commit, plus a hash of any local changes under `src/`, `port/unix/` and `cmake/` (shown as `+dirty.<hash>`);
+  - the game data: a hash of every embedded asset, so the ROM and any edited assets must match;
+  - the savestate layout.
+
+  The same commit built on macOS and on Windows is compatible.
 - Only the Host's save file is used. Clients keep a temporary save for the Session, so their own `earthbound.srm` is never touched. `--save` is ignored when joining.
 - F5 (debug), F6/F7 (savestates) and Tab (fast-forward) are disabled in a Session. F1 to F3 still work.
 - There is no rollback, so the input delay is always felt.
 - When someone joins, the Host's music restarts on the joining machine from the start of the track. Audio isn't part of the game state.
+- A Session can't run past 2^32 frames (about 829 days at 60 fps without a break). The net frame counter would wrap.
 
 ## Testing
 
-`playtest/net/` has a UDP proxy that adds latency, jitter, loss and reordering (`proxy.py`), and a launcher that runs a Host and clients as headless processes on localhost (`netrun.py`). The `net_*` scenarios in `playtest/coop/scenarios/` run under `playtest/coop/run_all.py`. `NET_LONG=1` turns `net_soak` into the 30-game-minute soak. Test-only switches:
+`playtest/net/` has a UDP proxy that adds latency, jitter, loss and reordering (`proxy.py`), and a launcher that runs a Host and clients as headless processes on localhost (`netrun.py`). The proxy can also record a link's traffic and replay or spoof datagrams from the client's endpoint, for protocol tests (`net_rejoin`, `net_spoof_hello`). `netrun.py` run by hand exits non-zero unless every machine reached the end and they agreed on the hash points. The `net_*` scenarios in `playtest/coop/scenarios/` run under `playtest/coop/run_all.py`. `NET_LONG=1` turns `net_soak` into the 30-game-minute soak. Test-only switches:
 
 - `--net-end-frame N`: every machine quits after frame N.
-- `--net-wait-players N`: the Host holds the game until N Players are in.
+- `--net-wait-players N`: the Host holds the game while fewer than N Players are in, after a leave too.
 - `EB_NET_TEST_DESYNC=F`: perturb this machine's RNG at frame F.
 - `EB_NET_SHOT_FRAMES=F,...`: take screenshots at these frames.
 - `EB_NET_HASH_INTERVAL=1`: hash every frame, to find the first frame that differs.

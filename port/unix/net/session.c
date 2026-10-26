@@ -35,7 +35,20 @@
  * its own and, on a mismatch, stops the Session: every machine writes
  * desync-<frame>-P<n>.state/.txt and exits with status 3.
  *
- * Wire format: little-endian; every datagram starts 'E' 'N' version type.
+ * Connections. A client picks a random nonce for each process; it is the
+ * connection's epoch and travels in the header of every datagram, both ways. Each
+ * side ignores datagrams with another epoch, so a delayed packet of an earlier
+ * connection from the same endpoint (a restarted client behind the same NAT
+ * mapping) can't touch the current one. A HELLO never replaces an open connection:
+ * a restarted client at the same endpoint is told to wait (REJECT busy) until the
+ * old connection is gone, by its BYE or by 10 s of silence.
+ *
+ * Compatibility. HELLO carries this build's fingerprint (savestate layout,
+ * viewport, simulation build options, game revision, a hash of the game data); the
+ * Host turns away any difference and names it.
+ *
+ * Wire format: little-endian; every datagram starts 'E' 'N' version type, then the
+ * u32 connection nonce.
  */
 #include "net/net.h"
 #include "net/udp.h"
@@ -49,8 +62,11 @@
 #include "coop/coop.h"
 #include "core/math.h"
 #include "core/state_dump.h"
+#include "embedded_assets.h"
 #include "game/audio.h"
+#include "game/battle.h"
 #include "game_main.h"
+#include "net_build_id.h"
 
 /* sdl2_savestate.c: memory-backed slots */
 void savestate_mem_enable(bool on);
@@ -60,12 +76,12 @@ bool savestate_mem_put(int slot, const void *data, size_t len);
 /* sdl2_save.c */
 void platform_save_set_path(const char *path);
 
-#define PROTO_VERSION     1
+#define PROTO_VERSION     2
 #define RING              512u    /* frames of pad / confirmed-set history (power of 2) */
 #define MAX_DELAY         60
 #define HASH_INTERVAL     hash_interval
 #define TIMEOUT_MS        10000u  /* silence before a Player is dropped / the Host is given up on */
-#define CONNECT_MS        10000u
+#define CONNECT_MS        (TIMEOUT_MS + 5000u) /* a restarted client may wait out its old connection */
 #define JOIN_TIMEOUT_MS   30000u  /* capture-to-loaded budget for one join */
 #define RESEND_MS         10u
 #define KEEPALIVE_MS      100u
@@ -87,20 +103,23 @@ void platform_save_set_path(const char *path);
  * machine must use the same value). */
 static uint32_t hash_interval = 60;
 
+/* Payloads, after the header (whose nonce is the client's connection epoch) */
 enum {
-    MSG_HELLO = 1,  /* C->H  u32 nonce, u32 layout id, u8 local Players */
-    MSG_WELCOME,    /* H->C  u32 nonce, u8 n, n x u8 Player, u8 input delay */
-    MSG_REJECT,     /* H->C  u32 nonce, u8 reason (STOP_*) */
+    MSG_HELLO = 1,  /* C->H  fingerprint, u8 local Players */
+    MSG_WELCOME,    /* H->C  u8 n, n x u8 Player, u8 input delay */
+    MSG_REJECT,     /* H->C  u8 reason (STOP_*); STOP_BUILD: the Host's fingerprint */
     MSG_INPUT,      /* C->H  u8 first Player, u32 ack, u32 first, u8 n, u8 k, n x k x u16 pad, report */
     MSG_FRAMES,     /* H->C  u32 first, u8 n, n x (4 x u16 pad, u8 event, u8 Player mask) */
-    MSG_CHUNK,      /* H->C  u32 nonce, u32 total, u16 index, u16 count, u16 len, bytes */
-    MSG_CHUNK_ACK,  /* C->H  u32 nonce, u16 count, ceil(count/8) bitmap bytes */
+    MSG_CHUNK,      /* H->C  u32 total, u16 index, u16 count, u16 len, bytes */
+    MSG_CHUNK_ACK,  /* C->H  u16 count, ceil(count/8) bitmap bytes */
     MSG_STOP,       /* H->C  u8 reason, u32 frame, u8 Player, u8 n, n x u8 section index */
     MSG_BYE,        /* both  leaving */
 };
-/* report = u8 present, then u32 frame, u8 n, n x u32 section hash */
+/* report = u8 present, then u32 frame, u8 n, n x u32 section hash
+ * fingerprint = u32 layout, u16 width, u16 height, u32 options, u32 assets, u8 n, n x revision char */
 
-enum { STOP_DESYNC = 1, STOP_KICKED, STOP_FULL, STOP_BUILD };
+/* STOP_BUSY (REJECT only): this endpoint still has an open connection; retry */
+enum { STOP_DESYNC = 1, STOP_KICKED, STOP_FULL, STOP_BUILD, STOP_BUSY };
 enum { EV_NONE = 0, EV_CAPTURE, EV_JOIN, EV_LEAVE, EV_END };
 
 typedef struct {
@@ -139,13 +158,16 @@ static void putn(Pkt *p, const void *d, size_t n) {
         p->n += n;
     }
 }
-static void pkt_begin(Pkt *p, int type) {
+/* `nonce`: the epoch of the connection the datagram belongs to */
+static void pkt_begin(Pkt *p, int type, uint32_t nonce) {
     p->n = 0;
     put8(p, 'E');
     put8(p, 'N');
     put8(p, PROTO_VERSION);
     put8(p, (uint32_t)type);
+    put32(p, nonce);
 }
+#define HEADER_BYTES 8
 
 typedef struct {
     const uint8_t *b;
@@ -191,6 +213,117 @@ static bool get_report(Rd *r, HashReport *rep) {
     return r->ok;
 }
 
+/* ---- Compatibility fingerprint ---- */
+
+/* Everything that must match for two builds to run the same simulation. Nothing
+ * compiler- or OS-specific goes in, so one commit built on macOS and on Windows
+ * agrees. */
+typedef struct {
+    uint32_t layout;      /* savestate layout id (state_layout.h) */
+    uint16_t width, height; /* EB_VIEWPORT_WIDTH x HEIGHT: changes the PPU state, which is hashed */
+    uint32_t options;     /* FP_OPT_*: compile-time options that change the game state */
+    uint32_t assets;      /* FNV-1a over every embedded asset (size + bytes), in registry order */
+    char revision[64];    /* NET_GAME_REVISION: git commit, "+dirty.<hash>" with local changes */
+} Fingerprint;
+
+/* The smooth camera, frame skip and the PPU render options are presentation only:
+ * they never touch the serialized state. */
+enum { FP_OPT_AUDIO = 1, FP_OPT_VERIFY = 2, FP_OPT_LETTERBOX = 4, FP_OPT_B_MENU = 8 };
+
+static Fingerprint my_fp;
+
+static uint32_t asset_hash(void) {
+    uint32_t h = 2166136261u;
+    for (int i = 0; i < ASSET_COUNT; i++) {
+        const AssetEntry *e = &embedded_assets[i];
+        uint32_t size = e->size_ptr ? *e->size_ptr : 0;
+        for (int k = 0; k < 4; k++)
+            h = (h ^ ((size >> (8 * k)) & 0xFF)) * 16777619u;
+        for (uint32_t b = 0; e->data && b < size; b++)
+            h = (h ^ e->data[b]) * 16777619u;
+    }
+    return h;
+}
+
+static void fingerprint_init(void) {
+    my_fp.layout = state_dump_layout_id();
+    my_fp.width = EB_VIEWPORT_WIDTH;
+    my_fp.height = EB_VIEWPORT_HEIGHT;
+    my_fp.options = 0;
+#ifdef EB_ENABLE_AUDIO
+    my_fp.options |= FP_OPT_AUDIO;
+#endif
+#ifdef EB_ENABLE_VERIFY
+    my_fp.options |= FP_OPT_VERIFY;
+#endif
+#if EB_BATTLE_LETTERBOX
+    my_fp.options |= FP_OPT_LETTERBOX;
+#endif
+#ifdef EB_B_OPENS_MAIN_MENU
+    my_fp.options |= FP_OPT_B_MENU;
+#endif
+    my_fp.assets = asset_hash();
+    snprintf(my_fp.revision, sizeof my_fp.revision, "%s", NET_GAME_REVISION);
+}
+
+static void put_fp(Pkt *p, const Fingerprint *f) {
+    put32(p, f->layout);
+    put16(p, f->width);
+    put16(p, f->height);
+    put32(p, f->options);
+    put32(p, f->assets);
+    size_t len = strlen(f->revision);
+    put8(p, (uint32_t)len);
+    putn(p, f->revision, len);
+}
+
+static void get_fp(Rd *r, Fingerprint *f) {
+    memset(f, 0, sizeof *f);
+    f->layout = get32(r);
+    f->width = (uint16_t)get16(r);
+    f->height = (uint16_t)get16(r);
+    f->options = get32(r);
+    f->assets = get32(r);
+    uint32_t len = get8(r);
+    for (uint32_t i = 0; i < len; i++) {
+        uint32_t c = get8(r);
+        if (i < sizeof f->revision - 1)
+            f->revision[i] = c >= 0x20 && c < 0x7F ? (char)c : '?';
+    }
+}
+
+static const char *options_str(uint32_t o, char *buf, size_t cap) {
+    snprintf(buf, cap, "%s%s%s%s", o & FP_OPT_AUDIO ? "+audio" : "-audio", o & FP_OPT_VERIFY ? " +verify" : "",
+             o & FP_OPT_LETTERBOX ? " +letterbox" : " -letterbox", o & FP_OPT_B_MENU ? " +b-opens-menu" : "");
+    return buf;
+}
+
+/* "" if the Host's and the client's fingerprints match, else what differs:
+ * "viewport: Host 320x240, <them> 256x224; ..." (`them`: "client" or "this machine"). */
+static const char *fp_diff(const Fingerprint *host, const Fingerprint *client, const char *them) {
+    static char s[512];
+    char a[64], b[64];
+    s[0] = '\0';
+#define FP_ADD(...) snprintf(s + strlen(s), sizeof s - strlen(s), __VA_ARGS__)
+    if (host->width != client->width || host->height != client->height)
+        FP_ADD("%sviewport: Host %ux%u, %s %ux%u", *s ? "; " : "", (unsigned)host->width, (unsigned)host->height,
+               them, (unsigned)client->width, (unsigned)client->height);
+    if (strcmp(host->revision, client->revision) != 0)
+        FP_ADD("%sgame revision: Host %s, %s %s", *s ? "; " : "", *host->revision ? host->revision : "?", them,
+               *client->revision ? client->revision : "?");
+    if (host->options != client->options)
+        FP_ADD("%sbuild options: Host %s, %s %s", *s ? "; " : "", options_str(host->options, a, sizeof a), them,
+               options_str(client->options, b, sizeof b));
+    if (host->assets != client->assets)
+        FP_ADD("%sgame data: Host %08x, %s %08x (different ROM or edited assets)", *s ? "; " : "",
+               (unsigned)host->assets, them, (unsigned)client->assets);
+    if (host->layout != client->layout)
+        FP_ADD("%ssavestate layout: Host %08x, %s %08x", *s ? "; " : "", (unsigned)host->layout, them,
+               (unsigned)client->layout);
+#undef FP_ADD
+    return s;
+}
+
 /* ---- State ---- */
 
 /* One remote machine (Host side). */
@@ -200,7 +333,8 @@ typedef struct {
     uint8_t nplayers;
     uint8_t player[PLATFORM_MAX_PLAYERS]; /* its Players, in local pad order */
     UdpAddr addr;
-    uint32_t nonce;
+    uint32_t nonce;        /* its connection epoch */
+    uint32_t busy_nonce;   /* last HELLO told to wait for this connection to go (logged once) */
     uint64_t last_recv, last_send;
     uint32_t ack;          /* the client holds the confirmed sets of frames < ack */
     uint32_t sent_end;     /* set_end when FRAMES were last sent to it */
@@ -227,7 +361,7 @@ static struct {
     uint32_t frame;               /* next net frame to run */
     uint32_t end_frame;           /* Host: EV_END on this frame (0 = never) */
     bool end_emitted;
-    int wait_players;             /* Host: hold the game until this many Players are in (0 = don't) */
+    int wait_players;             /* Host: hold the game while fewer Players are in (0 = don't) */
     FrameSet set[RING];
     uint32_t set_tag[RING];       /* client: frame + 1 held in set[] */
     uint32_t set_end;             /* confirmed sets are known for frames < set_end */
@@ -288,10 +422,10 @@ static void send_pkt(const UdpAddr *to, const Pkt *p) {
     udp_send(n.fd, to, p->b, p->n);
 }
 
-static void send_bye(const UdpAddr *to) {
+/* `nonce`: the epoch of the connection that ends */
+static void send_bye(const UdpAddr *to, uint32_t nonce) {
     Pkt p;
-    pkt_begin(&p, MSG_BYE);
-    put8(&p, (uint32_t)n.me);
+    pkt_begin(&p, MSG_BYE, nonce);
     send_pkt(to, &p);
 }
 
@@ -493,9 +627,10 @@ static uint8_t peer_mask(int s) {
     return m;
 }
 
+/* The machine whose connection holds endpoint `a` (joining, in or leaving), or -1. */
 static int peer_by_addr(const UdpAddr *a) {
     for (int s = 1; s <= MAX_PEERS; s++)
-        if (peer_active(s) && udp_addr_equal(&n.peer[s].addr, a))
+        if (n.peer[s].state != P_FREE && udp_addr_equal(&n.peer[s].addr, a))
             return s;
     return -1;
 }
@@ -583,17 +718,19 @@ static void host_pick_event(uint32_t g, FrameSet *fs) {
     }
 }
 
-/* --net-wait-players: until enough Players are in, only frames that move a join
- * along (EV_CAPTURE / EV_JOIN) are confirmed, so the game waits on that frame. */
+/* --net-wait-players (tests): while fewer Players are in, only frames that move a
+ * join or a leave along (EV_CAPTURE / EV_JOIN / EV_LEAVE) are confirmed, so the
+ * game waits on that frame. It holds again after a leave, until the rejoin. */
 static bool host_waiting_ok(uint32_t g) {
     int in = n.nlocal;
-    for (int s = 1; s <= MAX_PEERS; s++)
+    for (int s = 1; s <= MAX_PEERS; s++) {
         if (n.peer[s].state == P_IN)
             in += n.peer[s].nplayers;
-    if (in >= n.wait_players) {
-        n.wait_players = 0;
-        return true;
+        if (n.peer[s].state == P_LEAVING)
+            return true;
     }
+    if (in >= n.wait_players)
+        return true;
     if (join.phase == J_READY)
         return true;
     if (join.phase != J_NONE)
@@ -649,7 +786,7 @@ static void host_send_frames(int s, uint64_t t) {
     if (cnt > MAX_SEND_FRAMES)
         cnt = MAX_SEND_FRAMES;
     Pkt pk;
-    pkt_begin(&pk, MSG_FRAMES);
+    pkt_begin(&pk, MSG_FRAMES, pe->nonce);
     put32(&pk, first);
     put8(&pk, cnt);
     for (uint32_t g = first; g < first + cnt; g++) {
@@ -678,23 +815,29 @@ static void host_broadcast(uint64_t t) {
     }
 }
 
-static void host_send_stop(int reason, uint32_t frame, int player, const bool *differs) {
-    Pkt pk;
-    pkt_begin(&pk, MSG_STOP);
-    put8(&pk, (uint32_t)reason);
-    put32(&pk, frame);
-    put8(&pk, (uint32_t)player);
+static void build_stop(Pkt *pk, uint32_t nonce, int reason, uint32_t frame, int player, const bool *differs) {
+    pkt_begin(pk, MSG_STOP, nonce);
+    put8(pk, (uint32_t)reason);
+    put32(pk, frame);
+    put8(pk, (uint32_t)player);
     uint8_t cnt = 0;
     uint8_t idx[MAX_SECTIONS];
     for (int i = 0; differs && i < sec_count; i++)
         if (differs[i])
             idx[cnt++] = (uint8_t)i;
-    put8(&pk, cnt);
-    putn(&pk, idx, cnt);
+    put8(pk, cnt);
+    putn(pk, idx, cnt);
+}
+
+static void host_send_stop(int reason, uint32_t frame, int player, const bool *differs) {
     for (int rep = 0; rep < 5; rep++) {
-        for (int s = 1; s <= MAX_PEERS; s++)
-            if (peer_active(s))
-                send_pkt(&n.peer[s].addr, &pk);
+        for (int s = 1; s <= MAX_PEERS; s++) {
+            if (!peer_active(s))
+                continue;
+            Pkt pk;
+            build_stop(&pk, n.peer[s].nonce, reason, frame, player, differs);
+            send_pkt(&n.peer[s].addr, &pk);
+        }
         udp_sleep(20);
     }
 }
@@ -742,8 +885,7 @@ static void host_send_chunks(uint64_t t) {
         uint32_t off = (uint32_t)i * CHUNK_BYTES;
         uint32_t len = join.len - off < CHUNK_BYTES ? join.len - off : CHUNK_BYTES;
         Pkt pk;
-        pkt_begin(&pk, MSG_CHUNK);
-        put32(&pk, join.nonce);
+        pkt_begin(&pk, MSG_CHUNK, join.nonce);
         put32(&pk, join.len);
         put16(&pk, i);
         put16(&pk, join.chunks);
@@ -757,8 +899,7 @@ static void host_send_chunks(uint64_t t) {
 
 static void host_send_welcome(int s, const UdpAddr *to) {
     Pkt pk;
-    pkt_begin(&pk, MSG_WELCOME);
-    put32(&pk, n.peer[s].nonce);
+    pkt_begin(&pk, MSG_WELCOME, n.peer[s].nonce);
     put8(&pk, n.peer[s].nplayers);
     for (int k = 0; k < n.peer[s].nplayers; k++)
         put8(&pk, n.peer[s].player[k]);
@@ -766,67 +907,87 @@ static void host_send_welcome(int s, const UdpAddr *to) {
     send_pkt(to, &pk);
 }
 
-static void host_handle(const UdpAddr *from, int type, Rd *r, uint64_t t) {
+static void host_reject(const UdpAddr *to, uint32_t nonce, int reason) {
+    Pkt pk;
+    pkt_begin(&pk, MSG_REJECT, nonce);
+    put8(&pk, (uint32_t)reason);
+    if (reason == STOP_BUILD)
+        put_fp(&pk, &my_fp);
+    send_pkt(to, &pk);
+}
+
+/* A HELLO: admit a new machine, or repeat a lost WELCOME. It never touches an
+ * open connection: everything is validated first, and a new process at the same
+ * endpoint waits (STOP_BUSY) until the old connection's BYE or silence drop. */
+static void host_hello(const UdpAddr *from, uint32_t nonce, Rd *r, uint64_t t) {
+    Fingerprint fp;
+    get_fp(r, &fp);
+    uint32_t want = get8(r);
+    if (!r->ok)
+        return;
     int s = peer_by_addr(from);
-    switch (type) {
-    case MSG_HELLO: {
-        uint32_t nonce = get32(r), layout = get32(r), want = get8(r);
-        if (!r->ok)
-            return;
-        if (s > 0 && n.peer[s].nonce != nonce) {
-            host_drop(s, "restarted"); /* same address, new process: the old one is gone */
-            s = -1;
-        }
-        if (s > 0) { /* our WELCOME was lost: repeat it */
+    if (s > 0 && n.peer[s].nonce == nonce) {
+        if (peer_active(s)) { /* our WELCOME was lost: repeat it */
             n.peer[s].last_recv = t;
             host_send_welcome(s, from);
-            return;
         }
-        int reason = 0;
-        uint8_t avail = free_players();
-        int nfree = 0;
-        for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
-            nfree += (avail >> p) & 1;
-        if (layout != state_dump_layout_id()) {
-            reason = STOP_BUILD;
-        } else {
-            for (s = 1; s <= MAX_PEERS && n.peer[s].state != P_FREE; s++) {
-            }
-            if (s > MAX_PEERS || want < 1 || (int)want > nfree)
-                reason = STOP_FULL;
-        }
-        if (reason) {
-            Pkt pk;
-            pkt_begin(&pk, MSG_REJECT);
-            put32(&pk, nonce);
-            put8(&pk, (uint32_t)reason);
-            send_pkt(from, &pk);
-            return;
-        }
-        Peer *pe = &n.peer[s];
-        memset(pe, 0, sizeof *pe);
-        pe->state = P_JOINING;
-        pe->addr = *from;
-        pe->nonce = nonce;
-        pe->last_recv = t;
-        pe->checked = UINT32_MAX;
-        for (int p = 0; p < PLATFORM_MAX_PLAYERS && pe->nplayers < want; p++)
-            if ((avail >> p) & 1)
-                pe->player[pe->nplayers++] = (uint8_t)p;
-        say("HELLO P%d+%d from %s", peer_pnum(s), pe->nplayers - 1, udp_addr_str(from));
-        host_send_welcome(s, from);
         return;
     }
+    const char *diff = fp_diff(&my_fp, &fp, "client");
+    if (*diff) {
+        say("REJECT %s build differs: %s", udp_addr_str(from), diff);
+        host_reject(from, nonce, STOP_BUILD);
+        return;
+    }
+    if (s > 0) {
+        if (n.peer[s].busy_nonce != nonce) {
+            n.peer[s].busy_nonce = nonce;
+            say("HELLO from %s waits: P%d's connection there is still open", udp_addr_str(from), peer_pnum(s));
+        }
+        host_reject(from, nonce, STOP_BUSY);
+        return;
+    }
+    uint8_t avail = free_players();
+    int nfree = 0;
+    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
+        nfree += (avail >> p) & 1;
+    for (s = 1; s <= MAX_PEERS && n.peer[s].state != P_FREE; s++) {
+    }
+    if (s > MAX_PEERS || want < 1 || (int)want > nfree) {
+        host_reject(from, nonce, STOP_FULL);
+        return;
+    }
+    Peer *pe = &n.peer[s];
+    memset(pe, 0, sizeof *pe);
+    pe->state = P_JOINING;
+    pe->addr = *from;
+    pe->nonce = nonce;
+    pe->last_recv = t;
+    pe->checked = UINT32_MAX;
+    for (int p = 0; p < PLATFORM_MAX_PLAYERS && pe->nplayers < want; p++)
+        if ((avail >> p) & 1)
+            pe->player[pe->nplayers++] = (uint8_t)p;
+    say("HELLO P%d+%d from %s", peer_pnum(s), pe->nplayers - 1, udp_addr_str(from));
+    host_send_welcome(s, from);
+}
+
+/* One datagram at the Host. `nonce` is the sender's connection epoch: anything
+ * but a HELLO counts only if it matches the open connection at that endpoint. */
+static void host_handle(const UdpAddr *from, int type, uint32_t nonce, Rd *r, uint64_t t) {
+    if (type == MSG_HELLO) {
+        host_hello(from, nonce, r, t);
+        return;
+    }
+    int s = peer_by_addr(from);
+    if (s > 0 && (n.peer[s].nonce != nonce || !peer_active(s)))
+        s = -1; /* an older connection's packet, or one that is leaving */
+    switch (type) {
     case MSG_INPUT: {
         int player = (int)get8(r);
         if (s < 0) {
-            /* Not (or no longer) in the Session: tell it to stop */
+            /* Not (or no longer) in the Session: tell that connection to stop */
             Pkt pk;
-            pkt_begin(&pk, MSG_STOP);
-            put8(&pk, STOP_KICKED);
-            put32(&pk, n.set_end);
-            put8(&pk, (uint32_t)player);
-            put8(&pk, 0);
+            build_stop(&pk, nonce, STOP_KICKED, n.set_end, player, NULL);
             send_pkt(from, &pk);
             return;
         }
@@ -865,11 +1026,11 @@ static void host_handle(const UdpAddr *from, int type, Rd *r, uint64_t t) {
         return;
     }
     case MSG_CHUNK_ACK: {
-        if (s < 0 || join.peer != s || join.phase != J_TRANSFER)
+        if (s < 0 || join.peer != s || join.phase != J_TRANSFER || nonce != join.nonce)
             return;
         n.peer[s].last_recv = t;
-        uint32_t nonce = get32(r), cnt = get16(r);
-        if (!r->ok || nonce != join.nonce || cnt != join.chunks)
+        uint32_t cnt = get16(r);
+        if (!r->ok || cnt != join.chunks)
             return;
         for (uint32_t i = 0; i < cnt; i += 8) {
             uint32_t byte = get8(r);
@@ -962,7 +1123,7 @@ static void capture_done(bool reached) {
 
 static void client_send_input(void) {
     Pkt pk;
-    pkt_begin(&pk, MSG_INPUT);
+    pkt_begin(&pk, MSG_INPUT, n.nonce);
     put8(&pk, (uint32_t)n.me);
     put32(&pk, n.set_end);
     uint32_t first = n.set_end > n.local_start ? n.set_end : n.local_start;
@@ -981,17 +1142,15 @@ static void client_send_input(void) {
 
 static void client_send_hello(void) {
     Pkt pk;
-    pkt_begin(&pk, MSG_HELLO);
-    put32(&pk, n.nonce);
-    put32(&pk, state_dump_layout_id());
+    pkt_begin(&pk, MSG_HELLO, n.nonce);
+    put_fp(&pk, &my_fp);
     put8(&pk, (uint32_t)n.nlocal);
     send_pkt(&n.host_addr, &pk);
 }
 
 static void client_send_chunk_ack(void) {
     Pkt pk;
-    pkt_begin(&pk, MSG_CHUNK_ACK);
-    put32(&pk, n.nonce);
+    pkt_begin(&pk, MSG_CHUNK_ACK, n.nonce);
     put16(&pk, n.blob_chunks);
     for (uint32_t i = 0; i < n.blob_chunks; i += 8) {
         uint32_t byte = 0;
@@ -1006,12 +1165,16 @@ static const char *stop_reason(int reason) {
     switch (reason) {
     case STOP_KICKED: return "the Host dropped this machine from the Session";
     case STOP_FULL:   return "the Session has no room for this machine's Players (4 at most)";
-    case STOP_BUILD:  return "the Host runs a different build (both need the same game version and viewport)";
+    case STOP_BUILD:  return "the Host runs an incompatible build (both need the same commit, viewport, build options and ROM)";
     default:          return "stopped by the Host";
     }
 }
 
-static void client_handle(int type, Rd *r, uint64_t t) {
+/* One datagram from the Host's address. Only this connection's (`nonce`) count:
+ * a delayed packet meant for an earlier client process at this endpoint is ignored. */
+static void client_handle(int type, uint32_t nonce, Rd *r, uint64_t t) {
+    if (nonce != n.nonce)
+        return;
     n.last_host_recv = t;
     switch (type) {
     case MSG_FRAMES: {
@@ -1037,8 +1200,8 @@ static void client_handle(int type, Rd *r, uint64_t t) {
         return;
     }
     case MSG_CHUNK: {
-        uint32_t nonce = get32(r), total = get32(r), idx = get16(r), cnt = get16(r), len = get16(r);
-        if (!r->ok || nonce != n.nonce || cnt == 0 || cnt > MAX_CHUNKS || idx >= cnt ||
+        uint32_t total = get32(r), idx = get16(r), cnt = get16(r), len = get16(r);
+        if (!r->ok || cnt == 0 || cnt > MAX_CHUNKS || idx >= cnt ||
             total > MAX_CHUNKS * CHUNK_BYTES || r->pos + len > r->n)
             return;
         if (n.cstate == C_WAIT_STATE) {
@@ -1141,19 +1304,29 @@ static void load_done(bool reached) {
 
 /* ---- Both ---- */
 
+/* Check a datagram's header; on success `r` reads its payload. */
+static bool read_header(const uint8_t *buf, int len, Rd *r, uint32_t *nonce) {
+    if (len < HEADER_BYTES || buf[0] != 'E' || buf[1] != 'N' || buf[2] != PROTO_VERSION)
+        return false;
+    *r = (Rd){ buf, (size_t)len, 4, true };
+    *nonce = get32(r);
+    return true;
+}
+
 static void service(void) {
     uint8_t buf[PKT_MAX + 64];
     UdpAddr from;
     int len;
     uint64_t t = now_ms();
     while ((len = udp_recv(n.fd, &from, buf, sizeof buf)) >= 0) {
-        if (len < 4 || buf[0] != 'E' || buf[1] != 'N' || buf[2] != PROTO_VERSION)
+        Rd r;
+        uint32_t nonce;
+        if (!read_header(buf, len, &r, &nonce))
             continue;
-        Rd r = { buf, (size_t)len, 4, true };
         if (n.host)
-            host_handle(&from, buf[3], &r, t);
+            host_handle(&from, buf[3], nonce, &r, t);
         else if (udp_addr_equal(&from, &n.host_addr))
-            client_handle(buf[3], &r, t);
+            client_handle(buf[3], nonce, &r, t);
     }
     if (n.host) {
         for (int p = 1; p < PLATFORM_MAX_PLAYERS; p++)
@@ -1315,6 +1488,7 @@ bool net_start(const NetConfig *cfg) {
         fprintf(stderr, "--input-delay takes 1-%d\n", MAX_DELAY);
         return false;
     }
+    fingerprint_init();
 
     if (cfg->host_port > 0) {
         n.fd = udp_open(cfg->host_port);
@@ -1332,7 +1506,8 @@ bool net_start(const NetConfig *cfg) {
         n.local_start = 0;
         n.local_end = (uint32_t)n.delay; /* frames 0..D-1: nobody's input yet */
         n.active = true;
-        say("HOST port=%d delay=%d", cfg->host_port, n.delay);
+        say("HOST port=%d delay=%d build=%s %ux%u assets=%08x", cfg->host_port, n.delay, my_fp.revision,
+            (unsigned)my_fp.width, (unsigned)my_fp.height, (unsigned)my_fp.assets);
         fprintf(stderr, "netplay: hosting on UDP port %d (input delay %d)\n", cfg->host_port, n.delay);
         return true;
     }
@@ -1362,7 +1537,10 @@ bool net_start(const NetConfig *cfg) {
     platform_save_set_path(n.save_path);
 
     n.nonce = (uint32_t)platform_timer_ticks() ^ ((uint32_t)getpid() << 16);
+    if (n.nonce == 0)
+        n.nonce = 1; /* 0 is what a zeroed spoof would carry */
     uint64_t start = now_ms(), last = 0;
+    bool busy_said = false;
     for (;;) {
         uint64_t t = now_ms();
         if (t - start > CONNECT_MS) {
@@ -1378,12 +1556,11 @@ bool net_start(const NetConfig *cfg) {
         UdpAddr from;
         int len;
         while ((len = udp_recv(n.fd, &from, buf, sizeof buf)) >= 0) {
-            if (len < 4 || buf[0] != 'E' || buf[1] != 'N' || buf[2] != PROTO_VERSION ||
-                !udp_addr_equal(&from, &n.host_addr))
+            Rd r;
+            uint32_t nonce;
+            if (!read_header(buf, len, &r, &nonce) || !udp_addr_equal(&from, &n.host_addr) || nonce != n.nonce)
                 continue;
-            Rd r = { buf, (size_t)len, 4, true };
-            uint32_t nonce = get32(&r);
-            if (buf[3] == MSG_WELCOME && nonce == n.nonce) {
+            if (buf[3] == MSG_WELCOME) {
                 int cnt = (int)get8(&r);
                 bool bad = cnt != n.nlocal;
                 for (int k = 0; k < cnt && k < PLATFORM_MAX_PLAYERS; k++) {
@@ -1402,8 +1579,23 @@ bool net_start(const NetConfig *cfg) {
                         n.me + 1, n.delay);
                 return true;
             }
-            if (buf[3] == MSG_REJECT && nonce == n.nonce) {
-                fprintf(stderr, "netplay: %s\n", stop_reason((int)get8(&r)));
+            if (buf[3] == MSG_REJECT) {
+                int reason = (int)get8(&r);
+                if (reason == STOP_BUSY) {
+                    if (!busy_said) /* this endpoint's last connection is still open there */
+                        fprintf(stderr, "netplay: the Host still holds this machine's previous connection; "
+                                        "waiting for it to time out (up to %u s)\n", TIMEOUT_MS / 1000);
+                    busy_said = true;
+                    continue;
+                }
+                if (reason == STOP_BUILD) {
+                    Fingerprint host_fp;
+                    get_fp(&r, &host_fp);
+                    const char *diff = r.ok ? fp_diff(&host_fp, &my_fp, "this machine") : "";
+                    fprintf(stderr, "netplay: %s%s%s\n", stop_reason(reason), *diff ? ". " : "", diff);
+                    return false;
+                }
+                fprintf(stderr, "netplay: %s\n", stop_reason(reason));
                 return false;
             }
         }
@@ -1431,11 +1623,10 @@ void net_shutdown(void) {
             int len;
             uint64_t t = now_ms();
             while ((len = udp_recv(n.fd, &from, buf, sizeof buf)) >= 0) {
-                if (len < 4 || buf[0] != 'E' || buf[1] != 'N' || buf[2] != PROTO_VERSION)
-                    continue;
-                Rd r = { buf, (size_t)len, 4, true };
-                if (buf[3] == MSG_INPUT || buf[3] == MSG_BYE)
-                    host_handle(&from, buf[3], &r, t);
+                Rd r;
+                uint32_t nonce;
+                if (read_header(buf, len, &r, &nonce) && (buf[3] == MSG_INPUT || buf[3] == MSG_BYE))
+                    host_handle(&from, buf[3], nonce, &r, t);
             }
             for (int p = 1; p < PLATFORM_MAX_PLAYERS; p++)
                 if (n.peer[p].state == P_IN && n.peer[p].ack < n.set_end && t - n.peer[p].last_send >= RESEND_MS)
@@ -1446,10 +1637,10 @@ void net_shutdown(void) {
         for (int rep = 0; rep < 3; rep++)
             for (int p = 1; p < PLATFORM_MAX_PLAYERS; p++)
                 if (n.peer[p].state != P_FREE)
-                    send_bye(&n.peer[p].addr);
+                    send_bye(&n.peer[p].addr, n.peer[p].nonce);
     } else if (!n.host) {
         for (int rep = 0; rep < 3; rep++)
-            send_bye(&n.host_addr);
+            send_bye(&n.host_addr, n.nonce);
         remove(n.save_path);
         char tmp[sizeof n.save_path + 8];
         snprintf(tmp, sizeof tmp, "%s.tmp", n.save_path);

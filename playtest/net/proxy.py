@@ -14,6 +14,11 @@ reproducible up to OS scheduling. One :class:`Proxy` thread serves every link.
     proxy.link(port).blackhole = True   # drop everything (a pulled cable)
     proxy.stop(); print(proxy.stats())
 
+For protocol tests a link can also keep a copy of everything it saw (``record``)
+and send datagrams of its own (:meth:`Proxy.inject`): from the Host's point of view
+they come from the client's endpoint, so a test can replay an old connection's
+packets or spoof one.
+
 Run standalone: ``python playtest/net/proxy.py --listen 7745 --host-port 7744 --latency 100``.
 """
 
@@ -46,6 +51,12 @@ class Link:
     dropped: int = 0
     reordered: int = 0
     last_due: dict = field(default_factory=lambda: {"up": 0.0, "down": 0.0})
+    record: bool = False  # keep every datagram in log (protocol tests)
+    log: list = field(default_factory=list)  # (direction, client addr, datagram) as received
+
+    def received(self, direction, client=None):
+        """Datagrams seen going ``direction`` ("up" = client to Host), optionally only those of ``client``."""
+        return [d for dr, c, d in self.log if dr == direction and (client is None or c == client)]
 
 
 class Proxy:
@@ -58,6 +69,7 @@ class Proxy:
         self.queue = []  # (due, seq, sock, data, addr, link)
         self.seq = itertools.count()
         self.lock = threading.Lock()
+        self.qlock = threading.Lock()  # self.queue (inject() runs on the caller's thread)
         self.running = False
         self.thread = None
 
@@ -109,7 +121,30 @@ class Proxy:
         """Packet counts per link: {local port: (forwarded, dropped, reordered)}."""
         return {p: (lk.sent, lk.dropped, lk.reordered) for p, lk in self.links.items()}
 
+    def inject(self, port, direction, datagrams, spacing=0.0):
+        """Send ``datagrams`` on link ``port``, ``spacing`` seconds apart, with no loss or delay.
+
+        "up" goes from the link's Host-side socket, so the Host sees the client's
+        endpoint; "down" goes to the link's current client.
+        """
+        link = self.links[port]
+        now = time.monotonic()
+        with self.qlock:
+            for i, data in enumerate(datagrams):
+                self._push(link, direction, data, now + i * spacing)
+
+    def _push(self, link, direction, data, due):
+        if direction == "up":
+            item = (due, next(self.seq), link.upstream, data, link.host, link)
+        else:
+            if link.client is None:
+                return
+            item = (due, next(self.seq), link.listen, data, link.client, link)
+        heapq.heappush(self.queue, item)
+
     def _schedule(self, link, direction, data, now):
+        if link.record:
+            link.log.append((direction, link.client, data))
         rng = link.rng_up if direction == "up" else link.rng_down
         if link.blackhole or rng.random() < link.loss:
             link.dropped += 1
@@ -119,27 +154,26 @@ class Proxy:
         if due < link.last_due[direction]:
             link.reordered += 1
         link.last_due[direction] = max(due, link.last_due[direction])
-        if direction == "up":
-            item = (due, next(self.seq), link.upstream, data, link.host, link)
-        else:
-            if link.client is None:
-                return
-            item = (due, next(self.seq), link.listen, data, link.client, link)
-        heapq.heappush(self.queue, item)
+        with self.qlock:
+            self._push(link, direction, data, due)
 
     def _run(self):
         while self.running:
             now = time.monotonic()
-            while self.queue and self.queue[0][0] <= now:
-                _, _, sock, data, addr, link = heapq.heappop(self.queue)
+            while True:
+                with self.qlock:
+                    if not self.queue or self.queue[0][0] > now:
+                        break
+                    _, _, sock, data, addr, link = heapq.heappop(self.queue)
                 try:
                     sock.sendto(data, addr)
                     link.sent += 1
                 except OSError:
                     pass
             timeout = 0.005
-            if self.queue:
-                timeout = max(0.0, min(timeout, self.queue[0][0] - now))
+            with self.qlock:
+                if self.queue:
+                    timeout = max(0.0, min(timeout, self.queue[0][0] - now))
             with self.lock:
                 events = self.sel.select(timeout)
             now = time.monotonic()
