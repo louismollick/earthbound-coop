@@ -58,6 +58,15 @@ _Avoid_: split screen, open co-op
 **Solo Chapter**:
 A story stretch where the game replaces the Party with a single Hero (Jeff in Winters, Poo's Mu training, Magicant, Paula's kidnapping). That Hero's Owner plays; everyone else is a Spectator or Stand-in.
 
+### Input
+
+**Focus**:
+Whose pad the game reads right now: one Player, or ALL (every joined Player's pad combined). On the overworld it is the Leader's Owner unless someone holds the Lock.
+_Avoid_: active player, controller
+
+**Lock**:
+On the overworld, the Player who opened a menu, text box or interaction holds the Focus until the Party is idle again.
+
 ### Online
 
 **Host**:

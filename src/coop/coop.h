@@ -65,7 +65,14 @@ typedef struct {
                                                  * platform's, so a savestate load can't fake or eat one */
     uint16_t walk_pad[PLATFORM_MAX_PLAYERS];    /* each pad's held buttons for this game frame's
                                                  * Walker steps (0 on capture-unwind frames) */
-    uint8_t pad1_player;                        /* the Player whose pad feeds core.pad1 */
+    /* Input focus (coop_input.h) */
+    uint8_t focus;                              /* the Player (0-3) or COOP_FOCUS_ALL whose pad
+                                                 * feeds core.pad1 now */
+    uint8_t focus_request;                      /* battle: coop_set_focus's request */
+    uint8_t focus_locked;                       /* overworld: `focus` holds the lock */
+    uint8_t focus_in_battle;                    /* the last feed was in a battle (entry edge) */
+    uint16_t focus_new;                         /* this frame's new presses of the focused pad(s),
+                                                 * from prev_held: coop_pad_new() */
     /* Non-Leader Walkers by Player. RAM: PLATFORM_MAX_PLAYERS x ~2.1 KB (the
      * 256-entry trail is 2 KB), about 8.4 KB, all of it in savestates. */
     CoopWalker walkers[PLATFORM_MAX_PLAYERS];
