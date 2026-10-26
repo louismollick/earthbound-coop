@@ -30,6 +30,8 @@
 #include "include/pad.h"
 #include "game/audio.h"
 #include "data/assets.h"
+#include "coop/coop.h"
+#include "coop/coop_walk.h"
 #include <string.h>
 
 PositionBufferState pb;
@@ -455,6 +457,9 @@ void init_party_position_buffer(void) {
         entities.directions[ent_off]   = (int16_t)game_state.leader_direction;
         entities.surface_flags[ent_off] = game_state.trodden_tile_type;
     }
+
+    if (coop_player_count() > 1)  /* co-op: Walker chains snap to the new trail */
+        coop_walk_on_trail_reset();
 }
 
 /*
@@ -535,6 +540,9 @@ void fill_party_position_buffer(uint16_t direction) {
         pos_idx -= 16;
         buf_idx -= 16;
     }
+
+    if (coop_player_count() > 1)  /* co-op: Walker chains snap to the new trail */
+        coop_walk_on_trail_reset();
 }
 
 /*
@@ -1360,9 +1368,10 @@ void check_hotspot_exit(uint16_t hotspot_idx) {
  * checks collision, and updates leader position in game_state.
  *
  * Called from update_leader_movement() for non-bicycle, non-escalator
- * walking styles.
+ * walking styles, and by co-op for each non-Leader Walker with its state
+ * swapped into the leader fields (coop/coop_walk.c).
  */
-static void update_overworld_player_input(void) {
+void update_overworld_player_input(void) {
     /* Line 14: Clear leader_moved */
     game_state.leader_moved = 0;
 
@@ -1487,8 +1496,11 @@ static void update_overworld_player_input(void) {
 
     /* Lines 194-209: Ladder tile door check. */
     if (ow.ladder_stairs_tile_x != -1) {
-        can_move = (int)process_door_at_tile((uint16_t)ow.ladder_stairs_tile_x,
-                                             (uint16_t)ow.ladder_stairs_tile_y);
+        /* Co-op: a non-Leader Walker treats escalators and stairs as walls */
+        can_move = (int)(coop_in_walker_step()
+            ? coop_walker_door((uint16_t)ow.ladder_stairs_tile_x, (uint16_t)ow.ladder_stairs_tile_y)
+            : process_door_at_tile((uint16_t)ow.ladder_stairs_tile_x,
+                                   (uint16_t)ow.ladder_stairs_tile_y));
     } else {
         /* Clear ladder/rope walking style if no ladder tile found
          * (assembly lines 203-209) */
@@ -1635,6 +1647,10 @@ void update_leader_movement(int16_t entity_offset) {
             ow.footstep_sound_id_override = 18;
         }
     }
+
+    /* Co-op: the other Players' Walkers take their steps */
+    if (coop_player_count() > 1)
+        coop_walk_leader_tick();
 }
 
 /*
@@ -1651,6 +1667,9 @@ void update_follower_state(int16_t entity_offset) {
     if (ow.battle_swirl_countdown) return;
     if (ow.enemy_has_been_touched) return;
     if (ow.battle_mode) return;
+
+    /* Co-op: members of an independent Walker chain follow their Walker's trail */
+    if (coop_player_count() > 1 && coop_walk_follower_tick(entity_offset)) return;
 
     int16_t char_id = entities.var[0][entity_offset];
     int16_t party_idx = entities.var[1][entity_offset];

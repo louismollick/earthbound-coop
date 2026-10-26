@@ -2,6 +2,8 @@
 
 Research memo, 2026-10-26. Line numbers are against d32c421 and drift.
 
+**As built (M1 ownership + independent walking):** `src/coop/coop_walk.{h,c}`. It follows the recommended design below, with three differences: a window or text box only pauses Walkers (no snap); unsnap lays each chain's trail through its members' current positions instead of copying the Leader's ring; and the Leader's Owner's pad feeds `core.pad1` (`coop_pad1_feed`). The camera, leash, contact, interaction and regroup sections are still to do.
+
 ## How the Leader moves
 - **Pad.** `memory_update_joypad` (`memory.c:38-69`) is fed by `host_process_frame`. Demo playback can override it (`overworld.c:2280-2300`).
 - **Per-frame path.** The init entity (slot 23) ticks `update_overworld_frame` (`overworld.c:1237`), which calls `update_leader_movement` (`position_buffer.c:1547`):

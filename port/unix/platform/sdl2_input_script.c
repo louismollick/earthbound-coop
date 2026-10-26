@@ -101,6 +101,7 @@
 #include "core/memory.h"
 #include "core/mode_stack.h"
 #include "coop/coop.h"
+#include "coop/coop_walk.h"
 #include "entity/entity.h"
 #include "game/battle.h"
 #include "game/display_text.h"
@@ -581,29 +582,9 @@ static void print_surface(uint16_t sf) {
     printf(")");
 }
 
-/* The world position of party member `id`'s entity (the Leader's coordinates
- * for the Leader), or false if it has no entity. */
-static bool member_pos(uint8_t id, int *x, int *y) {
-    for (int i = 0; i < game_state.party_count && i < TOTAL_PARTY_COUNT; i++) {
-        if (game_state.party_order[i] != id)
-            continue;
-        int e = read_u16_le(&game_state.party_entity_slots[i * 2]);
-        if (e == game_state.current_party_members) {
-            *x = game_state.leader_x_coord;
-            *y = game_state.leader_y_coord;
-            return true;
-        }
-        if (e < 0 || e >= MAX_ENTITIES || entities.script_table[e] == ENTITY_NONE)
-            return false;
-        *x = entities.abs_x[e];
-        *y = entities.abs_y[e];
-        return true;
-    }
-    return false;
-}
-
-/* PLAYERS P1:joined owns=Ness,Jeff walker=Ness pos=(X,Y) | P2:joined owns=- walker=- spectator | P3:- | P4:-
- * owns = the Player's Heroes present in the Party (Party order); walker = coop_walker() */
+/* PLAYERS P1:joined owns=Ness,Jeff walker=Ness pos=(X,Y) dir=UP walk=0 | P2:joined owns=- walker=- spectator | P3:- | P4:-
+ * owns = the Player's Heroes present in the Party (Party order); walker = coop_walker_info()
+ * (pos/dir/walk: the Leader's globals, an independent Walker's state, else its entity) */
 static void print_players(void) {
     printf("PLAYERS");
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
@@ -624,15 +605,14 @@ static void print_players(void) {
         }
         if (!any)
             printf("-");
-        uint8_t w = coop_walker(p);
-        int x, y;
-        if (!w) {
+        CoopWalkerInfo w;
+        if (!coop_walker_info(p, &w)) {
             printf(" walker=- spectator");
         } else {
             printf(" walker=");
-            print_eb(party_characters[w - 1].name, 5);
-            if (member_pos(w, &x, &y))
-                printf(" pos=(%d,%d)", x, y);
+            print_eb(party_characters[w.member - 1].name, 5);
+            printf(" pos=(%u,%u) dir=%s walk=%u", w.x, w.y, w.direction < 8 ? dir_names[w.direction] : "?",
+                   w.walking_style);
         }
     }
     printf("\n");

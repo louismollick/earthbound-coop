@@ -46,4 +46,8 @@ void memory_init(void);
 /* Update joypad state from platform layer */
 void memory_update_joypad(uint16_t raw_pad);
 
+/* Co-op: rebase the pad state before switching the pad that feeds it.
+ * prev_raw = the new source's pad on the previous frame. */
+void memory_rebase_joypad(uint16_t prev_raw);
+
 #endif /* CORE_MEMORY_H */

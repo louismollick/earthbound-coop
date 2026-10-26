@@ -48,8 +48,8 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 
 ## M1 Overworld
 
-- [ ] Ownership and Walkers follow the settled rule and recompute whenever the Party changes (join, leave, unconscious).
-- [ ] Independent walking.
+- [x] Ownership and Walkers follow the settled rule and recompute whenever the Party changes (join, leave, unconscious).
+- [x] Independent walking.
   - Every Walker moves with the leader's own movement and collision code, covering walls, NPCs, surfaces (water, ladders, stairs) and diagonals.
   - Each Walker has its own position trail, and that Player's other owned members follow it.
   - Members nobody owns follow the Leader, as in vanilla.
@@ -131,6 +131,11 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - Savestate format stays v16; the new SECTION_COOP changes `layout_id`, which already rejects old slots. (M0)
 - Co-op join edges use co-op's own serialized pad history; capture-unwind frames are invisible to co-op. (M0 review)
 - Design memos for input focus (M2/M3) and Walkers (M1) are in `docs/coop-design/`. (M0)
+- A Walker must be able to walk: unconscious and diamondized Heroes are skipped, as vanilla's party sort does. (M1)
+- core.pad1 follows the Leader's Owner during overworld play only (P1 on title, file select, boot and in battle until M2), with `memory_rebase_joypad` on every switch. Menus opened by that Player still read P1's platform pad directly (window.c etc.): M3. (M1)
+- Two levels of "not free": a window, text box or interaction only pauses non-Leader Walkers (they hold their spot, no snap); the game moving the party (camera_mode, stairs, escalator, bicycle, door, teleport, demo, swirl/battle, a frozen or scripted Leader or chain member) snaps them. (M1)
+- Trails: the memo's shadow `position_index` is kept (every independent chain member's index equals its Party predecessor's), so snapping is just "stop overriding". Unsnapping lays the chain's trail as straight segments through the members' current positions at vanilla spacing instead of copying the Leader's ring, so it is seamless wherever the members stand. Any chain change (join, leave, KO, revive, party change) snaps and unsnaps. (M1)
+- Until the leash: a temporary clamp keeps non-Leader Walkers within viewport/2 - 16 px of the Leader per axis (`TEMP_CLAMP_*` in `coop_walk.c`). (M1)
 
 ## Blocked
 

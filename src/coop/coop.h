@@ -21,10 +21,37 @@
  */
 
 #include "core/types.h"
+#include "game/game_state.h"
+#include "game/position_buffer.h"
 #include "platform/platform.h"
 
 #define COOP_HERO_COUNT   4    /* Ness, Paula, Jeff, Poo (party member ids 1-4) */
 #define COOP_LEAVE_FRAMES 120  /* Select+Start held this long (2 s) leaves */
+
+/*
+ * One Player's non-Leader Walker (coop_walk.h): the Leader-like state the
+ * Walker step swaps into game_state's leader fields, and the position trail
+ * that Player's other owned members follow. Only meaningful while `active`
+ * (the chain is walking independently); while inactive the chain is snapped
+ * onto the Leader's trail and runs vanilla follower code.
+ */
+typedef struct {
+    uint16_t x, y;                 /* like game_state.leader_x/y_coord */
+    uint16_t x_frac, y_frac;       /* like game_state.leader_x/y_frac */
+    uint16_t direction;            /* like game_state.leader_direction */
+    uint16_t surface;              /* like game_state.trodden_tile_type */
+    uint16_t walking_style;        /* like game_state.walking_style */
+    uint16_t moved;                /* like game_state.leader_moved, for this frame */
+    int16_t touched;               /* entities.collided_objects[23] after this frame's
+                                    * step: the NPC/enemy slot the Walker ran into, or -1 */
+    uint8_t active;                /* 1: independent; 0: snapped to the Leader's trail */
+    uint8_t head;                  /* trail write index, like game_state.position_buffer_index */
+    uint8_t chain[TOTAL_PARTY_COUNT]; /* party_characters indices: [0] the Walker, then the
+                                    * members trailing it, 0xFF-terminated (set on unsnap) */
+    uint8_t ring_index[TOTAL_PARTY_COUNT]; /* trail read index per chain[] entry,
+                                    * like char_struct.position_index */
+    PositionBufferEntry trail[POSITION_BUFFER_SIZE]; /* like pb.player_position_buffer */
+} CoopWalker;
 
 typedef struct {
     uint8_t player_count;                       /* joined Players, 1..PLATFORM_MAX_PLAYERS */
@@ -36,6 +63,12 @@ typedef struct {
     uint16_t prev_held[PLATFORM_MAX_PLAYERS];   /* each pad as coop_tick last saw it: join edges are
                                                  * computed from this serialized history, not the
                                                  * platform's, so a savestate load can't fake or eat one */
+    uint16_t walk_pad[PLATFORM_MAX_PLAYERS];    /* each pad's held buttons for this game frame's
+                                                 * Walker steps (0 on capture-unwind frames) */
+    uint8_t pad1_player;                        /* the Player whose pad feeds core.pad1 */
+    /* Non-Leader Walkers by Player. RAM: PLATFORM_MAX_PLAYERS x ~2.1 KB (the
+     * 256-entry trail is 2 KB), about 8.4 KB, all of it in savestates. */
+    CoopWalker walkers[PLATFORM_MAX_PLAYERS];
 } CoopState;
 
 extern CoopState coop;
@@ -45,6 +78,9 @@ extern CoopState coop;
  * called on capture-unwind frames, so an unwind neither releases a hold nor
  * resets a leave counter. */
 void coop_tick(const uint16_t held[PLATFORM_MAX_PLAYERS]);
+
+/* Instead of coop_tick on a capture-unwind frame: the Walkers get no input. */
+void coop_unwind_frame(void);
 
 /* Join / leave Player p (0 = P1; P1 can't leave). No-op if already in that state. */
 void coop_join(int player);
@@ -57,8 +93,19 @@ bool coop_player_joined(int player);
 int coop_hero_owner(int hero);
 
 /* The party member id (1-4) of Player p's Walker, or 0 if p has none (a
- * Spectator). M0 rule: the Player's first owned Hero present in the Party, in
- * Party order. */
+ * Spectator): the Player's first owned Hero that is in the Party and conscious
+ * (not unconscious or diamondized),
+ * in Party order (game_state.party_order). Derived every call, so it follows
+ * joins, leaves, KOs, revives and party changes by itself.
+ * TODO(M4): a Player with no such Hero stands in for a Guest if there is one. */
 uint8_t coop_walker(int player);
+
+/* Hero id (1-4) at Party position i (party_order) if it is a Hero who can walk
+ * (not unconscious or diamondized), else 0. */
+uint8_t coop_conscious_hero(int i);
+
+/* The Player who owns the Leader (party_order[0]); P1 (0) if the Leader is a
+ * Guest or there is no Party. */
+int coop_leader_owner(void);
 
 #endif /* EB_COOP_COOP_H */
