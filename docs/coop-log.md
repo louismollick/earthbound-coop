@@ -83,3 +83,8 @@ One entry per PLAN.md item: what changed, gate results, decisions and deviations
 - Found and fixed two real cold-load bugs via join desyncs (flavour-palette cache, lazily bound battle action table); both also affected F7 after a restart.
 - Long soak: 108,000 frames, 2 Players, 100 ms one-way + 30 ms jitter + 2% loss, input delay 30 (for throughput; headless is uncapped), 0 desyncs, 612 s wall. Short soak, mid-game join, rejoin, 4P, mixed local+remote and a deliberate-desync detector run in the normal suite.
 - Gates on the merged tree (with M2): `--framehash` PASS (regress 0/32, framehash 0 changed frames).
+
+### M2 review (GPT 6.1 Sol, one pass)
+- Bug: a join/leave while a battle menu (or its PSI/Goods/target child) is open leaves the menu on the old Owner's pad and a stale tag. Sent to the M7 battle agent (it is reworking the same focus code) with a scenario-first brief.
+- Risk: `m2_exits` lock check passes vacuously when P2 has no Walker. Same agent.
+- Rebutted: "Run belongs to another Owner when the Leader cannot act". When the Leader is asleep or can't act, vanilla puts Run on the first Hero who can act; that Hero's Owner holding Run keeps the escape option with someone who has a menu this turn, and a Leader who can't act shouldn't block the Party. PLAN's M2 wording now states this explicitly.

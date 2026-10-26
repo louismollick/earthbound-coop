@@ -74,7 +74,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 ## M2 Battle
 
 - [x] Command input for each Hero comes from its Owner's pad: command menu, PSI, Goods, target selection.
-- [x] Party-wide choices: Run belongs to the Leader's Owner. Auto Fight keeps vanilla behaviour (whole Party), and any Player can cancel it.
+- [x] Party-wide choices: Run belongs to the Leader's Owner (when the Leader can't act, to the Owner of the first Hero who can, where vanilla puts Run). Auto Fight keeps vanilla behaviour (whole Party), and any Player can cancel it.
 - [x] The battle UI shows whose turn it is: a small P1 to P4 tag next to the acting Hero's name. Keep it tiny and pixel-consistent with the game.
 - [x] Scenarios: a 2-Player and a 4-Player battle where each Owner's input decides their Hero's command, and the other Players' input is ignored during that menu. Win, flee and game over all exit cleanly.
 
