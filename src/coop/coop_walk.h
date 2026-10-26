@@ -38,8 +38,10 @@
 #include "core/types.h"
 #include "platform/platform.h"
 
-/* Hook, end of update_leader_movement: snap / unsnap chains, run each
- * independent Walker's step, then move the camera (coop_camera_update). */
+/* Hook, end of update_leader_movement (while coop_overworld_active): regroup
+ * after a join or leave (coop.regroup), snap / unsnap chains, run each
+ * independent Walker's step, then move the camera (coop_camera_update). With
+ * one Player left it only regroups and eases the camera back to the Leader. */
 void coop_walk_leader_tick(void);
 
 /* Hook, update_leader_movement's walking dispatch: the Leader's own step

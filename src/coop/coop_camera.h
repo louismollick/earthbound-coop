@@ -33,8 +33,10 @@
 #define COOP_LEASH_SPREAD_X (EB_VIEWPORT_WIDTH - 2 * COOP_LEASH_MARGIN_X)
 #define COOP_LEASH_SPREAD_Y (EB_VIEWPORT_HEIGHT - 2 * COOP_LEASH_MARGIN_Y)
 
-/* End of coop_walk_leader_tick (co-op only): move the view for this frame. In
- * co-op it replaces update_leader_movement's CENTER_SCREEN call. */
+/* End of coop_walk_leader_tick (coop_overworld_active): move the view for this
+ * frame. It replaces update_leader_movement's CENTER_SCREEN call, in co-op and
+ * for the few frames after the last other Player left while the view eases
+ * back to the Leader. */
 void coop_camera_update(void);
 
 /* Where IS_ENTITY_NEAR_LEADER measures from: the Leader in solo play (vanilla),

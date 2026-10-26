@@ -584,7 +584,8 @@ static void print_surface(uint16_t sf) {
 }
 
 /* PLAYERS P1:joined owns=Ness,Jeff walker=Ness pos=(X,Y) dir=UP walk=0 | P2:joined owns=- walker=- spectator | P3:- | P4:- | focus=P1
- * owns = the Player's Heroes present in the Party (Party order); walker = coop_walker_info()
+ * owns = the Player's Heroes present in the Party (Party order); walker = coop_walker_info(), a Guest's
+ * battler name plus " standin" for a Stand-in (P2:joined owns=- walker=Bubble Monkey standin pos=...)
  * (pos/dir/walk: the Leader's globals, an independent Walker's state, else its entity);
  * focus = the input focus, P1-P4 (" locked": holding the overworld lock) or ALL */
 static void print_players(void) {
@@ -611,8 +612,15 @@ static void print_players(void) {
         if (!coop_walker_info(p, &w)) {
             printf(" walker=- spectator");
         } else {
+            int len;
+            const uint8_t *name = coop_member_name(w.member, &len);
             printf(" walker=");
-            print_eb(party_characters[w.member - 1].name, 5);
+            if (name)
+                print_eb(name, len);
+            else
+                printf("#%u", w.member);
+            if (coop_standin(p))
+                printf(" standin");
             printf(" pos=(%u,%u) dir=%s walk=%u", w.x, w.y, w.direction < 8 ? dir_names[w.direction] : "?",
                    w.walking_style);
         }

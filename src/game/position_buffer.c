@@ -1646,7 +1646,7 @@ void update_leader_movement(int16_t entity_offset) {
      * center_screen() calls map_refresh_tilemaps() which updates scroll
      * registers AND incrementally streams new map tile rows/columns. */
     /* Co-op: coop_walk_leader_tick moves the camera instead (coop/coop_camera.h) */
-    if (game_state.leader_moved && coop_player_count() <= 1) {
+    if (game_state.leader_moved && !coop_overworld_active()) {
         center_screen(game_state.leader_x_coord, game_state.leader_y_coord);
     }
 
@@ -1662,7 +1662,7 @@ void update_leader_movement(int16_t entity_offset) {
     }
 
     /* Co-op: the other Players' Walkers take their steps */
-    if (coop_player_count() > 1)
+    if (coop_overworld_active())
         coop_walk_leader_tick();
 }
 

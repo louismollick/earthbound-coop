@@ -148,7 +148,7 @@ static uint16_t follower_spacing_delta(int16_t ent, int16_t leader, unsigned ord
 static void update_party_sprite_position(int16_t ent) {
     /* Co-op: the camera doesn't move with the Leader, so every party sprite
      * recomputes its screen position */
-    if (coop_player_count() > 1) {
+    if (coop_overworld_active()) {
         entity_screen_coords_bg1(ent);
         return;
     }

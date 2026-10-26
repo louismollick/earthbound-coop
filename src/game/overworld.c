@@ -22,6 +22,8 @@
  */
 
 #include "game/overworld_internal.h"
+#include "coop/coop.h"
+#include "coop/coop_walk.h"
 #include "game/ending.h"
 #include "game/battle.h"
 #include "game/position_buffer.h"
@@ -2442,6 +2444,8 @@ void center_screen(uint16_t x, uint16_t y) {
  * Stores 16-bit low word in tick_callback_lo, bank byte in tick_callback_hi. */
 void set_party_tick_callbacks(uint16_t leader_slot,
                               uint32_t leader_cb, uint32_t follower_cb) {
+    if (coop_player_count() > 1)  /* co-op: PSI Teleport takes the Party; everyone regroups */
+        coop_walk_regroup();
     uint16_t x = ENT(leader_slot);
     entities.tick_callback_lo[x] = leader_cb & 0xFFFF;
     entities.tick_callback_hi[x] = (leader_cb >> 16) & 0xFF;
