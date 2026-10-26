@@ -23,7 +23,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - **Determinism.** Co-op state lives in serialized structs: savestate layout plus `state_layout.h` regeneration. Use only the game RNG, no wall-clock time in game logic, and no uninitialised memory.
 - **Commits.** Commit to `coop` after every green item and push to `origin` (the public fork). Never commit the ROM, `playtest/saves`, extracted assets, `asm/bin`, `src/assets` or build output. Use `--no-verify` only per the CLAUDE.md parallel-agent note.
 - **When stuck.** After 3 failed attempts on an item, write it under "Blocked" with what you learned, then move to the next item that doesn't depend on it.
-- **Baseline binary.** `port/unix/build-base/earthbound` is built from upstream commit d32c421 at the wide viewport. Build it once and never rebuild it from co-op code.
+- **Baseline binary.** `port/unix/build-base/earthbound` is built from upstream commit d32c421 at the wide viewport. Build it once and never rebuild it from co-op code. The gates compare against `port/unix/build-base-fix` (the same source packed with this fork's ebtools, which fix the bank C3 text remap; see the log).
 
 ## Gates (every item)
 

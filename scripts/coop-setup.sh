@@ -3,6 +3,7 @@
 # earthbound.sfc (US retail) in the repo root. Creates .venv, installs deps,
 # fetches the 36 story saves if missing, extracts assets, and builds:
 #   port/unix/build-base   baseline at upstream d32c421, 320x240 (never rebuilt once present)
+#   port/unix/build-base-fix  the same source packed with this fork's ebtools (bus fix): the gates' reference
 #   port/unix/build-wide   current tree, 320x240, -Werror
 #   port/unix/build        current tree, 256x224 (native), -Werror
 #   port/unix/build-debug  current tree, 320x240, ASan+UBSan
@@ -72,6 +73,11 @@ if [ ! -x port/unix/build-base/earthbound ]; then
     [ -e "$WT/$p" ] || ln -s "$ROOT/$p" "$WT/$p"
   done
   build "$ROOT/port/unix/build-base" "$WT" -DCMAKE_BUILD_TYPE=Release -DEB_WERROR=ON "${WIDE[@]}"
+fi
+# The gates' vanilla reference: the same upstream source packed by this checkout's ebtools
+# (which fix the bank C3 text remap). Only differs from build-base in the bus/attract cases.
+if [ ! -x port/unix/build-base-fix/earthbound ]; then
+  build "$ROOT/port/unix/build-base-fix" "$ROOT/../ebsrc-base" -DCMAKE_BUILD_TYPE=Release -DEB_WERROR=ON "${WIDE[@]}"
 fi
 
 log "current tree builds"

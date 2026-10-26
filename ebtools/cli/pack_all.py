@@ -622,6 +622,19 @@ def pack_all(
             addr_remap,
         )
         packed += 1
+    else:
+        # earthbound.yml extracts the bank as one combined binary and extract writes no
+        # JSON for it, so remap the extracted binary directly (the remapper is a byte
+        # scan, so early + main in one piece is the same as the two halves).
+        _c3_combined = bin_dir / "US" / "events" / "bank_c3_scripts_combined.bin"
+        if _c3_combined.exists():
+            data = bytearray(_c3_combined.read_bytes())
+            n = _remap_event_script_text_addrs(data, addr_remap)
+            out = output_dir / "US" / "events" / "bank_c3_scripts_combined.bin"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(bytes(data))
+            print(f"  Packed bank_c3_scripts_combined.bin ({n} text addresses remapped, {len(data)} bytes)")
+            packed += 1
     _c4_json = assets_dir / "locale" / "events" / "bank_c4_scripts.json"
     if _c4_json.exists():
         _pack_event_script(_c4_json, output_dir / "US" / "events" / "bank_c4_scripts.bin", addr_remap)

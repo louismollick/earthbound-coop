@@ -20,7 +20,10 @@ FULL=0; FRAMEHASH=0
 for a in "$@"; do
   case "$a" in --full) FULL=1 ;; --framehash) FRAMEHASH=1 ;; *) echo "unknown arg $a"; exit 2 ;; esac
 done
-BASE="${EB_BASE_BIN:-$MAIN/port/unix/build-base/earthbound}"
+# The vanilla reference: upstream d32c421 built with this fork's ebtools, which fix the
+# bank C3 text remap (the Runaway Five bus). build-base (pure upstream) differs from it
+# only in `bus` and `attract`; see docs/coop-log.md.
+BASE="${EB_BASE_BIN:-$MAIN/port/unix/build-base-fix/earthbound}"
 WIDE="$ROOT/port/unix/build-wide/earthbound"
 [ -x "$BASE" ] || { echo "VERDICT FAIL: no $BASE (run scripts/coop-setup.sh)"; exit 1; }
 
