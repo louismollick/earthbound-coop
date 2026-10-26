@@ -4797,6 +4797,18 @@ static bool btl_member_skips_menu(const BattleRoutineState *st, uint8_t member_i
     return temp_status == STATUS_2_ASLEEP || temp_status == STATUS_2_SOLIDIFIED;
 }
 
+/* Co-op (coop_battle.h): the slot whose menu vanilla opens first this turn
+ * (the Leader's, or the first Hero who can act), which carries Run Away and
+ * Auto Fight whatever order the menus are claimed in; -1 if none. */
+static int btl_coop_first_menu_slot(const BattleRoutineState *st) {
+    for (uint16_t slot = 0; slot < 6; slot++) {
+        uint8_t id = game_state.party_members[slot];
+        if (id >= 1 && id <= 4 && !btl_member_skips_menu(st, id))
+            return slot;
+    }
+    return -1;
+}
+
 /* Co-op (coop_battle.h): the menu loop body while menus are claimed. The
  * next menu is the slot coop_battle_claim() picks among the Heroes who can
  * act and have no command yet; with none picked, wait a frame (with a window
@@ -4895,6 +4907,8 @@ static EB_NOINLINE StepResult btl_step_menu_open(BattleRoutineState *st) {
     g_mode_push_init.battle_menu.phase        = BM_ENTER;
     g_mode_push_init.battle_menu.char_id      = member_id;
     g_mode_push_init.battle_menu.num_selected = st->num_selected;
+    if (coop_battle_claiming())  /* co-op: Run Away and Auto Fight stay on the vanilla first menu */
+        g_mode_push_init.battle_menu.num_selected = st->party_slot == btl_coop_first_menu_slot(st) ? 0 : 1;
     st->phase = BTL_MENU_RESULT;
     return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_MENU, &g_mode_push_init);
 }
@@ -4955,6 +4969,8 @@ static EB_NOINLINE void btl_step_menu_decide(BattleRoutineState *st) {
             st->initiative_mode = 3;
         }
         st->run_attempt = 1;
+        if (coop_battle_claiming())  /* co-op: Run discards the turn's other choices */
+            st->num_selected = 0;
     }
 
     /* Handle "back" (action == 0 from the battle menu) */

@@ -26,9 +26,11 @@
  * themselves in Party order, as vanilla. Initiative, not menu order, decides
  * who acts first (btl_find_attacker). B goes back to the same Player's
  * previous Hero this turn, or reopens the menu at their first one; it never
- * reopens another Player's choice. Run Away and Auto Fight stay on the
- * turn's first menu (vanilla's num_selected == 0), so whoever claims first
- * holds them.
+ * reopens another Player's choice. Run Away and Auto Fight stay on the menu
+ * vanilla opens first (the Leader's, or the first Hero who can act), whatever
+ * the claim order, so they stay with that Hero's menu Player; picking Run
+ * discards the turn's other choices, as the remaining Heroes skip after a
+ * vanilla Run.
  *
  * Focus. While a command menu is up (the battle routine's BTL_MENU_SELECT ..
  * BTL_MENU_DECIDE phases), the focus is that menu's Player, so the command

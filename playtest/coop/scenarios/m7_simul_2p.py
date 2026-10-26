@@ -1,8 +1,8 @@
 """M7: simultaneous battle input, 2 Players. Whoever presses A first gets the next command menu.
 
 28-Scaraba (P1: Ness, Jeff; P2: Paula, Poo), Scaraba desert encounter. Session "p2first": P2 claims first and
-picks Paula's attack before Ness's menu has opened; that first menu carries Run Away and Auto Fight, Ness's
-doesn't. P1 then claims Ness, P2 Poo, and Jeff's menu opens by itself (only P1 has a Hero left). Session
+picks Paula's attack before Ness's menu has opened. Run Away and Auto Fight are on Ness's menu (the
+Leader's) whenever it opens, never on Paula's. P1 then claims Ness, P2 Poo, and Jeff's menu opens by itself (only P1 has a Hero left). Session
 "p1first" picks the same attacks in vanilla order. Both rounds tell the attacks in the same order: initiative
 decides who acts, not who chose first.
 """
@@ -33,9 +33,9 @@ def run(ctx):
                 claim(s, p)
             at_menu(s, f"{hero} P{p}", p)
             opts, _ = s.menu()
-            expect(("Run Away" in opts) == (i == 0), f"Run Away only on the turn's first menu ({hero})", opts)
-            if name == "p2first" and i == 0:
-                ctx.shot(s, "P2 claimed first: Paula P2 with Run Away")
+            expect(("Run Away" in opts) == (hero == "Ness"), f"Run Away only on the Leader's menu ({hero})", opts)
+            if name == "p2first" and i < 2:
+                ctx.shot(s, f"P2 claimed first: {hero} P{p}" + (", Run Away" if hero == "Ness" else ", no Run Away"))
             ignored(s, [other], f"P{other} on {hero}'s menu")
             said = attack(s, p, reader=other if i == len(menus) - 1 else None)
         orders[name] = actors(said)

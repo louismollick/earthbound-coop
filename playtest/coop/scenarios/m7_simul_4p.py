@@ -1,7 +1,7 @@
 """M7: simultaneous battle input, 4 Players claiming in a scrambled order. Every Hero gets its Owner's command.
 
-28-Scaraba, one Hero per Player. P3 claims first (Jeff's menu carries Run Away), and P1 presses A while it is
-open, which queues P1: Ness's menu opens right after Jeff's with no further press. Then the battle waits for
+28-Scaraba, one Hero per Player. P3 claims first (Jeff's menu has no Run Away: it stays on Ness's, the
+Leader's), and P1 presses A while it is open, which queues P1: Ness's menu opens right after Jeff's with no further press. Then the battle waits for
 P2 and P4; P4 claims Poo, and Paula's menu opens by itself for P2. Jeff and Poo defend, Ness and Paula attack,
 and the round's text says exactly that. Every other Player's presses on each menu change nothing.
 """
@@ -18,13 +18,13 @@ def run(ctx):
     ctx.shot(s, "waiting on all four")
     claim(s, 3)
     at_menu(s, "Jeff P3", 3)
-    expect("Run Away" in s.menu()[0], "Run Away on the first menu, Jeff's", s.menu())
+    expect("Run Away" not in s.menu()[0], "no Run Away on Jeff's menu, though claimed first", s.menu())
     ignored(s, [1, 2, 4], "P1, P2 and P4 on Jeff's menu")
     ignored(s, [1], "P1's A on Jeff's menu (it queues P1)", buttons=("A",))
     defend(s, 3)
 
     at_menu(s, "Ness P1", 1)
-    expect("Run Away" not in s.menu()[0], "no Run Away on Ness's (second) menu", s.menu())
+    expect("Run Away" in s.menu()[0], "Run Away on Ness's (the Leader's) menu, claimed second", s.menu())
     ignored(s, [2, 3, 4], "P2, P3 and P4 on Ness's menu")
     attack(s, 1)
 

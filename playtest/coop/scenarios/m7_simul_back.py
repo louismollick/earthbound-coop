@@ -4,8 +4,8 @@
 - P1 claims Ness (the first menu, with Run Away); B there reopens Ness's menu. P1 attacks.
 - P2 claims Paula; B at P2's first Hero reopens Paula's, not Ness's (P1's choice stays). P2 defends.
 - P2 claims Poo; B goes back to Paula, P2's previous Hero. P2 re-picks Paula's attack, claims Poo, defends.
-- Jeff's menu opens by itself; P1's B goes back to Ness (no Run Away now: Paula has chosen). Ness defends,
-  then Jeff attacks.
+- Jeff's menu opens by itself; P1's B goes back to Ness, whose menu still carries Run Away (the Leader's).
+  Ness defends, then Jeff attacks.
 The round's text shows the final choices: Ness on guard, Paula attacks, Poo on guard, Jeff attacks.
 """
 
@@ -51,7 +51,7 @@ def run(ctx):
     at_menu(s, "Jeff P1", 1)
     back(s, 1)
     at_menu(s, "Ness P1", 1)
-    expect("Run Away" not in s.menu()[0], "Ness reopened as a later menu: no Run Away", s.menu())
+    expect("Run Away" in s.menu()[0], "Ness reopened after others chose: still Run Away", s.menu())
     ctx.shot(s, "P1's B from Jeff: Ness again")
     defend(s, 1)
     at_menu(s, "Jeff P1", 1)
