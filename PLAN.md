@@ -121,7 +121,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 ## M7 Polish
 
 - [x] Simultaneous battle input: every Player picks their Heroes' commands at the same time, and the turn starts when all are locked in. Vanilla order is preserved when one Player owns several Heroes.
-- [ ] Solo Chapter Companion (CONTEXT.md): Spectators walk a Mr. Saturn (existing overworld sprite) during Solo Chapters. Overworld only, sits out battles. A Companion can trigger Look-only interactions (static scan of the text script); anything else plays a Mr. Saturn sound with no text. On by default, no flag.
+- [x] Solo Chapter Companion (CONTEXT.md): Spectators walk a Mr. Saturn (existing overworld sprite) during Solo Chapters. Overworld only, sits out battles. A Companion can trigger Look-only interactions (static scan of the text script); anything else plays a Mr. Saturn sound with no text. On by default, no flag.
 - [x] Battle rotation in Solo Chapters: the solo Hero's command menu goes to its Owner, then each Spectator in join order, one turn each.
 
 ## Decisions made during the build
@@ -161,6 +161,8 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - Run Away and Auto Fight stay with the Leader's Owner (the settled M2 rule): they are on the Leader's command menu, or, when the Leader can't act, on the first Hero who can act (vanilla's placement), whatever order the menus are claimed in, even if others have already chosen. Picking Run discards the turn's other choices, as the remaining Heroes skip after a vanilla Run. Under Battle rotation they stay with whoever holds the solo Hero's menu. B goes back to the same Player's previous Hero this turn (un-choosing it), or reopens their menu at their first one; it never reopens another Player's choice. (M7)
 - In the co-op menu loop, members who can't act get vanilla's BACT_NO_EFFECT when nobody is left to choose, instead of interleaved with the menus (nothing reads the order). A turn started in co-op keeps the claimed loop to its end even if Players leave meanwhile, so no Hero is skipped. (M7)
 - The battle focus is derived every frame from the battle routine's serialized state (phase and menu slot in the mode stack), not requested by battle code, so a join or leave under an open menu or its children moves it at once; the tag is reconciled every frame too. (M2 review)
+- Companion (M7): every absent Player who isn't a Stand-in walks their own Mr. Saturn, in and out of Solo Chapters; it hides for battles and while the game moves the Party and comes back next to the Leader. It is leashed to the view, not part of the Walkers' spread, so it never holds anyone back. Its Player's A/L only Check/Talk (A reads as L under their lock); "nothing here" counts as not Look-only and gets the sound too. (M7)
+- Look-only (M7): the whitelist follows the C runtime, not `opcodes.py`; 19 1C (item to queue) and 1A 0B (teleport menu) are effects, 1D 0C is a read, 1F 50/51 (input off/on) count as UI. (M7)
 
 ## Blocked
 

@@ -74,7 +74,8 @@ def run(ctx):
     g.do("until in:BATTLE 600")
     st = g.state()
     expect("BATTLE" in st.state and st.players[4].hidden, "hidden in the battle", st.state + st.players_line)
-    g.do("until in:BATTLE_MENU 3000; debug on; press SELECT+START; until idle 3000 advance")
+    # P1 claims a command menu (menus are claimed), whose debug SELECT+START wins
+    g.do("until in:BATTLE_MENU 3000; press A; until input 300; debug on; press SELECT+START; until idle 3000 advance")
     st = g.state()
     sat = st.players[4]
     expect(st.idle == "yes" and not sat.hidden, "the battle is over and Mr. Saturn is back", st.players_line)

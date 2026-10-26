@@ -71,6 +71,14 @@ Other Party changes:
 
 ## Companion (Mr. Saturn)
 
+**As built (M7):** `src/coop/coop_companion.{h,c}`, state in `CoopState.companions[4]`. Differences from the plan below:
+- Script `EVENT_44` (renders, then halts), not `EVENT_10_11`, whose slow blink would fight the walk frames; co-op drives direction, frame (8 frames per walking frame) and visibility itself. Spawned in the highest free NPC slot, so `find_entity_by_sprite_id` finds a real Mr. Saturn first; owned by slot + sprite + script + `var0 = 0x5A70 + Player`. A failed spawn retries every 30 frames.
+- The step is the Walkers' (`coop_borrowed_step`, `coop_walk_internal.h`) with `COOP_STEP_COMPANION`: only door type 1 (ladder/rope) works, every other door type is a wall. `player_has_moved_since_map_load` is restored.
+- Leash: to the view (a step taking it further out of the view minus the Walkers' margin is reverted on that axis); if the view leaves it behind (sprite off screen) it reappears next to the Leader. It never enters the camera's box or the Walkers' leash.
+- Hidden: from an enemy touch through the battle (`coop_companion_watch` from `coop_tick`, since no entity ticks then), when the game moves the Party (`WALK_CONTROLLED` plus the Leader moving), at a door's fade or PSI Teleport (`coop_walk_regroup`) and on a trail reset. Shown again next to the Leader (beside, behind or in front: a clear spot no other Mr. Saturn takes). A fully frozen cutscene (init entity ticks off) leaves it standing like an NPC.
+- Interaction: A or L takes the lock (`capture_buttons`); A reads as L while it holds it. `coop_companion_interact` searches with its hitbox enabled and its own slot marked collision-disabled. `coop_interact_muted` (one line in `QCT_TEXT`) closes the empty text window and plays `MYSTERIOUS_2` (114) when the text isn't Look-only; that includes "nothing here" (`MSG_SYS_NOTHING_WRONG_HERE` can jump to a debug item gift).
+- PLAYERS: `walker=Mr. Saturn companion pos=... dir=... walk=...` or `... companion hidden`.
+
 **Sprite.** `MR_SATURN = 171`: 4 directions × 2 frames, no diagonals (collapse diagonals to a cardinal), 8×8 hitbox, 16×24.
 
 **Spawn.** `create_entity(171, script, -1, x, y)` allocates from slots 0-21. Use a static NPC script (`EVENT_10_11`) that doesn't despawn. Never use `EVENT_8`, which despawns.

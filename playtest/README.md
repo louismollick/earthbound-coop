@@ -182,6 +182,7 @@ Between frames (at the main-loop root):
 
 | Command | Meaning |
 |---|---|
+| `companion P X Y [DIR]` | co-op: put Player P's visible Mr. Saturn Companion at world X,Y (scenario setup; its next step and leash run from there). In co-op every sound effect also prints `SFX N` |
 | `teleport X Y [DIR]` | move the party to world pixel X,Y and reload map, NPCs, music (needs `idle`, else prints `ERR ... not idle: REASON`). DIR 0-7, 0=up clockwise, default 4=down |
 | `warp NAME\|N` / `warps` | teleport to a PSI Teleport town (`warp summers`) / list them |
 | `snap NAME` / `restore NAME` | save / load a savestate in `snaps/` (same process only) |
