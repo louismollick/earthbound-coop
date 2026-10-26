@@ -1,0 +1,103 @@
+# new game from empty SRAM, run with --save <8192 zero bytes> and no boot: default names, ends with Ness idle in his bedroom
+until in:SELECTION_MENU 2000 START|-
+wait 10
+press A
+until input 300
+wait 10
+press A
+until input 300
+wait 10
+press A
+until input 300
+wait 10
+press A
+until input 600
+wait 60
+# 7 names: open keyboard, Don't Care (default name), OK
+press A
+wait 40
+press DOWN 5
+wait 5
+press A
+wait 40
+press RIGHT 2
+wait 5
+press A
+until input 600
+wait 60
+press A
+wait 40
+press DOWN 5
+wait 5
+press A
+wait 40
+press RIGHT 2
+wait 5
+press A
+until input 600
+wait 60
+press A
+wait 40
+press DOWN 5
+wait 5
+press A
+wait 40
+press RIGHT 2
+wait 5
+press A
+until input 600
+wait 60
+press A
+wait 40
+press DOWN 5
+wait 5
+press A
+wait 40
+press RIGHT 2
+wait 5
+press A
+until input 600
+wait 60
+press A
+wait 40
+press DOWN 5
+wait 5
+press A
+wait 40
+press RIGHT 2
+wait 5
+press A
+until input 600
+wait 60
+press A
+wait 40
+press DOWN 5
+wait 5
+press A
+wait 40
+press RIGHT 2
+wait 5
+press A
+until input 600
+wait 60
+press A
+wait 40
+press DOWN 5
+wait 5
+press A
+wait 40
+press RIGHT 2
+wait 5
+press A
+until input 600
+wait 60
+# Are you sure? -> Yep, then the intro cutscene until Ness is controllable in his bedroom
+press A
+wait 30
+until idle 6000 advance
+30 RIGHT
+20 DOWN
+state bedroom
+shot bedroom
+wait 1
+sync done

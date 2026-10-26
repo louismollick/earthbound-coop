@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+**This fork (earthbound-coop) adds local and online co-op.** Start with `PLAN.md` (milestones, gates, working rules), `CONTEXT.md` (vocabulary) and `docs/adr/`. Setup: `docs/coop-setup.md`.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Git Workflow
