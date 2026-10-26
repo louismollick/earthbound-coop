@@ -65,7 +65,10 @@ typedef enum {
     ROOT_ACTION_NONE = 0,
     ROOT_ACTION_SAVE,   /* F6 / power-off: write a savestate */
     ROOT_ACTION_LOAD,   /* F7: restore the last savestate */
+    ROOT_ACTION_CALL,   /* netplay: run g_root_call (host_request_root_call) */
 } RootAction;
+/* The callback of a pending ROOT_ACTION_CALL. */
+static void (*g_root_call)(bool reached);
 /* volatile: the embedded power-off ISR calls host_request_capture() (game_main.h),
  * which writes all three, and the firmware polls g_capture_status in a loop. The
  * main loop must re-read them on every access instead of caching a load. Single
@@ -336,7 +339,16 @@ void host_process_frame(void) {
      * Bail (abandon the request) past the unwind budget — an indefinite input-wait
      * that will never reach the boundary; abandoning beats writing a torn snapshot. */
     bool capture_unwinding = (g_pending_root_action != ROOT_ACTION_NONE);
-    if (capture_unwinding && ++g_capture_unwind_frames > CAPTURE_UNWIND_FRAME_CAP) {
+    bool unwind_over_cap = capture_unwinding && ++g_capture_unwind_frames > CAPTURE_UNWIND_FRAME_CAP;
+    if (unwind_over_cap && g_pending_root_action == ROOT_ACTION_CALL) {
+        /* A netplay root call: no notice, no status; the caller reports and retries. */
+        void (*fn)(bool) = g_root_call;
+        g_pending_root_action = ROOT_ACTION_NONE;
+        g_root_call = NULL;
+        g_capture_unwind_frames = 0;
+        capture_unwinding = false;
+        fn(false);
+    } else if (unwind_over_cap) {
         LOG_WARN("savestate: %s abandoned — game did not reach a root boundary "
                  "within %d unwind frames (stuck in an indefinite input-wait?)\n",
                  g_pending_root_action == ROOT_ACTION_LOAD ? "load" : "capture",
@@ -468,9 +480,11 @@ void host_process_frame(void) {
     /* Poll input */
     platform_input_poll();
     uint16_t current_pad = platform_input_get_pad();
-    /* Co-op: core.pad1 follows the input focus (coop/coop_input.h) */
-    if (coop_player_count() > 1 || coop.focus != 0)
-        current_pad = coop_input_feed(current_pad, capture_unwinding);
+    /* Co-op: core.pad1 follows the input focus (coop/coop_input.h). Called every
+     * frame, solo too: coop_tick below can join or leave a Player, and the next
+     * game frame's coop_pad_new() must then hold this frame's presses, not an
+     * old frame's. In solo it returns P1's pad unchanged. */
+    current_pad = coop_input_feed(current_pad, capture_unwinding);
     /* A capture unwind runs hundreds of frames in a few milliseconds; feeding them
      * the live pad would let a button held across F6/F7 (or power-off) advance
      * prompts or scroll menus the player never saw. The unwind gets no input: a
@@ -488,6 +502,8 @@ void host_process_frame(void) {
         current_pad = core.pad1_raw;
     }
     memory_update_joypad(current_pad);
+    if (coop_player_count() > 1)
+        coop_all_focus_edges();  /* focus ALL: any one Player's press is a press */
 
     /* Co-op join/leave (coop/coop.h). An unwind frame is skipped entirely: its
      * pads are not real input, so it must neither release a hold nor count one. */
@@ -607,6 +623,20 @@ void host_request_load(void) {
     g_capture_status = HOST_CAPTURE_PENDING;
 }
 
+/* Netplay root call. See game_main.h. */
+bool host_request_root_call(void (*fn)(bool reached)) {
+    if (g_pending_root_action != ROOT_ACTION_NONE || !fn)
+        return false;
+    g_root_call = fn;
+    g_pending_root_action = ROOT_ACTION_CALL;
+    g_capture_unwind_frames = 0;
+    return true;
+}
+
+bool host_capture_unwinding(void) {
+    return g_pending_root_action != ROOT_ACTION_NONE;
+}
+
 /* Outcome of the last save/load request (firmware rail-hold handshake). See game_main.h. */
 HostCaptureStatus host_capture_status(void) {
     return g_capture_status;
@@ -629,6 +659,13 @@ void host_root_boundary(void) {
 
     g_pending_root_action = ROOT_ACTION_NONE;
     g_capture_unwind_frames = 0;
+
+    if (action == ROOT_ACTION_CALL) {
+        void (*fn)(bool) = g_root_call;
+        g_root_call = NULL;
+        fn(true);
+        return;
+    }
 
     /* Gate audio output across the blocking slot I/O below: the producer is
      * stalled here (root boundary), so a port with a free-running output
@@ -1657,6 +1694,9 @@ void game_init(void) {
      *   - display_text_init:       dialogue_blob / inline_string_table → broken
      *                              dialogue, signs, and menu text
      *   - text_system_init:        fonts[] glyph data → blank/garbled rendered text
+ *   - load_enemy_spawn_data:   battle_action_table / enemy_config_table → items used
+ *                              from Goods skip their description (found by a netplay
+ *                              join desync: the joiner loads into a fresh process)
      * (The map tileset arrangement scratch is rebuilt separately by
      * map_loader_savestate_rebind() in read_slot, since it must run AFTER the snapshot
      * restores ml.loaded_tileset_combo. ensure_item_config() already self-heals lazily.) */
@@ -1664,6 +1704,7 @@ void game_init(void) {
     load_event_script_data();
     display_text_init();
     text_system_init();
+    load_enemy_spawn_data();
 
     /* Push the permanent GAME_MODE_OVERWORLD root (g_mode_stack[0]) so the first
      * game_loop_step() dispatches its OWP_BOOT_SETUP phase (boot_begin -> intro).
