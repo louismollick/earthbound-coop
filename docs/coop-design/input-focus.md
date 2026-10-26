@@ -8,7 +8,7 @@ Research memo, 2026-10-26. Line numbers are against d32c421 and drift.
 - The Leader's step reads its Owner's pad while someone else has the focus (`coop_leader_pad_enter/leave`).
 - Talk/Check swap in the focused Walker only while it is independent (`coop_interact`).
 - The text-script party select (a shop's "Which of you will carry this?") also starts on the Walker.
-- Battle is ALL throughout until M2 calls `coop_set_focus()` at the hook points below.
+- Battle (M2, `src/coop/coop_battle.{h,c}`): one hook at the top of every `mode_step_battle` iteration requests the Owner of `party_members[party_slot]` during `BTL_MENU_SELECT`..`BTL_MENU_DECIDE` and ALL in every other phase, instead of separate calls at `menu_open`, `BTL_ENEMY_AI` and the abort paths. The title tag is `coop_battle_title()` in `bm_build_menu`.
 
 ## Model
 

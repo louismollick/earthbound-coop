@@ -73,10 +73,10 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 
 ## M2 Battle
 
-- [ ] Command input for each Hero comes from its Owner's pad: command menu, PSI, Goods, target selection.
-- [ ] Party-wide choices: Run belongs to the Leader's Owner. Auto Fight keeps vanilla behaviour (whole Party), and any Player can cancel it.
-- [ ] The battle UI shows whose turn it is: a small P1 to P4 tag next to the acting Hero's name. Keep it tiny and pixel-consistent with the game.
-- [ ] Scenarios: a 2-Player and a 4-Player battle where each Owner's input decides their Hero's command, and the other Players' input is ignored during that menu. Win, flee and game over all exit cleanly.
+- [x] Command input for each Hero comes from its Owner's pad: command menu, PSI, Goods, target selection.
+- [x] Party-wide choices: Run belongs to the Leader's Owner. Auto Fight keeps vanilla behaviour (whole Party), and any Player can cancel it.
+- [x] The battle UI shows whose turn it is: a small P1 to P4 tag next to the acting Hero's name. Keep it tiny and pixel-consistent with the game.
+- [x] Scenarios: a 2-Player and a 4-Player battle where each Owner's input decides their Hero's command, and the other Players' input is ignored during that menu. Win, flee and game over all exit cleanly.
 
 ## M3 Menus and dialogue
 
@@ -146,6 +146,10 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - "Who?" cursors (Goods, PSI if the Hero can use PSI, Equip, Status, and the text-script party select such as a shop's "Which of you will carry this?") start on the focused Walker. "Whom?" target selects keep vanilla's start. (M3)
 - Whoever starts an interaction drives all of it, saving at a phone included, though CONTEXT.md lists saving as a Leader action: the lock is simpler than a per-action rule, and the save is party-wide anyway. (M3)
 - Battle focus is ALL for the whole battle until M2 moves it per Hero with `coop_set_focus()`. (M3)
+- Run Away goes with the turn's first command menu, as in vanilla, so its Hero's Owner picks it. That is the Leader's Owner unless the Leader can't act (asleep, solidified, ...); then the first Hero who can act carries Run Away and Auto Fight, and its Owner picks them. No special rule. (M2)
+- Battle focus is per phase: the Hero's Owner from `BTL_MENU_SELECT` to `BTL_MENU_DECIDE`, ALL in every other phase. Between two command menus there are 1-2 ALL frames where presses do nothing. During Auto Fight the focus still visits each Owner on those menu frames; B is read at text pushes under ALL, so any Player cancels it. (M2)
+- A Spectator gets no command menu until Battle rotation (a later item): in a Solo Chapter battle the solo Hero's Owner picks every command, and the Spectator only advances text. (M2)
+- The turn tag is the Owner's pad number in the title's tiny font after a space ("Paula P2"), co-op only. With custom 5-letter names it is still 8 glyphs, well inside the 16-tile title slot and the narrowest (Jeff) window. (M2)
 
 ## Blocked
 

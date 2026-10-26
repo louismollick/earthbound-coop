@@ -250,6 +250,21 @@ class Session:
                 return [o for _, o in opts], sel
         return None
 
+    def windows(self):
+        """The open windows and the driven menu: ``text``'s WIN and MENU lines.
+
+        Two equal results mean nothing on screen changed (no cursor move, no window opened or closed).
+        """
+        return [ln for ln in self.do("text") if ln.startswith(("WIN ", "MENU "))]
+
+    def title(self):
+        """The focused window's title (``WIN w15* [Paula P2]|`` -> ``"Paula P2"``), or None."""
+        for ln in self.windows():
+            m = re.match(r"WIN w\d+\* \[([^\]]*)\]\|", ln)
+            if m:
+                return m.group(1)
+        return None
+
     def boot(self):
         """Boot the save's file 1 (Continue) until the Leader can walk."""
         self.do(BOOT, timeout=300)
