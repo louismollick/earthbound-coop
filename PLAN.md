@@ -104,7 +104,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - [ ] Netcode in `port/unix/net/`.
   - UDP transport. Every packet carries the last K frames of local input for redundancy.
   - Fixed input delay, 3 frames by default, set with `--input-delay`.
-  - Up to 4 Players. Direct IP and port only: no matchmaking and no NAT traversal (document Tailscale or port forwarding).
+  - Up to 4 Players, and a machine may have several local Players (keyboard, IJKL layout, controllers) in one Session. Direct IP and port only: no matchmaking and no NAT traversal (document Tailscale or port forwarding).
 - [ ] Session flow.
   - `--host PORT` and `--join ADDR:PORT`.
   - A joining Player gets a savestate from the Host at a root-loop boundary, then everyone resumes on the same frame.
@@ -121,7 +121,8 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 ## M7 Polish
 
 - [ ] Simultaneous battle input: every Player picks their Heroes' commands at the same time, and the turn starts when all are locked in. Vanilla order is preserved when one Player owns several Heroes.
-- [ ] Solo Chapter companion: a small cat, using an existing cat overworld sprite from the ROM, that Spectators walk during Solo Chapters. It is overworld-only and sits out battles. Gate it behind `--coop-cat` until the user signs off.
+- [ ] Solo Chapter Companion (CONTEXT.md): Spectators walk a Mr. Saturn (existing overworld sprite) during Solo Chapters. Overworld only, sits out battles. A Companion can trigger Look-only interactions (static scan of the text script); anything else plays a Mr. Saturn sound with no text. On by default, no flag.
+- [ ] Battle rotation in Solo Chapters: the solo Hero's command menu goes to its Owner, then each Spectator in join order, one turn each.
 
 ## Decisions made during the build
 
@@ -129,6 +130,8 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - Joins persist across new games and file loads within a process; a savestate load replaces them with the savestate's. (M0)
 - Ownership is dealt by join order, not by Player number. Walkers are derived (not stored) from ownership plus the Party. (M0)
 - Savestate format stays v16; the new SECTION_COOP changes `layout_id`, which already rejects old slots. (M0)
+- Solo Chapters: Mr. Saturn Companion with Look-only interactions plus Battle rotation, both shipped on by default; Claude owns testing and sign-off. (user, 2026-10-26)
+- Local and online co-op are both first-class, including mixed (several local Players on one machine in an online Session). Claude owns all testing and should improve the test loop when it finds gaps. (user, 2026-10-26)
 - Co-op join edges use co-op's own serialized pad history; capture-unwind frames are invisible to co-op. (M0 review)
 - Design memos for input focus (M2/M3) and Walkers (M1) are in `docs/coop-design/`. (M0)
 - A Walker must be able to walk: unconscious and diamondized Heroes are skipped, as vanilla's party sort does. (M1)
