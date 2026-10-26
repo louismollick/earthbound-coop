@@ -492,7 +492,9 @@ static const char *not_idle_reason(void) {
         return "interaction";
     if (ow.input_disable_frame_counter)
         return "input-disabled";
-    if (entities.tick_callback_hi[PARTY_LEADER_ENTITY_INDEX] & (OBJECT_TICK_DISABLED | OBJECT_MOVE_DISABLED))
+    /* The Leader's entity: slot 24 is Ness's, which isn't the Leader (and may
+     * hold a stale frozen entity) when Ness is out of the Party */
+    if (entities.tick_callback_hi[game_state.current_party_members] & (OBJECT_TICK_DISABLED | OBJECT_MOVE_DISABLED))
         return "leader-frozen";
     /* The leader moves by itself: an escalator ride, a stairs walk, a
      * camera_mode auto-move, or a replayed auto-movement (door/escalator
