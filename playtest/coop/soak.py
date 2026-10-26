@@ -26,6 +26,12 @@ Failures, per save:
 - ``HANG``: a chunk took longer than ``--chunk-timeout`` wall seconds (the process is
   sampled with macOS ``sample`` into ``stack.txt``, then killed).
 
+``--net``: instead, each save is played as a localhost netplay Session through
+``playtest/net/netrun.py``, one headless machine per Player, each running its Player's
+bot as a fixed input script (no pull toward the Leader: a script can't read state). A
+Session passes when every machine ends cleanly with no desync report and agrees with the
+Host on every hash point. ``--net-delay/--net-latency/--net-loss`` set the link.
+
 Dad's save-and-quit ends in a wait for RESET, as in the original; the bot "presses RESET"
 by restarting the game from the SRAM just saved (a ``<save>-resetN`` output dir) and plays on.
 
@@ -390,6 +396,69 @@ def soak_one(save, args):
     return res
 
 
+def bot_script(seed, save, player, frames):
+    """Player ``player``'s bot input as a fixed --input script for one netplay machine.
+
+    A netplay machine runs an ``--input`` script, so the bot can't read state: no pull
+    toward the Leader, and walking-mode taps throughout. The machine's local Player is
+    its script's P1. Ends with a long wait (the Session ends at --net-end-frame).
+    """
+    bot = PlayerBot(random.Random(f"{seed}:{save}:P{player}"), follow_leader=False)  # noqa: S311
+    out, cur, run = [], None, 0
+    for _ in range(frames):
+        pad = bot.frame()
+        if pad != cur:
+            if run:
+                out.append(f"wait {run}")
+            out.append(f"hold P1 {pad}")
+            cur, run = pad, 0
+        run += 1
+    out += [f"wait {run}", "hold P1 -", "wait 1000000"]
+    return "\n".join(out) + "\n"
+
+
+def net_one(save, args):
+    """Soak one save as a netplay Session: one headless machine per Player via playtest/net/netrun.py.
+
+    Every machine must end cleanly with no desync report and agree with the Host on every
+    hash point (netrun's checks); returns a result dict like soak_one's.
+    """
+    sys.path.insert(0, str(lib.PLAYTEST / "net"))
+    import netrun  # noqa: PLC0415 - only the --net mode needs it
+
+    t0 = time.time()
+    frames = int(args.minutes * 3600)
+    host = netrun.boot_then(bot_script(args.seed, save.stem, 1, frames))
+    clients = [netrun.Peer(f"p{p}", bot_script(args.seed, save.stem, p, frames)) for p in range(2, args.players + 1)]
+    out = Path(args.out) / "net" / save.stem
+    res = {"save": save.stem, "seed": args.seed, "players": args.players, "minutes": args.minutes, "frames": frames}
+    res["repro"] = repro_command(args, save.stem, args.minutes) + " --net"
+    try:
+        r = netrun.run(
+            args.bin,
+            out,
+            save,
+            host,
+            clients,
+            netrun.Net(args.net_latency, args.net_latency / 3, args.net_loss, args.seed),
+            input_delay=args.net_delay,
+            end_frame=frames,
+            timeout=args.net_timeout,
+            wait_players=args.players,
+        )
+        res["wall_s"] = round(r.wall, 1)
+        r.check_clean(frames)
+        r.check_agreement(min_common=frames // 60 - 2)
+        res["status"] = "PASS"
+        res["detail"] = f"{len(r.agreement(r.machines[0], r.machines[-1])[0])} hash points agree, {r.summary()}"
+    except netrun.NetError as e:
+        res["status"] = "NET_FAIL"
+        res["detail"] = str(e)
+        res.setdefault("wall_s", round(time.time() - t0, 1))
+    res["dir"] = str(out)
+    return res
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-k", action="append", default=[], help="only saves whose name contains this (repeatable)")
@@ -403,6 +472,15 @@ def main():
     ap.add_argument("--chunk-timeout", type=float, default=120, help="wall seconds per chunk before HANG")
     ap.add_argument("--progress", action="store_true", help="print each save's progress every 10 game minutes")
     ap.add_argument("--out", default=str(OUT), help=f"output dir (default {OUT})")
+    ap.add_argument(
+        "--net",
+        action="store_true",
+        help="play each save as a localhost netplay Session instead (one machine per Player, playtest/net/)",
+    )
+    ap.add_argument("--net-delay", type=int, default=20, help="--net: input delay in frames (default 20)")
+    ap.add_argument("--net-latency", type=float, default=0, help="--net: one-way latency in ms (jitter = 1/3)")
+    ap.add_argument("--net-loss", type=float, default=0, help="--net: packet loss, 0-1")
+    ap.add_argument("--net-timeout", type=float, default=1800, help="--net: wall seconds per Session")
     args = ap.parse_args()
     args.bin = str(Path(args.bin).resolve())
     if not Path(args.bin).exists():
@@ -416,6 +494,22 @@ def main():
     print(f"soak: {len(saves)} saves x {args.minutes:g} min, {args.players} Players, seed {args.seed}, {args.bin}")
     t0 = time.time()
     results = []
+    if args.net:
+        if args.players < 2:
+            sys.exit("--net needs --players 2..4")
+        failed = 0
+        with ThreadPoolExecutor(max_workers=args.jobs) as ex:
+            for r in ex.map(lambda s: net_one(s, args), saves):
+                results.append(r)
+                failed += r["status"] != "PASS"
+                print(f"{r['status']:<9} {r['save']:<14} {r['wall_s']:6.1f}s  {r['detail'][:300]}", flush=True)
+                if r["status"] != "PASS":
+                    print(f"    out: {r['dir']}\n    repro: {r['repro']}", flush=True)
+        results_path = Path(args.out) / "net" / "results.json"
+        results_path.parent.mkdir(parents=True, exist_ok=True)
+        results_path.write_text(json.dumps(results, indent=1))
+        print(f"soak --net: {len(results) - failed}/{len(results)} Sessions clean (results: {results_path})")
+        return 1 if failed else 0
     with ThreadPoolExecutor(max_workers=args.jobs) as ex:
         for r in ex.map(lambda s: soak_one(s, args), saves):
             results.append(r)

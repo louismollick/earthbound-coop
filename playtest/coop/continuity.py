@@ -283,10 +283,11 @@ def check(name, binary, save_bytes, players, source, total_frames=None, warm=Fal
 def locate(name, binary, max_frames=2400):
     """Find the first frame after the split where B's state differs from A's.
 
-    Reruns a finished check's stream (``OUT/name/stream.json``) as C (A's stream, unbroken)
-    and B (restore mid in a fresh process), with every ``wait N`` after the split cut into
-    single frames and a ``snap qK`` after each (snap/state commands of the stream left
-    out; both runs get the same commands, so they stay comparable). Returns a description
+    Reruns a finished check's stream (``OUT/name/stream.json``) as C (A's stream, restoring
+    mid in-process) and B (restore mid in a fresh process), with every ``wait N`` after the
+    split cut into single frames and a ``snap qK`` after each frame and each other command
+    (snap/state commands of the stream left out; both runs get the same commands, so they
+    stay comparable; "frames" below counts probes). Returns a description
     of the first differing probe, or None.
     """
     root = OUT / name
@@ -294,11 +295,14 @@ def locate(name, binary, max_frames=2400):
     split, batches, players = d["split"], d["batches"], d["players"]
     rest, frames = [], 0
     for cmd in (c for b in batches[split:] for c in b if not c.startswith(("snap", "state"))):
-        if not cmd.startswith("wait ") or frames >= max_frames:
+        if frames >= max_frames:
             rest.append(cmd)
-            continue
-        for _ in range(int(cmd.split()[1])):
-            rest += ["wait 1", f"snap q{frames}"] if frames < max_frames else ["wait 1"]
+        elif cmd.startswith("wait "):
+            for _ in range(int(cmd.split()[1])):
+                rest += ["wait 1", f"snap q{frames}"] if frames < max_frames else ["wait 1"]
+                frames += 1
+        else:  # press/until/N BUTTONS can't be cut up: probe after the whole command
+            rest += [cmd, f"snap q{frames}"]
             frames += 1
     after = restore_cmds(batches[:split])
     loc = root / "locate"
@@ -323,7 +327,7 @@ def locate(name, binary, max_frames=2400):
     for k in range(frames):
         sd = diff_slots(read_slot(c.sess.dir / "snaps" / f"q{k}"), read_slot(b.sess.dir / "snaps" / f"q{k}"))
         if sd:
-            found = f"first differs {k + 1} frames after the restore: {sd}"
+            found = f"first differs at probe {k} after the restore: {sd}"
             break
     for run in (c, b):  # the per-frame slots are big; keep only the logs
         shutil.rmtree(run.sess.dir / "snaps", ignore_errors=True)

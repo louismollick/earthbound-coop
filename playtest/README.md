@@ -251,7 +251,9 @@ Two more co-op checks (details in each file's docstring):
   lines, wall-clock hangs and `SUSPECT_FROZEN` (nothing on STATE/PARTY/PLAYERS/FOLLOW,
   the windows or the screen changed for 90 s). Each failure prints a repro command;
   `<save>/repro.play` replays the run with `--input`. Results go to
-  `playtest/out/coop/soak/` (`--out`).
+  `playtest/out/coop/soak/` (`--out`). `--net` plays each save as a localhost netplay
+  Session instead (one machine per Player, `playtest/net/netrun.py`; no desync, every
+  hash point agrees).
 - **Savestate continuity** (`playtest/coop/continuity.py`): a stream played straight
   through vs snapped at its middle and restored in a fresh process must end with
   byte-identical slots (decompressed, compared section by section; also a second full
