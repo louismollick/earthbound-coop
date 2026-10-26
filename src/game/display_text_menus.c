@@ -934,6 +934,14 @@ static void load_telephone_contacts_table(void) {
 }
 
 
+static void load_menu_title_assets(void);
+
+void display_text_menus_bind_asset_tables(void) {
+    load_store_table();
+    load_telephone_contacts_table();
+    load_menu_title_assets();
+}
+
 static void load_menu_title_assets(void) {
     if (!status_equip_text_7) {
         status_equip_text_7_size = ASSET_SIZE(ASSET_DATA_STATUS_EQUIP_WINDOW_TEXT_7_BIN);

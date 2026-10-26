@@ -262,6 +262,8 @@ void set_window_focus(uint16_t window_id);
 
 /* Initialize the window system */
 void window_system_init(void);
+/* Bind the window ROM tables (border animation, status tiles); game_init, idempotent. */
+void window_bind_asset_tables(void);
 
 /* Create a window. Returns pointer to window info. */
 WindowInfo *create_window(uint16_t window_id);

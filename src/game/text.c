@@ -133,6 +133,9 @@ static void convert_1bpp_to_2bpp(const uint8_t *src, uint8_t *dst, int rows) {
 
 /* --- Text system init --- */
 
+static bool ensure_flavour_palettes(void);
+static void load_equip_text_data(void);
+
 void text_system_init(void) {
     /* Assembly: ENABLE_WORD_WRAP is set to 0xFF during file select
      * (show_file_select_menu.asm:60) and stays set for the rest of the game.
@@ -157,6 +160,11 @@ void text_system_init(void) {
 
     /* Cursor arrow tiles (0x41/0x51 and 0x28D/0x29D) come from the
        TEXT_WINDOW_GFX asset uploaded by text_load_window_gfx(). */
+
+    /* Bind the read-only text tables here (game_init runs this), so a savestate
+     * restored mid-menu in a fresh process finds them bound. */
+    ensure_flavour_palettes();
+    load_equip_text_data();
 }
 
 void text_upload_font_tiles(void) {

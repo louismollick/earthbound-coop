@@ -2378,6 +2378,13 @@ static void load_status_tile_tables(void) {
     }
 }
 
+/* Bind the border-animation and status tile tables (game_init; idempotent), so a
+ * savestate restored mid-animation in a fresh process finds them bound. */
+void window_bind_asset_tables(void) {
+    load_border_anim_tiles();
+    load_status_tile_tables();
+}
+
 /*
  * Scan an afflictions[7] array for the first non-zero entry.
  * Priority: slot 0, then slot 3, then slots 1-6.

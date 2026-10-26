@@ -140,6 +140,8 @@ enum {
     SECTION_FRAME_CALLBACK       = 0x002A,
     SECTION_ENDING_CREDITS       = 0x002B,
     SECTION_COOP                 = 0x002C,  /* co-op join state (coop/coop.h) */
+    SECTION_HPPP_METER_SPEED     = 0x002D,
+    SECTION_SAVE_FILES_PRESENT   = 0x002E,
     SECTION_TERMINATOR       = 0xFFFF,
 };
 
@@ -279,6 +281,11 @@ static const StateSection k_sections[] = {
     ADD(SECTION_LOADED_BG_DATA_1,     &loaded_bg_data_layer1, sizeof(loaded_bg_data_layer1)),
     ADD(SECTION_LOADED_BG_DATA_2,     &loaded_bg_data_layer2, sizeof(loaded_bg_data_layer2)),
     ADD(SECTION_CURRENT_SAVE_SLOT,    &current_save_slot,     sizeof(current_save_slot)),
+    /* Fast HP/PP rolling after reset_hppp_rolling (battle end, item use) until the
+     * meters settle; and the file-select menu's slot occupancy (its copy/delete
+     * submenus read it). */
+    ADD(SECTION_HPPP_METER_SPEED,     &fastest_hppp_meter_speed, sizeof(fastest_hppp_meter_speed)),
+    ADD(SECTION_SAVE_FILES_PRESENT,   save_files_present,     sizeof(save_files_present)),
 
     /* VWF text-render engine cursor (text.c globals): without these a savestate
      * taken mid-typewriter resumes the partial glyph run with a stale cursor →

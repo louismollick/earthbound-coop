@@ -1268,10 +1268,6 @@ void setup_battle_enemy_sprites(void) {
     bt.current_battle_sprites_allocated = 0;
     bt.current_battle_spritemaps_allocated = 0;
 
-    /* Load BATTLE_SPRITES_POINTERS table (110 entries × 5 bytes each) */
-    if (!battle_sprites_pointers_data)
-        battle_sprites_pointers_data = ASSET_DATA(ASSET_DATA_BATTLE_SPRITES_POINTERS_BIN);
-
     /* Load BTL_ENTRY_PTR_TABLE to iterate enemy group (assembly lines 13-21) */
     static const uint8_t *ptr_table = NULL;
     if (!ptr_table)

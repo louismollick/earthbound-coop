@@ -1096,8 +1096,10 @@ static const uint16_t entity_tile_byte_width_table[ENTITY_SIZE_COUNT] = {
     0x0040
 };
 
-/* Fade state entries — derived from ert.buffer, reconstructed at init */
-static EntityFadeEntry *entity_fade_entries;  /* ert.buffer[BUF_ENTITY_FADE_STATES] (asm BUFFER+$7C00) */
+/* Fade state entries: ert.buffer[BUF_ENTITY_FADE_STATES] (asm BUFFER+$7C00). Derived
+ * on each use, not cached, so a savestate restored mid-fade in a fresh process (where
+ * init_entity_fade_states_buffer never ran) reads the restored entries. */
+#define entity_fade_entries buf_entity_fade_entries(ert.buffer)
 
 /*
  * INIT_ENTITY_FADE_STATES_BUFFER (C4C8A4)
@@ -1106,7 +1108,6 @@ static EntityFadeEntry *entity_fade_entries;  /* ert.buffer[BUF_ENTITY_FADE_STAT
 static void init_entity_fade_states_buffer(void) {
     ert.entity_fade_states_buffer = 0;
     ert.entity_fade_states_length = 0;
-    entity_fade_entries = buf_entity_fade_entries(ert.buffer);
     memset(entity_fade_entries, 0, BUF_ENTITY_FADE_STATES_SIZE);
 }
 
