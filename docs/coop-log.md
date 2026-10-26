@@ -2,7 +2,7 @@
 
 ## Summary for Louis (read this first)
 
-M0 to M4, M6 and M7 are done. M5 (Windows) is with the session on your desktop. Nothing is blocked. The `coop` branch builds clean at both viewports, and with one Player the game is bit-identical to upstream (32 regress cases, every frame hashed). 82 co-op scenarios pass, also under ASan+UBSan and across a save/restore in a fresh process. A bot soaked all 36 story saves for 30 in-game minutes with 4 Players (with a detector that fails any 90 s with no game progress), and a 30-minute online Session ran with 100 ms latency, 30 ms jitter and 2% loss without a desync.
+M0 to M7 are done, except your own 10-minute test on the PC (the last M5 item). Windows builds with MinGW-w64 (guide: `docs/coop-windows.md`). Mac, Linux and Windows produce the same frame hashes for every frame of every regress case, and Linux and Windows machines play online together with no desync. Nothing is blocked. The `coop` branch builds clean at both viewports, and with one Player the game is bit-identical to upstream (32 regress cases, every frame hashed). 82 co-op scenarios pass, also under ASan+UBSan and across a save/restore in a fresh process. A bot soaked all 36 story saves for 30 in-game minutes with 4 Players (with a detector that fails any 90 s with no game progress), and a 30-minute online Session ran with 100 ms latency, 30 ms jitter and 2% loss without a desync.
 
 ### What works
 - **Joining:** up to 4 Players, local, online or mixed. Press Start on an unjoined pad to join. Hold Select+Start for 2 s to leave.
@@ -38,6 +38,7 @@ port/unix/build-wide/earthbound --join 127.0.0.1:7744               # window 2: 
 - **Networking:** there's no NAT traversal. Use Tailscale, or forward UDP 7744. Full guide in `docs/coop-online.md`.
 
 ### What I'd like you to playtest by feel
+0. **Windows, 10 minutes (M5's last item):** build per `docs/coop-windows.md`, play with a controller and the keyboard, and try one online Session between the PC and the Mac over Tailscale.
 1. **The leash and camera with 2 Players:** does the midpoint camera feel calm, and is the leash margin too tight?
 2. **Claimed battle menus:** is pressing A to claim a menu intuitive? Is the "P1 P2" waiting box clear enough, or would you rather have sequential menus back?
 3. **Mr. Saturn:** is it fun, and does the "can't do that" sound read clearly? It hides during any dialogue that locks the Party.
