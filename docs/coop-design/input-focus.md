@@ -104,3 +104,5 @@ Behaviour:
 ## Simultaneous battle input (M7)
 
 Parallel menus are hard: there is one mode stack and global menu state, and there are only 5 title slots. A cheap version, "first come, first served": in `btl_step_menu_body`, the next menu goes to whichever Player with unchosen Heroes presses A first. Turn order comes from initiative (`btl_find_attacker`, `battle.c:4413`), not from menu order.
+
+**As built:** claimed menus (`src/coop/coop_battle.{h,c}`). `btl_step_menu_body` hands over to `btl_step_menu_body_coop` while `coop_battle_claiming()` (set by the `btl_start_turn` hook in co-op, cleared at the loop's end): it computes the Heroes who can act and have no command yet (not in `bt.party_members_with_selected_actions[0..num_selected)`), and `coop_battle_claim()` picks the slot or waits a frame (a BW_FRAMES push, so the background moves). `coop_input_feed` queues A presses from Players who don't hold the open menu (`coop_battle_note_claims`, `CoopState.claims`). B in `btl_step_menu_decide` goes to `coop_battle_back()`. The PLAYERS line shows `choose=P1,P2` during the wait, and `until input` is met there.

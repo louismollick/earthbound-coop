@@ -122,8 +122,10 @@ uint16_t coop_input_feed(uint16_t p1_pad, bool unwinding) {
         coop.focus = (uint8_t)want;
     }
     coop.focus_new = focused(pressed, want);
-    if (coop.focus_in_battle)
+    if (coop.focus_in_battle) {
+        coop_battle_note_claims(pressed, want);  /* A queues for the next command menu */
         coop_battle_retitle();  /* the open command menu's tag names its Player */
+    }
     return focused(held, want);
 }
 

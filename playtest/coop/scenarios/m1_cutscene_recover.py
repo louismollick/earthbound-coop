@@ -31,7 +31,7 @@ def run(ctx):
     ctx.shot(s, "cutscene: Paula on Ness's trail")
 
     # The voyage, the Kraken (debug win) and the landing
-    s.do("until in:BATTLE_MENU 8000 advance", timeout=300)
+    s.command_menu(8000)
     s.do("debug on; press SELECT+START; until idle 8000 advance", timeout=300)
     st = s.state()
     expect(st.idle == "yes" and st.pos[1] < 5000, "landed in Scaraba with control back", st.state)

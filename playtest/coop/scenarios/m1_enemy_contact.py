@@ -30,7 +30,7 @@ def run(ctx):
     expect(paula != lead, "Paula away from Ness", paula)
     ctx.shot(s, "P2 touched an enemy")
 
-    s.do("until in:BATTLE_MENU 900 advance")
+    s.command_menu(900)
     st = s.state()
     expect("BATTLE" in st.state, "the whole Party in battle", st.state)
     expect(st.party.count("|") == 2, "three Heroes in the battle", st.party)

@@ -5,6 +5,9 @@ encounter. Each command menu is titled with its Owner's tag and the focus is tha
 Player's presses change nothing on screen (command menu, PSI menus, the "Whom?" ally select, the enemy
 target select). Ness casts Lifeup on Paula, Paula and Poo defend, Jeff shoots, and the battle text says
 so. Any Player advances it.
+
+Menus are claimed (M7): P1's A opens Ness's menu, and the other Player's A on an open menu only queues them for
+the next one, so the menus still come in Party order here.
 """
 
 from lib import expect
@@ -34,6 +37,7 @@ def run(ctx):
     s = ctx.session(save="28-Scaraba", players=2)
     s.boot()
     s.do("teleport 1400 5600 4; until battle 1500 RIGHT|DOWN|LEFT|UP; until input 1500; wait 10")
+    s.do("press A; until input 300; wait 10")  # P1 claims the first menu
 
     # Ness (P1): PSI > Recover > Lifeup > Whom? Paula. P2 can't touch any of it.
     menu_turn(s, "Ness P1", "P1")
@@ -68,7 +72,9 @@ def run(ctx):
     for want in ("Ness tried", "Paula is on guard", "Jeff attacks", "Poo is on guard"):
         expect(want in said, f"'{want}' in the round's text", said)
 
-    # Round 2 is back on Ness's menu, P1's again; the debug instant win exits.
+    # Round 2 waits for a claim again; P1 claims Ness's menu; the debug instant win exits.
+    expect(s.state().choose == [1, 2], "round 2 waits for a claim", s.state().players_line)
+    s.do("press A; until input 300; wait 10")
     menu_turn(s, "Ness P1", "P1")
     s.do("debug on; press SELECT+START; until idle 1500")
     st = s.state()

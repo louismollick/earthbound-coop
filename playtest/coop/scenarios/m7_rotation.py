@@ -3,7 +3,8 @@
 34-Magicant (Ness alone). Every Player but Ness's Owner (P1) is absent, so turn 1 is P1's, turn 2 P2's, and so
 on, round and round. Each turn the menu is titled with the rotation Player's tag, the focus is theirs, and the
 other Players' presses change nothing. Whoever holds the menu may pick Run Away. The rotation carries into the
-next battle instead of restarting at the Owner.
+next battle instead of restarting at the Owner. A turn whose menu is skipped (the enemies' surprise opening)
+still uses up its Player's place.
 """
 
 from lib import expect
@@ -20,14 +21,17 @@ def in_battle(s):
 
 
 def battle(s, route):
-    """Walk ``route`` (then back and forth) until a battle starts; wait for the first command menu."""
+    """Walk ``route`` (then back and forth) until a battle starts; wait for the first command menu.
+
+    Returns the number of turns that went by without a menu: 1 after the enemies' surprise opening, else 0.
+    """
     s.do(route)
     for d in ("LEFT", "RIGHT", "UP", "DOWN") * 6:
         if in_battle(s):
             break
         s.do(f"until battle 120 {d}")
     expect(in_battle(s), "a battle", s.state().state)
-    s.do("until input 1500; wait 10")
+    return int("opening attack" in s.said("until input 1500; wait 10"))
 
 
 def turn(s, players, holder):
@@ -64,14 +68,14 @@ def run(ctx):
     expect(opts[sel] == "Run Away", "P2's cursor on Run Away", (opts, sel))
     said = s.said("P2 press A; until input 3000 P1 advance; wait 10")
     expect("tried to get away" in said, "P2 made Ness try to run", said)
+    turns = 2
     if in_battle(s):  # the run failed: turn 3 is P1's again; win it
         turn(s, (1, 2), 1)
         s.do(WIN)
-        next_holder = 2  # turns 1-3 played: the next battle's first turn is the 4th
-    else:
-        next_holder = 1  # turns 1-2 played
+        turns = 3
     expect(s.state().idle == "yes", "back on the overworld", s.state().state)
-    battle(s, FIRST_BATTLE)
+    turns += battle(s, FIRST_BATTLE)
+    next_holder = turns % 2 + 1  # the next battle's first menu is turn turns + 1
     turn(s, (1, 2), next_holder)
     ctx.shot(s, f"2P next battle: rotation carried, Ness P{next_holder}")
 
@@ -86,5 +90,5 @@ def run(ctx):
         defend(s, holder, (1, 2, 3))
     turn(s, (1, 2, 3), 1)
     s.do(WIN)
-    battle(s, FIRST_BATTLE)
-    turn(s, (1, 2, 3), 2)
+    turns = 4 + battle(s, FIRST_BATTLE)
+    turn(s, (1, 2, 3), turns % 3 + 1)

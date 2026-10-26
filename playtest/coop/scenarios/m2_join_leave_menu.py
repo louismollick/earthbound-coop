@@ -6,6 +6,8 @@ leave can hand an open menu (or its Goods/PSI/target child) to another Player:
 - 2 Players, Poo's menu (P2's): P3 joins, Poo becomes P1's. Tag "Poo P1", focus P1, P2 can't touch it.
 - Solo, Paula's Goods open: P2 joins, Paula becomes P2's. Only P2 moves the Goods cursor, and B back shows
   "Paula P2".
+Menus are claimed (M7): each menu here is opened by its Owner's A.
+
 - 4 Players, Jeff's menu (P3's): P2 leaves, so the deal shifts and Jeff becomes P4's. Tag "Jeff P4", focus
   P4, P3 can't touch it any more. (P3 can't be the one leaving: its Select+Start, held on its own menu,
   backs out of the menu as in vanilla.)
@@ -50,9 +52,10 @@ def run(ctx):
     s.boot()
     s.do(BATTLE)
     for title, owner in (("Ness P1", 1), ("Paula P2", 2), ("Jeff P1", 1)):
+        s.do(f"{'P2 ' if owner == 2 else ''}press A; until input 300; wait 10")  # claim
         at_menu(s, title, f"P{owner}")
         defend(s, owner)
-    at_menu(s, "Poo P2", "P2")
+    at_menu(s, "Poo P2", "P2")  # the last Player with a Hero left: no claim
     s.do("P3 press START; wait 10")
     expect(s.state().players[3].joined, "P3 joined", s.state().players_line)
     at_menu(s, "Poo P1", "P1")
@@ -82,10 +85,11 @@ def run(ctx):
     s = ctx.session("leave4p", save="28-Scaraba", players=4)
     s.boot()
     s.do(BATTLE)
-    for title, owner in (("Ness P1", 1), ("Paula P2", 2)):
+    for title, owner in (("Ness P1", 1), ("Paula P2", 2), ("Jeff P3", 3)):
+        s.do(f"{f'P{owner} ' if owner > 1 else ''}press A; until input 300; wait 10")  # claim
         at_menu(s, title, f"P{owner}")
-        defend(s, owner)
-    at_menu(s, "Jeff P3", "P3")
+        if owner < 3:
+            defend(s, owner)
     s.do("hold P2 SELECT+START; wait 130; release P2; wait 10")
     expect(not s.state().players[2].joined, "P2 left", s.state().players_line)
     at_menu(s, "Jeff P4", "P4")

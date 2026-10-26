@@ -4797,9 +4797,60 @@ static bool btl_member_skips_menu(const BattleRoutineState *st, uint8_t member_i
     return temp_status == STATUS_2_ASLEEP || temp_status == STATUS_2_SOLIDIFIED;
 }
 
+/* Co-op (coop_battle.h): the menu loop body while menus are claimed. The
+ * next menu is the slot coop_battle_claim() picks among the Heroes who can
+ * act and have no command yet; with none picked, wait a frame (with a window
+ * tick, so the battle background moves) for a claim. Members who can't act
+ * get the vanilla loop's BACT_NO_EFFECT once nobody is left to choose. */
+static EB_NOINLINE bool btl_step_menu_body_coop(BattleRoutineState *st, StepResult *out) {
+    if (battle_count_chars(0) == 0) {
+        create_window(0x0E);
+        coop_battle_menus_done();
+        st->phase = BTL_END_CHECK;
+        return false;
+    }
+    uint8_t pending = 0;
+    for (uint16_t slot = 0; slot < 6; slot++) {
+        uint8_t id = game_state.party_members[slot];
+        if (id >= 1 && id <= 4 && !coop_battle_chosen(st, slot) && !btl_member_skips_menu(st, id))
+            pending |= (uint8_t)(1u << slot);
+    }
+    if (pending == 0) {
+        for (uint16_t slot = 0; slot < 6; slot++) {
+            uint8_t id = game_state.party_members[slot];
+            if (id >= 1 && id <= 4 && !coop_battle_chosen(st, slot)) {
+                bt.battle_item_used = 0;
+                btl_store_action(id, BACT_NO_EFFECT);
+            }
+        }
+        coop_battle_menus_done();
+        st->phase = BTL_ENEMY_AI;
+        return false;
+    }
+    int slot = coop_battle_claim(pending);
+    if (slot < 0) {
+        *out = push_wait_frames(&g_mode_push_init, BW_FRAMES, 1);
+        return true;
+    }
+    st->party_slot = (uint16_t)slot;
+    st->phase = BTL_MENU_SELECT;  /* then as the vanilla body below */
+    /* Present the claim cue's close (its window tick ran inline), then the
+     * vanilla body's frame before clearing a stale indicator */
+    uint16_t frames = take_unpresented_ticks();
+    if (win.battle_menu_current_character_id != -1)
+        frames++;
+    if (frames) {
+        *out = push_wait_frames(&g_mode_push_init, BW_VBLANK, frames);
+        return true;
+    }
+    return false;
+}
+
 /* The player menu loop body: skip members who can't act, open the menu for
  * the next one who can. */
 static EB_NOINLINE bool btl_step_menu_body(BattleRoutineState *st, StepResult *out) {
+    if (coop_battle_claiming())  /* co-op: the next menu is the one a Player claims */
+        return btl_step_menu_body_coop(st, out);
     while (st->party_slot < 6) {
         if (battle_count_chars(0) == 0) {
             create_window(0x0E);
@@ -4907,6 +4958,10 @@ static EB_NOINLINE void btl_step_menu_decide(BattleRoutineState *st) {
     }
 
     /* Handle "back" (action == 0 from the battle menu) */
+    if (selected_action == 0 && coop_battle_claiming()) {  /* co-op: this Player's previous Hero */
+        coop_battle_back(st);
+        return;
+    }
     if (selected_action == 0) {
         if (st->num_selected == 0) {
             /* The original's party_slot--/continue: retry this slot */

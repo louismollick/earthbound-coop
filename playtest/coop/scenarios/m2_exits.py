@@ -31,6 +31,7 @@ def run(ctx):
     s = ctx.session("win", save="12-Zombies", players=2)
     s.boot()
     s.do("teleport 4000 9300 4; until battle 900 DOWN|DOWN|LEFT; until input 1500; wait 10")
+    s.do("press A; until input 300; wait 10")  # P1 claims
     expect(s.state().focus == "P1", "Ness's menu, focus P1", s.state().players_line)
     s.do("debug on; press SELECT+START; until idle 1500; debug off")
     back_to_normal(s, "win")
@@ -50,6 +51,7 @@ def run(ctx):
     s = ctx.session("gameover", save="12-Zombies", players=2)
     s.boot()
     s.do("teleport 4000 9300 4; until battle 900 DOWN|DOWN|LEFT; until input 1500; wait 10")
+    s.do("press A; until input 300; wait 10")  # P1 claims
     s.do("hp 1 0; hp 2 0; hp 3 0; press A; until input 300; wait 10; press A")
     said = s.said("until said:lost 1500 P2 advance; until input 3000 advance; wait 10")
     expect("lost the battle" in said and "another shot" in said, "the game-over prompt", said)

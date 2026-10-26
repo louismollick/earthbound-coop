@@ -2,8 +2,10 @@
 
 28-Scaraba (Ness, Paula, Jeff, Poo), one Hero per Player. Scaraba desert encounter. On each Hero's menu
 the three other Players press buttons and nothing changes; the Owner then picks: Ness and Poo Bash,
-Paula and Jeff Defend, and the round's text shows exactly those. P2's B on Paula's menu goes back to
-Ness's, which is P1's again; Jeff's Goods window reads only P3.
+Paula and Jeff Defend, and the round's text shows exactly those. Jeff's Goods window reads only P3.
+
+Menus are claimed (M7): P1's A opens Ness's menu, and the others' A presses on it queue them in Party order.
+P2's B on Paula's menu, its first Hero, reopens Paula's menu: it never goes back to P1's Ness.
 """
 
 from lib import expect
@@ -31,15 +33,13 @@ def run(ctx):
     s = ctx.session(save="28-Scaraba", players=4)
     s.boot()
     s.do("teleport 1400 5600 4; until battle 1500 RIGHT|DOWN|LEFT|UP; until input 1500; wait 10")
+    s.do("press A; until input 300; wait 10")  # P1 claims the first menu
 
     menu_turn(s, "Ness P1", 1)
     pick(s, 1, [], "Bash")
     s.do("P1 press A; until input 300; wait 10")  # the target
     menu_turn(s, "Paula P2", 2)
-    s.do("P2 press B; until input 300; wait 10")  # back: Ness's menu again, P1's
-    menu_turn(s, "Ness P1", 1)
-    pick(s, 1, [], "Bash")
-    s.do("P1 press A; until input 300; wait 10")
+    s.do("P2 press B; until input 300; wait 10")  # back at P2's first Hero: Paula's menu again
     menu_turn(s, "Paula P2", 2)
     pick(s, 2, ["RIGHT", "DOWN"], "Defend")
     menu_turn(s, "Jeff P3", 3)
@@ -60,6 +60,8 @@ def run(ctx):
     for want in ("Ness attacks", "Paula is on guard", "Jeff is on guard", "Poo attacks"):
         expect(want in said, f"'{want}' in the round's text", said)
 
+    expect(s.state().choose == [1, 2, 3, 4], "round 2 waits for a claim", s.state().players_line)
+    s.do("press A; until input 300; wait 10")
     menu_turn(s, "Ness P1", 1)
     s.do("debug on; press SELECT+START; until idle 1500 advance")
     st = s.state()

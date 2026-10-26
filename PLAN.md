@@ -9,7 +9,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - **Shared World.** One simulation and one screen. No independent exploration (ADR 0002).
 - **Ownership.** Heroes are dealt round-robin to Players by join order. A Player walks their Walker, and their other owned members trail behind it. In battle, each Player picks commands for every Hero they own.
 - **Absent Hero.** A Player whose Heroes are all out of the Party stands in for a Guest if there is one, and otherwise spectates. Solo Chapters fall out of this rule.
-- **Battle input** is sequential, as in the original. Simultaneous input is M7.
+- **Battle input** is sequential, as in the original. Simultaneous input is M7 (built as claimed menus: see the M7 decisions).
 - **Online** is input lockstep with a small fixed input delay and no rollback. The Host owns the save, and a joining Player receives a savestate.
 - **Windows (M5) waits for the user.** Skip it and continue with M6. Never block on it.
 
@@ -120,7 +120,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 
 ## M7 Polish
 
-- [ ] Simultaneous battle input: every Player picks their Heroes' commands at the same time, and the turn starts when all are locked in. Vanilla order is preserved when one Player owns several Heroes.
+- [x] Simultaneous battle input: every Player picks their Heroes' commands at the same time, and the turn starts when all are locked in. Vanilla order is preserved when one Player owns several Heroes.
 - [ ] Solo Chapter Companion (CONTEXT.md): Spectators walk a Mr. Saturn (existing overworld sprite) during Solo Chapters. Overworld only, sits out battles. A Companion can trigger Look-only interactions (static scan of the text script); anything else plays a Mr. Saturn sound with no text. On by default, no flag.
 - [x] Battle rotation in Solo Chapters: the solo Hero's command menu goes to its Owner, then each Spectator in join order, one turn each.
 
@@ -155,6 +155,10 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - A Spectator gets no command menu until Battle rotation (a later item): in a Solo Chapter battle the solo Hero's Owner picks every command, and the Spectator only advances text. (M2)
 - The turn tag is the Owner's pad number in the title's tiny font after a space ("Paula P2"), co-op only. With custom 5-letter names it is still 8 glyphs, well inside the 16-tile title slot and the narrowest (Jeff) window. (M2)
 - Battle rotation applies to every battle with exactly one Hero in the Party and more than one Player (so early Onett too, not only story Solo Chapters). The rotation is the Owner, then every other joined Player in join order (all of them are absent then). `CoopState.rotation` counts such turns, advanced in `btl_start_turn`, so a turn whose menu is skipped (asleep, enemy-first surprise) still uses up that Player's turn, and the count carries across battles and savestates. The menu's Player gets the focus, the tag and Run Away. (M7)
+- Simultaneous battle input is built as claimed menus, first come first served: a turn's command menus open in the order Players press A for them, one at a time (one mode stack, global menu state, and four command windows don't fit at 256 px). A press while another Player's menu is open queues for the next one. A claim opens the claimer's first unchosen Hero (vanilla order within a Player). No claim is needed when only one Player has Heroes left (a Party owned by one Player, Solo Chapters, the last menus of a turn) or during Auto Fight: menus then open by themselves in Party order. While the battle waits, the PSI-name box at the top lists who may claim ("P1  P2"). (M7)
+- Run Away and Auto Fight stay on the turn's first menu (vanilla's `num_selected == 0`), which is now the first one claimed: whoever claims first holds Run, not the Leader's Owner by default. B goes back to the same Player's previous Hero this turn (un-choosing it), or reopens their menu at their first one; it never reopens another Player's choice. A Hero reopened by B after others chose has no Run Away (not the first menu any more). (M7)
+- In the co-op menu loop, members who can't act get vanilla's BACT_NO_EFFECT when nobody is left to choose, instead of interleaved with the menus (nothing reads the order). A turn started in co-op keeps the claimed loop to its end even if Players leave meanwhile, so no Hero is skipped. (M7)
+- The battle focus is derived every frame from the battle routine's serialized state (phase and menu slot in the mode stack), not requested by battle code, so a join or leave under an open menu or its children moves it at once; the tag is reconciled every frame too. (M2 review)
 
 ## Blocked
 
