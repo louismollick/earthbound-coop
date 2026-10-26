@@ -5,7 +5,9 @@ Research memo, 2026-10-26. Line numbers are against d32c421 and drift.
 **As built (M1 Interaction, M3):** `src/coop/coop_input.{h,c}`. It follows the memo, with these differences:
 - Only a Player with a Walker can take the lock.
 - Capture-eligible is the release predicate plus no window, no queued interaction or demo, and not on the bicycle, which keeps the dismount with the Leader's Owner.
-- The Leader's step reads its Owner's pad while someone else has the focus (`coop_leader_pad_enter/leave`).
+- The Leader's step reads its Owner's pad while someone else has the focus (`coop_leader_pad_enter/leave`), except during demo playback (a scripted approach walk).
+- The feed runs every frame, solo too, so the cached presses survive a join or leave (`coop_tick` runs after it).
+- Under ALL a press is any one Player's new press, for `core.pad1_pressed`/`pad1_autorepeat` as for `coop_pad_new()` (`coop_all_focus_edges`).
 - Talk/Check swap in the focused Walker only while it is independent (`coop_interact`).
 - The text-script party select (a shop's "Which of you will carry this?") also starts on the Walker.
 - Battle (M2, `src/coop/coop_battle.{h,c}`; M2 review fix): the host's feed derives the focus every frame from the battle routine's state in the mode stack: the menu Player of `party_members[party_slot]` during `BTL_MENU_SELECT`..`BTL_MENU_DECIDE`, ALL in every other phase (`coop_battle_focus()`), so a join or leave under an open menu or its children moves it on the next frame. The title tag is `coop_battle_title()` in `bm_build_menu`, reconciled every frame by `coop_battle_retitle()`.

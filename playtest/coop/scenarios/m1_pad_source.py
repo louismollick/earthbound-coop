@@ -1,7 +1,7 @@
-"""The Leader's Owner's pad drives the Leader (Winters: Jeff alone, P3's with 3 Players).
+"""The Leader's Owner's pad drives the Leader (Winters: Jeff and Bubble Monkey, Jeff P3's with 3 Players).
 
-P1, who booted the file, can't move him; P3 walks him and opens and closes the menu, with no
-phantom presses from the pad switch after boot.
+P1, who booted the file, can't move him (P1 stands in for the Monkey, P2 spectates); P3 walks him and
+opens and closes the menu, with no phantom presses from the pad switch after boot.
 """
 
 from lib import expect
@@ -12,8 +12,8 @@ def run(ctx):
     st = s.boot()
     p = st.players
     expect(
-        p[3].walker == "Jeff" and p[1].spectator and p[2].spectator,
-        "P3 walks Jeff, P1 and P2 spectate",
+        p[3].walker == "Jeff" and p[1].standin and p[2].spectator,
+        "P3 walks Jeff, P1 stands in for the Monkey, P2 spectates",
         st.players_line,
     )
     lead = st.pos
@@ -26,9 +26,9 @@ def run(ctx):
     expect(st.pos[0] > lead[0] + 8 and st.players[3].pos == st.pos, "P3's d-pad walks Jeff", st.players_line)
     ctx.shot(s, "P3 walks the Leader")
 
-    # P3's A opens the pause menu (P1, a Spectator, can't); P3 holds it, so P1's B doesn't close it
-    s.do("press A; wait 30")
-    expect(s.state().idle == "yes", "P1's A opens nothing", s.state().state)
+    # P3's A opens the pause menu (P2, a Spectator, can't); P3 holds it, so P1's B doesn't close it
+    s.do("P2 press A; wait 30")
+    expect(s.state().idle == "yes", "P2's A opens nothing", s.state().state)
     s.do("P3 press A; wait 30")
     st = s.state()
     expect(st.idle == "modes" and st.focus == "P3 locked", "P3's A opened the menu", st.players_line)

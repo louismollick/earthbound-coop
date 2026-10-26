@@ -137,6 +137,19 @@ bool coop_focus_locked(void) {
     return coop.focus_locked != 0;
 }
 
+void coop_all_focus_edges(void) {
+    if (coop.focus != COOP_FOCUS_ALL)
+        return;
+    /* memory_update_joypad's edges of the OR are a subset of the OR of edges */
+    uint16_t extra = (uint16_t)(coop.focus_new & 0xFFF0 & ~core.pad1_pressed);
+    if (!extra)
+        return;
+    if (!core.pad1_pressed)
+        ow.player_has_done_something_this_frame++;
+    core.pad1_pressed |= extra;
+    core.pad1_autorepeat |= extra;
+}
+
 uint16_t coop_pad_new(void) {
     return coop_player_count() > 1 ? coop.focus_new : platform_input_get_pad_new();
 }
@@ -148,7 +161,10 @@ static uint16_t leader_saved_held, leader_saved_pressed;
 
 void coop_leader_pad_enter(void) {
     int owner = coop_leader_owner();
-    leader_pad_swapped = coop.focus != owner;
+    /* Demo playback (a door, stair or escalator approach walk) feeds core.pad1
+     * the scripted pad: that is the game moving the Leader, not the locker, so
+     * it stays. Only a human-driven step reads the Owner's pad. */
+    leader_pad_swapped = coop.focus != owner && !(ow.demo_recording_flags & 0x4000);
     if (!leader_pad_swapped)
         return;
     leader_saved_held = core.pad1_held;

@@ -2,6 +2,8 @@
 
 Research memo, 2026-10-26, against 8a41f674. Line numbers drift.
 
+**As built (M4 Stand-in, Unconscious, Edge cases):** `coop_standin` / `coop_walker` (`src/coop/coop.c`) follow the detector below. A Stand-in's chain is its Guest alone (`current_chain`); `chain_of_entity` searches every chain by `party_characters` index; Bubble Monkey's tick is a follower tick with a one-line hook (`callroutine_screen.c`) and his chain counts as scripted while `ow.bubble_monkey_mode != 0` (his tick, which advances the modes, doesn't run while he is walked, so he stays in mode 0 until a snap). A Guest Leader (every Hero unconscious) belongs to its Stand-in. PLAYERS prints the Guest's battler name (`coop_member_name`: enemy configuration through NPC_AI_TABLE) and ` standin`. PSI Teleport's tick swap (`set_party_tick_callbacks`) regroups everyone. The bus is blocked by an asset bug (see coop-log.md); Sky Runner has no nearby save and is untested.
+
 ## Solo Chapters
 
 **Party changes.** Every Party change goes through text CCs `1F 11` / `1F 12` (`display_text_cc.c:81`, `:778-790`). These call `add_char_to_party` / `remove_char_from_party` (`inventory.c:689/746`), then `add_party_member` / `remove_party_member` (`overworld.c:474/961`), then `update_party` (`battle.c:5818`). The game never saves and restores the Party: each exit script re-adds a fixed member list.

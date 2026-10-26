@@ -480,9 +480,11 @@ void host_process_frame(void) {
     /* Poll input */
     platform_input_poll();
     uint16_t current_pad = platform_input_get_pad();
-    /* Co-op: core.pad1 follows the input focus (coop/coop_input.h) */
-    if (coop_player_count() > 1 || coop.focus != 0)
-        current_pad = coop_input_feed(current_pad, capture_unwinding);
+    /* Co-op: core.pad1 follows the input focus (coop/coop_input.h). Called every
+     * frame, solo too: coop_tick below can join or leave a Player, and the next
+     * game frame's coop_pad_new() must then hold this frame's presses, not an
+     * old frame's. In solo it returns P1's pad unchanged. */
+    current_pad = coop_input_feed(current_pad, capture_unwinding);
     /* A capture unwind runs hundreds of frames in a few milliseconds; feeding them
      * the live pad would let a button held across F6/F7 (or power-off) advance
      * prompts or scroll menus the player never saw. The unwind gets no input: a
@@ -500,6 +502,8 @@ void host_process_frame(void) {
         current_pad = core.pad1_raw;
     }
     memory_update_joypad(current_pad);
+    if (coop_player_count() > 1)
+        coop_all_focus_edges();  /* focus ALL: any one Player's press is a press */
 
     /* Co-op join/leave (coop/coop.h). An unwind frame is skipped entirely: its
      * pads are not real input, so it must neither release a hold nor count one. */
