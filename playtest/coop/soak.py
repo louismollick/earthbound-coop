@@ -17,11 +17,16 @@ Failures, per save:
 
 - ``CRASH``: the game exited (signal or non-zero status) or quit by itself.
 - ``SANITIZER``: an ASan/UBSan report on stderr (build with ``ENABLE_ASAN``/``ENABLE_UBSAN``).
-- ``SUSPECT_FROZEN``: for ``--freeze-frames`` frames (default 5400 = 90 s) the bot kept
-  pressing buttons but nothing it can see changed: STATE (minus ``frame=``), PARTY,
-  PLAYERS, FOLLOW, the open windows' text, the text printed and the screenshot were all
-  identical. If only the screenshot changed (the coffee-break text scroll runs ~9000
-  frames), it is listed under ``stalls`` in results.json instead, not a failure.
+- ``SUSPECT_FROZEN``: no game progress for ``--freeze-frames`` frames (default 5400 = 90 s)
+  while the bot kept pressing buttons. Progress (``fingerprint``) is a change in STATE
+  (positions, mode stack, money, ...; minus ``frame=``), PARTY, PLAYERS, FOLLOW, the open
+  windows' text, the menu, the text printed or the battle's ENEMIES line. Facing, the menu
+  cursor and the focused-window mark don't count, and neither does the picture: a
+  background that still animates is no excuse. A known long sequence with no progress gets
+  its own deadline instead (``LONG_SEQUENCES``: the coffee/tea-break scroll, the credits);
+  it is listed under ``stalls`` in results.json while it runs within it, and fails past
+  it. Dad's save-and-quit is the RESET wait below (600 frames). ``--selftest`` checks the
+  detector itself.
 - ``HARNESS_ERR``: the input-script player printed an ``ERR`` line.
 - ``HANG``: a chunk took longer than ``--chunk-timeout`` wall seconds (the process is
   sampled with macOS ``sample`` into ``stack.txt``, then killed).
@@ -40,6 +45,7 @@ Usage::
     source .venv/bin/activate
     python playtest/coop/soak.py --bin $PWD/port/unix/build-wide/earthbound            # all 36, 30 min, 4 Players
     python playtest/coop/soak.py --bin ... -k 05-Twoson -k 27 --minutes 2 --seed 7
+    python playtest/coop/soak.py --selftest        # the frozen-detector's own checks (~1 min)
 
 Output (under ``--out``, default ``playtest/out/coop/soak/``): one summary line per save
 with what it reached (distinct modes, 256 px map sectors, % of chunks in battle, join/leave
@@ -177,14 +183,48 @@ class Bot:
 
 
 def fingerprint(lines):
-    """What the bot can see of the game, for freeze detection: everything but frame= and NEAR."""
+    """Game progress, for freeze detection: a hash of what changes when the game gets anywhere.
+
+    STATE (minus frame=), PARTY, PLAYERS, FOLLOW, WIN, MENU, TEXT and ENEMIES lines, with
+    what moves without progress taken out: facing (``dir=``, a Walker turning on the spot),
+    the menu cursor (``>[``) and the focused window's ``*``. NEAR (NPCs walking about), CAMERA
+    and the screenshot (water, flashing, scrolling) are left out entirely.
+    """
     keep = []
     for ln in lines:
         if ln.startswith("STATE "):
-            keep.append(re.sub(r"^STATE \S+ frame=\d+ ", "STATE ", ln))
-        elif ln.startswith(("PARTY", "PLAYERS", "FOLLOW", "WIN", "MENU", "TEXT", "ENEMIES")):
-            keep.append(ln)
+            ln = re.sub(r"^STATE \S+ frame=\d+ ", "STATE ", ln)
+        elif ln.startswith("MENU "):
+            ln = ln.replace(">[", "[")
+        elif ln.startswith("WIN "):
+            ln = re.sub(r"^(WIN w\d+)\*", r"\1", ln)
+        elif not ln.startswith(("PARTY", "PLAYERS", "FOLLOW", "TEXT", "ENEMIES")):
+            continue
+        keep.append(re.sub(r" dir=\S+", "", ln))
     return hashlib.sha256("\n".join(keep).encode()).hexdigest()
+
+
+# Sequences that make no progress (as fingerprint() sees it) for longer than --freeze-frames
+# but end by themselves: (name, modes= token on the STATE line, deadline in frames of no
+# progress). Measured with 4 bots pressing throughout (2026-10-26, wide build):
+# - the coffee break (15-Desert, Saturn Valley npc723) and the tea break run as a FLYOVER:
+#   11280 still frames for the coffee break;
+# - the credits (36-CavePast, debug STAFF with every photo flag set, the longest roll) run
+#   as ENDING: 19920 still frames.
+# Not listed, because they never go --freeze-frames without progress: the Runaway Five bus
+# ride (its moving Party and text change every few hundred frames) and the Lumine Hall
+# wall text (text keeps printing). Dad's save-and-quit is is_reset_wait() (600 frames).
+LONG_SEQUENCES = [
+    ("coffee/tea break", "FLYOVER", 15000),
+    ("credits", "ENDING", 26000),
+]
+
+
+def long_sequence(st):
+    """The LONG_SEQUENCES entry the game is in now, or None."""
+    m = re.search(r"modes=\[([^\]]*)\]", st.state) if st else None
+    modes = m.group(1).split(">") if m else []
+    return next((seq for seq in LONG_SEQUENCES if seq[1] in modes), None)
 
 
 def parse_state(lines):
@@ -257,10 +297,11 @@ def run_segment(sess, bot, res, total, args, cov):
 
     Returns (failure dict or None, reset?, last frame= seen).
     """
-    last_fp, still_since, frame = None, res["frames"], None
-    last_screen, screen_since, stall_noted = None, res["frames"], False
+    last_fp, still_since, frame, stall_noted = None, res["frames"], None, False
     try:
         sess.do(lib.BOOT, timeout=max(300, args.chunk_timeout))
+        for cmds in args.setup:  # --selftest: reach a scene / inject a fault first
+            sess.do(cmds, timeout=max(300, args.chunk_timeout))
         st = parse_state(sess.do("state booted"))
         while res["frames"] < total:
             n = min(CHUNK, total - res["frames"])
@@ -273,23 +314,24 @@ def run_segment(sess, bot, res, total, args, cov):
             m = re.search(r"frame=(\d+)", st.state) if st else None
             frame = int(m.group(1)) if m else frame
             note_coverage(cov, st)
-            screen = hashlib.sha256((sess.dir / "last.png").read_bytes()).hexdigest()
-            if screen != last_screen:
-                last_screen, screen_since = screen, res["frames"]
             fp = fingerprint(out)
             if fp != last_fp:
                 last_fp, still_since, stall_noted = fp, res["frames"], False
                 continue
             still = res["frames"] - still_since
+            res["max_still"] = max(res["max_still"], still)
             if still >= 600 and is_reset_wait(st):
                 return None, True, frame
             if still < args.freeze_frames:
                 continue
-            if res["frames"] - screen_since >= still:  # the screen didn't change either
-                detail = f"nothing visible changed for {still} frames: {st.state}"
+            seq = long_sequence(st)
+            deadline = args.deadlines.get(seq[0], seq[2]) if seq else args.freeze_frames
+            if still >= deadline:
+                within = f" ({seq[0]}: past its {deadline}-frame deadline)" if seq else ""
+                detail = f"no game progress for {still} frames{within}: {st.state}"
                 return {"kind": "SUSPECT_FROZEN", "detail": detail}, False, frame
-            if not stall_noted:  # e.g. the coffee-break text scroll: only the picture moves
-                res["stalls"].append({"frames": res["frames"], "state": st.state})
+            if not stall_noted:  # a known long sequence, still within its deadline
+                res["stalls"].append({"frames": res["frames"], "sequence": seq[0], "state": st.state})
                 stall_noted = True
     except lib.ScenarioError as e:
         with contextlib.suppress(subprocess.TimeoutExpired):
@@ -325,10 +367,11 @@ def note_coverage(cov, st):
     cov["chunks"] += 1
 
 
-def soak_one(save, args):
-    """Play one save; return its result dict."""
+def soak_one(save, args, label=None):
+    """Play one save; return its result dict. ``label``: the output dir's name (default the save's)."""
     t0 = time.time()
     name = save.stem
+    label = label or name
     out_root = Path(args.out)
     ctx = types.SimpleNamespace(dir=out_root, bin=args.bin)
     res = {
@@ -341,6 +384,7 @@ def soak_one(save, args):
         "frames": 0,
         "resets": [],
         "stalls": [],
+        "max_still": 0,  # the longest stretch without game progress, in frames
         "repro": repro_command(args, name, args.minutes),
     }
     bot = Bot(args.seed, name, args.players, drive_p1=not args.no_p1)
@@ -350,7 +394,11 @@ def soak_one(save, args):
     while True:
         seg = len(res["resets"])
         sess = lib.Session(
-            ctx, name if not seg else f"{name}-reset{seg}", save=start, players=args.players, timeout=args.chunk_timeout
+            ctx,
+            label if not seg else f"{label}-reset{seg}",
+            save=start,
+            players=args.players,
+            timeout=args.chunk_timeout,
         )
         (sess.dir / "start.srm").write_bytes(sess.start_save)
         failure, reset, frame = run_segment(sess, bot, res, total, args, cov)
@@ -394,6 +442,53 @@ def soak_one(save, args):
         )
         failure["log_tail"] = str(sess.dir / "log_tail.txt")
     return res
+
+
+# --selftest cases: (label, save, setup commands after the boot, frames, deadline overrides, expected status).
+# The fault: ``freeze on`` stops the Party (set_player_lock) and ``pads off`` (harness) feeds the
+# game no input, at the Summers coast where the sea and the NPCs keep animating.
+COFFEE = [
+    "flag 11 1",
+    "teleport 448 7360 4; 40 RIGHT; 40 DOWN; 50 RIGHT",
+    "press L; until in:SELECTION_MENU 600 advance",
+]
+COFFEE_YES = "press A; until in:FLYOVER 600"
+SELFTEST = [
+    ("frozen-coast", "23-Summers", ["freeze on; pads off"], 7200, {}, "SUSPECT_FROZEN"),
+    ("control-coast", "23-Summers", [], 7200, {}, "PASS"),
+    ("coffee-break", "15-Desert", COFFEE + [COFFEE_YES], 15000, {}, "PASS"),
+    ("coffee-break-deadline", "15-Desert", COFFEE + [COFFEE_YES], 15000, {"coffee/tea break": 7200}, "SUSPECT_FROZEN"),
+]
+
+
+def selftest(args):
+    """Check the frozen-detector on a fault injection and on a known long sequence, 4 Players.
+
+    - frozen-coast: the Party frozen and no input reaching the game, while the sea and NPCs
+      animate: must fail SUSPECT_FROZEN, within --freeze-frames plus a chunk.
+    - control-coast: the same spot without the fault: must pass.
+    - coffee-break: the Saturn Valley coffee break (a FLYOVER, ~11300 frames without progress):
+      must pass, with the stall listed.
+    - coffee-break-deadline: the same with its deadline cut to 7200 frames: must fail.
+    """
+    args.players, args.no_p1 = 4, False
+    out = Path(args.out) / "selftest"
+    out.mkdir(parents=True, exist_ok=True)
+    args.out = str(out)
+    bad = []
+    for label, save, setup, frames, deadlines, want in SELFTEST:
+        args.setup, args.deadlines, args.minutes = setup, deadlines, frames / 3600
+        r = soak_one(lib.SAVES / f"{save}.srm", args, label=label)
+        detail = r.get("failure", {}).get("detail", "")
+        ok = r["status"] == want
+        if label == "frozen-coast" and ok:  # it must fail at the bound, not at the end of the run
+            ok = r["frames"] <= args.freeze_frames + 2 * CHUNK
+        if label == "coffee-break" and ok:
+            ok = any(st.get("sequence") == "coffee/tea break" for st in r["stalls"])
+        bad += [] if ok else [label]
+        print(f"{'ok ' if ok else 'BAD'} {label:<22} {r['status']:<14} at {r['frames']} frames {detail[:160]}")
+    print(f"selftest: {len(SELFTEST) - len(bad)}/{len(SELFTEST)} ok" + (f", BAD: {' '.join(bad)}" if bad else ""))
+    return 1 if bad else 0
 
 
 def bot_script(seed, save, player, frames):
@@ -470,6 +565,7 @@ def main():
     ap.add_argument("--no-p1", action="store_true", help="leave P1's pad alone (the bot drives P2..PN only)")
     ap.add_argument("--freeze-frames", type=int, default=5400, help="SUSPECT_FROZEN after this many still frames")
     ap.add_argument("--chunk-timeout", type=float, default=120, help="wall seconds per chunk before HANG")
+    ap.add_argument("--selftest", action="store_true", help="check the frozen-detector itself (see selftest())")
     ap.add_argument("--progress", action="store_true", help="print each save's progress every 10 game minutes")
     ap.add_argument("--out", default=str(OUT), help=f"output dir (default {OUT})")
     ap.add_argument(
@@ -485,6 +581,9 @@ def main():
     args.bin = str(Path(args.bin).resolve())
     if not Path(args.bin).exists():
         sys.exit(f"no game binary at {args.bin}")
+    args.setup, args.deadlines = [], {}  # --selftest's per-case scene setup and deadline overrides
+    if args.selftest:
+        return selftest(args)
     saves = sorted(lib.SAVES.glob("*.srm"))
     if args.k:
         saves = [s for s in saves if any(k in s.stem for k in args.k)]
@@ -518,7 +617,7 @@ def main():
             line = (
                 f"{r['status']:<14} {r['save']:<14} {mins:5.1f} min {r['wall_s']:6.1f}s  modes={len(c['modes'])}"
                 f" sectors={c['sectors']} battle={c['battle_pct']}% joins={c['join_changes']} resets={len(r['resets'])}"
-                f" stalls={len(r['stalls'])}"
+                f" stalls={len(r['stalls'])} max_still={r['max_still']}"
             )
             if r["status"] != "PASS":
                 f = r["failure"]

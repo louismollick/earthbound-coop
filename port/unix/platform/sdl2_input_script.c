@@ -82,6 +82,9 @@
  *                    (find_entity_by_sprite_id / _npc_id): FIND sprite ID = SLOT
  *   freeze on|off    disable / enable the Party's and the init entity's movement
  *                    (DISABLE_CHARACTER_MOVEMENT 0xFF, a text script's set_player_lock)
+ *   pads off|on      feed the game no input at all (every Player's pad 0) until
+ *                    'pads on', whatever the script presses: fault injection for
+ *                    a softlock (soak.py --selftest: 'freeze on; pads off')
  *   money N          set money on hand
  *   rng [A B]        print / set the game RNG state (rng_state.a/.b, the
  *                    asm's RAND_A/RAND_B), for seeding port vs emu runs
@@ -167,6 +170,7 @@ static int press_phase;
 static int cmd_player;
 /* Sticky holds per Player ('hold Pn BUTTONS'), OR'd into its pad every frame */
 static uint16_t sticky_hold[PLATFORM_MAX_PLAYERS];
+static bool pads_off;            /* 'pads off': the game sees no input */
 
 /* Active 'until' command */
 enum { UC_IN, UC_OUT, UC_IDLE, UC_INPUT, UC_TEXT, UC_SAID, UC_BATTLE, UC_CHOOSE, UC_COMMAND };
@@ -1367,6 +1371,11 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
             enable_character_movement(0xFF);
         else
             script_error("usage: freeze on|off%s", "");
+    } else if (strcmp(cmd, "pads") == 0) {
+        if (strcmp(arg, "off") == 0 || strcmp(arg, "on") == 0)
+            pads_off = arg[1] == 'f';
+        else
+            script_error("usage: pads off|on%s", "");
     } else if (strcmp(cmd, "record") == 0) {
         /* Pause / resume --record-video/--record-audio (no-op otherwise) */
         if (strcmp(arg, "on") == 0)
@@ -1635,7 +1644,7 @@ void input_script_next(uint16_t pads[PLATFORM_MAX_PLAYERS], uint16_t *aux) {
     bool paused = false;
     uint16_t pad = script_step(aux, &paused);
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
-        pads[p] = (uint16_t)((!paused && p == cmd_player ? pad : 0) | sticky_hold[p]);
+        pads[p] = pads_off ? 0 : (uint16_t)((!paused && p == cmd_player ? pad : 0) | sticky_hold[p]);
 }
 
 /* Called by the main loop at the root boundary, after host_root_boundary():

@@ -6,6 +6,8 @@ in for a free Guest (k-th absent Player in join order, k-th eligible Guest in Pa
 Companion. Battle rotation hands the solo Hero's command menu to the Owner, then every other Player in join order.
 """
 
+import re
+
 from lib import expect
 
 HEROES = ("Ness", "Paula", "Jeff", "Poo")
@@ -186,3 +188,59 @@ def rotation_battle(ctx, s, hero, n, label, win=True):
     st = s.state()
     expect(st.idle == "yes" and "BATTLE" not in st.state, "back on the overworld after the win", st.state)
     return st
+
+
+def walk_to(s, x, y, leader, n, tol=3, tries=120):
+    """P``leader`` walks the Leader to (``x``, ``y``) while every other Player holds the same direction.
+
+    Everyone walking along keeps the Leader inside the leash (a Stand-in left behind would hold it back). When
+    blocked, each axis alone is tried, then the four directions. Returns the last state.
+    """
+
+    def step(d, frames):
+        holds = "".join(f"hold P{q} {d}; " for q in range(1, n + 1) if q != leader)
+        rel = "".join(f"; release P{q}" for q in range(1, n + 1) if q != leader)
+        s.do(f"{holds}P{leader} {frames} {d}{rel}")
+        return s.state()
+
+    st = s.state()
+    for _ in range(tries):
+        dx, dy = x - st.pos[0], y - st.pos[1]
+        if abs(dx) <= tol and abs(dy) <= tol:
+            return st
+        v = ("DOWN" if dy > 0 else "UP") if abs(dy) > tol else ""
+        h = ("RIGHT" if dx > 0 else "LEFT") if abs(dx) > tol else ""
+        frames = max(1, min(16, max(abs(dx), abs(dy))))
+        for d in [c for c in ("+".join(filter(None, (v, h))), h, v) if c] + ["UP", "DOWN", "LEFT", "RIGHT"]:
+            st2 = step(d, frames)
+            if st2.pos != st.pos:
+                break
+        st = st2
+    expect(False, f"the Leader walked to ({x},{y})", st.state)
+
+
+def talk_to(s, npc, who, tries=60):
+    """P``who`` walks the Leader up to NEAR ``npc`` (it may wander) and talks to it (L); returns the text said.
+
+    It lines up with the NPC on one axis first, so L faces the NPC and not a neighbour.
+    """
+    for _ in range(tries):
+        off = s.state().near.get(npc)
+        expect(off is not None, f"{npc} nearby", s.state().near_line)
+        dx, dy = off
+        h, v = ("RIGHT" if dx > 0 else "LEFT"), ("DOWN" if dy > 0 else "UP")
+        if (abs(dy) <= 6 and abs(dx) <= 20) or (abs(dx) <= 6 and abs(dy) <= 20):
+            said = s.said(f"P{who} 1 {h if abs(dx) > abs(dy) else v}; P{who} press L; until text 30; wait 30")
+            plain = re.sub(r"\s*w\d+\| ?", "", said)  # a line may break mid-word: "@No pro" "blem here."
+            if plain and "No problem" not in plain:
+                return said
+            s.do(f"until idle 300 P{who} advance")
+        before = s.state().pos
+        s.do(f"P{who} 4 {v if abs(dy) > 6 else h}")
+        if s.state().pos == before:  # blocked (someone in between): step around, then on
+            for side in ("DOWN", "UP") if abs(dy) <= 6 else ("RIGHT", "LEFT"):
+                s.do(f"P{who} 16 {side}")
+                if s.state().pos != before:
+                    break
+            s.do(f"P{who} 20 {v if abs(dy) > 6 else h}")
+    expect(False, f"P{who} talked to {npc}", s.state().near_line)

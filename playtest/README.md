@@ -172,6 +172,7 @@ Instant (no frame passes):
 | `npc ID [SCRIPT]` | create NPC ID at the Leader with event SCRIPT (default 44, static), as a text script's `create_prepared_entity_npc`; prints `NPC id=ID slot=S` (`-1`: no room) |
 | `find sprite\|npc ID` | print `FIND sprite ID = SLOT`: what a script's lookup by sprite / NPC id finds (`-1`: none) |
 | `freeze on\|off` | disable / enable the Party's and the init entity's movement (`disable_character_movement(0xFF)`, a text script's `set_player_lock 255`) |
+| `pads off\|on` | feed the game no input at all (every Player's pad 0) whatever the script presses: fault injection for a softlock (`soak.py --selftest`) |
 | `debug on\|off` | set `ow.debug_flag` (battle debug keys, B+R debug menu) without opening the debug menu |
 | `money N`, `hp CHAR N`, `pp CHAR N`, `heal` | edit the party (`hp`/`pp` set the current value and its rolling target; `heal` fills every member's HP/PP). In a battle they also set the member's battler, so the next hit is taken from the new HP |
 | `rng [A B]` | print `RNG A B`, the game RNG state (`rng_state` / the asm's `RAND_A`/`RAND_B`); with 2 numbers, set it first. RAND isn't saved in SRAM, so seed both sides with it before comparing RNG-dependent steps against the original |
