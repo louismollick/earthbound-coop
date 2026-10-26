@@ -3,7 +3,7 @@
 Research memo, 2026-10-26. Line numbers are against d32c421 and drift.
 
 **As built (M1 Interaction, M3):** `src/coop/coop_input.{h,c}`. It follows the memo, with these differences:
-- Only a Player with a Walker can take the lock.
+- Only a Player with a Walker can take the lock, or (M7) a Companion's Player with A or L only; while they hold it their A reads as L (`a_as_l`), so they Check/Talk from Mr. Saturn and never open the pause menu.
 - Capture-eligible is the release predicate plus no window, no queued interaction or demo, and not on the bicycle, which keeps the dismount with the Leader's Owner.
 - The Leader's step reads its Owner's pad while someone else has the focus (`coop_leader_pad_enter/leave`), except during demo playback (a scripted approach walk).
 - The feed runs every frame, solo too, so the cached presses survive a join or leave (`coop_tick` runs after it).

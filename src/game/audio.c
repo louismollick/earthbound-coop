@@ -237,7 +237,11 @@ void change_music(uint16_t track_id) {
     audio_unlock();
 }
 
+void (*sfx_trace_hook)(uint16_t sfx_id);
+
 void play_sfx(uint16_t sfx_id) {
+    if (sfx_trace_hook)
+        sfx_trace_hook(sfx_id);
     if (!apu) return;
 
     uint8_t id = (uint8_t)sfx_id;

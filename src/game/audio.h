@@ -26,6 +26,9 @@ void change_music(uint16_t track_id);
 /* Play a sound effect */
 void play_sfx(uint16_t sfx_id);
 
+/* Test harness: called with every sound effect play_sfx queues (NULL in play). */
+extern void (*sfx_trace_hook)(uint16_t sfx_id);
+
 /* Stop current music */
 void stop_music(void);
 

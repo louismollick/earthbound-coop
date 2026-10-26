@@ -5,9 +5,11 @@
  * update_party_entity_graphics) with a Walker's state swapped in.
  */
 #include "coop/coop_walk.h"
+#include "coop/coop_walk_internal.h"
 
 #include "coop/coop.h"
 #include "coop/coop_camera.h"
+#include "coop/coop_companion.h"
 #include "core/memory.h"
 #include "core/mode_stack.h"
 #include "data/assets.h"
@@ -29,19 +31,9 @@
 #define CHARACTER_SIZES_COUNT 17      /* CHARACTER_SIZES entries, as in position_buffer.c */
 #define VAR7_SPACING_FLAG (1 << 12)   /* entity var7 bit 12, set while a follower catches up */
 
-typedef enum {
-    WALK_FREE,        /* plain overworld control: Walkers step */
-    WALK_PAUSED,      /* a window, text box or interaction: Walkers hold still */
-    WALK_BATTLE,      /* an enemy touched the party, the swirl or a battle: Walkers hold
-                       * still and stay independent, so they are back where they stood
-                       * after the battle (the touch disables every entity's tick, which
-                       * would otherwise read as "scripted") */
-    WALK_CONTROLLED,  /* the game controls movement: Walkers hold still; once the game
-                       * actually moves the party (game_moves_party), chains snap and
-                       * regroup */
-} WalkControl;
-
-static bool in_walker_step;
+/* Whose step update_overworld_player_input is running: set only for the
+ * duration of a borrowed step (no state across frames). */
+static CoopStepKind step_kind;
 
 /* ---- Party helpers ---- */
 
@@ -154,7 +146,7 @@ static void chain_graphics(const CoopWalker *w, int16_t ent, uint16_t walking_st
 
 /* ---- Control ---- */
 
-static WalkControl walk_control(void) {
+WalkControl coop_walk_control(void) {
     if (ow.battle_mode || ow.battle_swirl_countdown || ow.enemy_has_been_touched)
         return WALK_BATTLE;
     if (game_state.camera_mode || ow.player_movement_flags)
@@ -182,12 +174,12 @@ static WalkControl walk_control(void) {
  * freezing the party for a line or a scripted pause doesn't pull everyone onto
  * the Leader. A door or screen transition regroups at its fade instead
  * (coop_walk_regroup), as every entity is frozen by then. */
-static bool game_moves_party(void) {
+bool coop_game_moves_party(void) {
     return game_state.leader_moved != 0;
 }
 
 bool coop_game_controls_movement(void) {
-    WalkControl c = walk_control();
+    WalkControl c = coop_walk_control();
     return c == WALK_CONTROLLED || c == WALK_BATTLE;
 }
 
@@ -297,21 +289,27 @@ void coop_walk_regroup(void) {
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
         snap(&coop.walkers[p]);
     regroup();
+    coop_companion_hide_all();
 }
 
 void coop_walk_on_trail_reset(void) {
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
         snap(&coop.walkers[p]);
+    coop_companion_hide_all();
 }
 
 /* ---- The Walker step ---- */
 
 bool coop_in_walker_step(void) {
-    return in_walker_step;
+    return step_kind != COOP_STEP_NONE;
 }
 
 uint16_t coop_walker_door(uint16_t x_tile, uint16_t y_tile) {
     uint8_t type = find_door_at_position(x_tile, y_tile);
+    /* A Companion only climbs ladders and ropes: doors, door text, stairs and
+     * escalators are walls for it */
+    if (step_kind == COOP_STEP_COMPANION && type != DOOR_TYPE_1)
+        return 0;
     if (type == DOOR_TYPE_3 || type == DOOR_TYPE_4)
         return 0;
     return process_door_at_tile(x_tile, y_tile);
@@ -364,7 +362,7 @@ static int leash(int mover, int leader_x, int leader_y, int from_x, int from_y, 
  * check that position too, with the same two routines and the remaining
  * axis's direction. `slot` is the stepping entity (its hitbox). Side-effect
  * free: the scratch state the checks write is put back. */
-static bool leashed_position_clear(int16_t from_x, int16_t from_y, int16_t x, int16_t y, uint16_t slot) {
+bool coop_leashed_position_clear(int16_t from_x, int16_t from_y, int16_t x, int16_t y, uint16_t slot) {
     if (x == from_x && y == from_y)
         return true; /* where it stood */
     int16_t dir = x != from_x ? (x > from_x ? 2 : 6) : (y > from_y ? 4 : 0);
@@ -394,7 +392,7 @@ void coop_leader_step(void) {
     uint16_t x = game_state.leader_x_coord, x_frac = game_state.leader_x_frac;
     uint16_t y = game_state.leader_y_coord, y_frac = game_state.leader_y_frac;
     update_overworld_player_input();
-    if (walk_control() != WALK_FREE)
+    if (coop_walk_control() != WALK_FREE)
         return;
     int revert = leash(-1, 0, 0, x, y, game_state.leader_x_coord, game_state.leader_y_coord);
     if (revert & 1) {
@@ -406,7 +404,7 @@ void coop_leader_step(void) {
         game_state.leader_y_frac = y_frac;
     }
     /* Sliding along the leash only where that position is free; else no step */
-    if (revert && !leashed_position_clear((int16_t)x, (int16_t)y, (int16_t)game_state.leader_x_coord,
+    if (revert && !coop_leashed_position_clear((int16_t)x, (int16_t)y, (int16_t)game_state.leader_x_coord,
                                           (int16_t)game_state.leader_y_coord, game_state.current_party_members)) {
         game_state.leader_x_coord = x;
         game_state.leader_x_frac = x_frac;
@@ -419,14 +417,17 @@ void coop_leader_step(void) {
         game_state.leader_moved = 0;
 }
 
-/* One frame of Player p's Walker: the Leader's own movement step with the
- * Walker swapped into the Leader globals and p's pad in core.pad1, then the
- * Walker's trail write (as position_buffer_write). Shared side effects are
- * suppressed (mushroom d-pad swap, hotspots) or kept (doors and door text queue
- * their interaction for the whole Party). */
-static void walker_step(int p, CoopWalker *w) {
-    int16_t slot = member_entity(w->chain[0]);
-
+/* The Leader's own movement step (update_overworld_player_input) run for
+ * another body: `b` is swapped into the Leader globals, entity `slot` is the
+ * stepping entity and `pad` is core.pad1_held. Afterwards `b` holds the step's
+ * result (position, facing, walking style; the surface is looked up by the
+ * caller) and every Leader global and scratch value the step writes is put
+ * back. Shared side effects are suppressed (mushroom d-pad swap, hotspots) or
+ * kept (a Walker's doors and door text queue their interaction for the whole
+ * Party; the door rules are coop_walker_door's, per `kind`). Returns whether
+ * the step moved (game_state.leader_moved); *touched gets the entity it ran
+ * into (entities.collided_objects[23]) or -1. */
+bool coop_borrowed_step(CoopStepKind kind, uint16_t pad, CoopBody *b, int16_t slot, int16_t *touched) {
     /* The Leader's state, restored afterwards */
     uint16_t lx_frac = game_state.leader_x_frac, lx = game_state.leader_x_coord;
     uint16_t ly_frac = game_state.leader_y_frac, ly = game_state.leader_y_coord;
@@ -444,15 +445,15 @@ static void walker_step(int p, CoopWalker *w) {
     uint16_t door_found = dr.door_found, door_found_type = dr.door_found_type;
     int16_t collided = entities.collided_objects[INIT_ENTITY_SLOT];
 
-    game_state.leader_x_frac = w->x_frac;
-    game_state.leader_x_coord = w->x;
-    game_state.leader_y_frac = w->y_frac;
-    game_state.leader_y_coord = w->y;
-    game_state.leader_direction = w->direction;
-    game_state.trodden_tile_type = w->surface;
-    game_state.walking_style = w->walking_style;
+    game_state.leader_x_frac = b->x_frac;
+    game_state.leader_x_coord = b->x;
+    game_state.leader_y_frac = b->y_frac;
+    game_state.leader_y_coord = b->y;
+    game_state.leader_direction = b->direction;
+    game_state.trodden_tile_type = b->surface;
+    game_state.walking_style = b->walking_style;
     game_state.current_party_members = (uint16_t)slot;
-    core.pad1_held = coop.walk_pad[p] & 0xFFF0;
+    core.pad1_held = pad & 0xFFF0;
     core.pad1_pressed = 0;
     ow.stairs_direction = 0xFFFF;
     ow.mushroomized_walking_flag = 0;
@@ -461,38 +462,18 @@ static void walker_step(int p, CoopWalker *w) {
         ow.active_hotspots[i].mode = 0;
     }
 
-    in_walker_step = true;
+    step_kind = kind;
     update_overworld_player_input();
-    in_walker_step = false;
+    step_kind = COOP_STEP_NONE;
 
-    uint16_t x_frac = game_state.leader_x_frac, x = game_state.leader_x_coord;
-    uint16_t y_frac = game_state.leader_y_frac, y = game_state.leader_y_coord;
-    int revert = leash(p, lx, ly, w->x, w->y, x, y);
-    if (revert & 1) {
-        x = w->x;
-        x_frac = w->x_frac;
-    }
-    if (revert & 2) {
-        y = w->y;
-        y_frac = w->y_frac;
-    }
-    /* Sliding along the leash only where that position is free; else no step */
-    if (revert && !leashed_position_clear((int16_t)w->x, (int16_t)w->y, (int16_t)x, (int16_t)y, (uint16_t)slot)) {
-        x = w->x;
-        x_frac = w->x_frac;
-        y = w->y;
-        y_frac = w->y_frac;
-    }
-    bool moved = game_state.leader_moved &&
-                 (x != w->x || x_frac != w->x_frac || y != w->y || y_frac != w->y_frac);
-    w->x = x;
-    w->x_frac = x_frac;
-    w->y = y;
-    w->y_frac = y_frac;
-    w->direction = game_state.leader_direction;
-    w->walking_style = game_state.walking_style;
-    w->moved = moved;
-    w->touched = entities.collided_objects[INIT_ENTITY_SLOT];
+    bool moved = game_state.leader_moved != 0;
+    b->x_frac = game_state.leader_x_frac;
+    b->x = game_state.leader_x_coord;
+    b->y_frac = game_state.leader_y_frac;
+    b->y = game_state.leader_y_coord;
+    b->direction = game_state.leader_direction;
+    b->walking_style = game_state.walking_style;
+    *touched = entities.collided_objects[INIT_ENTITY_SLOT];
 
     game_state.leader_x_frac = lx_frac;
     game_state.leader_x_coord = lx;
@@ -518,6 +499,45 @@ static void walker_step(int p, CoopWalker *w) {
     dr.door_found = door_found;
     dr.door_found_type = door_found_type;
     entities.collided_objects[INIT_ENTITY_SLOT] = collided;
+    return moved;
+}
+
+/* One frame of Player p's Walker: the borrowed Leader step with p's pad, the
+ * leash against the other Walkers, then the Walker's trail write (as
+ * position_buffer_write). */
+static void walker_step(int p, CoopWalker *w) {
+    int16_t slot = member_entity(w->chain[0]);
+    CoopBody b = { w->x, w->y, w->x_frac, w->y_frac, w->direction, w->surface, w->walking_style };
+    int16_t touched;
+    bool stepped = coop_borrowed_step(COOP_STEP_WALKER, coop.walk_pad[p], &b, slot, &touched);
+
+    uint16_t x_frac = b.x_frac, x = b.x;
+    uint16_t y_frac = b.y_frac, y = b.y;
+    int revert = leash(p, game_state.leader_x_coord, game_state.leader_y_coord, w->x, w->y, x, y);
+    if (revert & 1) {
+        x = w->x;
+        x_frac = w->x_frac;
+    }
+    if (revert & 2) {
+        y = w->y;
+        y_frac = w->y_frac;
+    }
+    /* Sliding along the leash only where that position is free; else no step */
+    if (revert && !coop_leashed_position_clear((int16_t)w->x, (int16_t)w->y, (int16_t)x, (int16_t)y, (uint16_t)slot)) {
+        x = w->x;
+        x_frac = w->x_frac;
+        y = w->y;
+        y_frac = w->y_frac;
+    }
+    bool moved = stepped && (x != w->x || x_frac != w->x_frac || y != w->y || y_frac != w->y_frac);
+    w->x = x;
+    w->x_frac = x_frac;
+    w->y = y;
+    w->y_frac = y_frac;
+    w->direction = b.direction;
+    w->walking_style = b.walking_style;
+    w->moved = moved;
+    w->touched = touched;
 
     /* As update_leader_movement: surface flags under the Walker, then the trail */
     w->surface = lookup_surface_flags((int16_t)w->x, (int16_t)w->y, entities.sizes[slot]);
@@ -536,7 +556,7 @@ static void walker_step(int p, CoopWalker *w) {
 }
 
 void coop_walk_leader_tick(void) {
-    WalkControl control = walk_control();
+    WalkControl control = coop_walk_control();
     if (coop.regroup && control != WALK_BATTLE) {
         /* Ownership changed (a join or leave): everyone back in formation */
         coop_walk_regroup();
@@ -546,6 +566,7 @@ void coop_walk_leader_tick(void) {
         /* The last other Player left: only the camera eases back to the Leader */
         if (control != WALK_BATTLE)
             coop_camera_update();
+        coop_companion_tick(control); /* despawns a Companion whose Player left */
         return;
     }
     bool snapped = false;
@@ -559,7 +580,7 @@ void coop_walk_leader_tick(void) {
         uint8_t chain[TOTAL_PARTY_COUNT];
         int n = current_chain(p, chain);
         bool scripted = n && chain_scripted(chain);
-        if (w->active && ((control == WALK_CONTROLLED && game_moves_party()) || scripted ||
+        if (w->active && ((control == WALK_CONTROLLED && coop_game_moves_party()) || scripted ||
                           memcmp(chain, w->chain, TOTAL_PARTY_COUNT) != 0)) {
             snap(w);
             snapped = true;
@@ -579,6 +600,7 @@ void coop_walk_leader_tick(void) {
     if (snapped)
         regroup();
     coop_camera_update();
+    coop_companion_tick(control);
 }
 
 /* ---- Chain members' ticks ---- */
@@ -632,10 +654,10 @@ bool coop_walk_follower_tick(int16_t ent) {
 
     /* The Leader's tick may not have run this frame (a frozen init entity), so
      * the chain re-checks that it is still independent. */
-    WalkControl control = walk_control();
+    WalkControl control = coop_walk_control();
     uint8_t chain[TOTAL_PARTY_COUNT];
     current_chain(p, chain);
-    if ((control == WALK_CONTROLLED && game_moves_party()) || memcmp(chain, w->chain, TOTAL_PARTY_COUNT) != 0 ||
+    if ((control == WALK_CONTROLLED && coop_game_moves_party()) || memcmp(chain, w->chain, TOTAL_PARTY_COUNT) != 0 ||
         chain_scripted(chain)) {
         snap(w);
         regroup();

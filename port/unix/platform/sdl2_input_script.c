@@ -102,6 +102,8 @@
 #include "core/mode_stack.h"
 #include "coop/coop.h"
 #include "coop/coop_battle.h"
+#include "coop/coop_companion.h"
+#include "game/audio.h"
 #include "coop/coop_walk.h"
 #include "coop/coop_input.h"
 #include "entity/entity.h"
@@ -250,6 +252,15 @@ static bool mode_on_stack(int mode) {
 
 static int top_mode(void) {
     return g_mode_stack.depth ? g_mode_stack.mode[g_mode_stack.depth - 1] : GAME_MODE_NONE;
+}
+
+/* ---- Sound effects (sfx_trace_hook) ---- */
+
+/* In co-op only, every sound effect prints "SFX N" (solo output stays as
+ * regress.py recorded it). */
+static void sfx_trace(uint16_t sfx_id) {
+    if (coop_player_count() > 1)
+        printf("SFX %u\n", sfx_id);
 }
 
 /* ---- Window text capture (text_trace_hook) ---- */
@@ -586,7 +597,8 @@ static void print_surface(uint16_t sf) {
 
 /* PLAYERS P1:joined owns=Ness,Jeff walker=Ness pos=(X,Y) dir=UP walk=0 | P2:joined owns=- walker=- spectator | P3:- | P4:- | focus=P1 [| choose=P1,P2]
  * owns = the Player's Heroes present in the Party (Party order); walker = coop_walker_info(), a Guest's
- * battler name plus " standin" for a Stand-in (P2:joined owns=- walker=Bubble Monkey standin pos=...)
+ * battler name plus " standin" for a Stand-in (P2:joined owns=- walker=Bubble Monkey standin pos=...),
+ * or "Mr. Saturn companion" plus its pos=... or " hidden" for a Companion
  * (pos/dir/walk: the Leader's globals, an independent Walker's state, else its entity);
  * focus = the input focus, P1-P4 (" locked": holding the overworld lock) or ALL;
  * choose = the Players a battle waits on to claim a command menu, if it does */
@@ -611,7 +623,16 @@ static void print_players(void) {
         if (!any)
             printf("-");
         CoopWalkerInfo w;
-        if (!coop_walker_info(p, &w)) {
+        if (coop_companion(p)) {
+            /* Mr. Saturn (coop/coop_companion.h): hidden while the game moves the Party,
+             * in battle, or before it first spawns */
+            const CoopCompanion *c = &coop.companions[p];
+            printf(" walker=Mr. Saturn companion");
+            if (coop_companion_entity(p) >= 0)
+                printf(" pos=(%u,%u) dir=%s walk=%u", c->x, c->y, dir_names[c->direction & 7], c->walking_style);
+            else
+                printf(" hidden");
+        } else if (!coop_walker_info(p, &w)) {
             printf(" walker=- spectator");
         } else {
             int len;
@@ -955,6 +976,7 @@ static bool open_script(const char *path, bool session) {
         return false;
     }
     text_trace_hook = text_trace;
+    sfx_trace_hook = sfx_trace;
     return true;
 }
 
@@ -1176,6 +1198,21 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
         said_flush();
         printf("SYNC %s frame=%u\n", arg, (unsigned)core.frame_counter);
         fflush(stdout);
+    } else if (strcmp(cmd, "companion") == 0) {
+        /* companion P X Y [DIR]: put Player P's visible Mr. Saturn there (scenario setup,
+         * like teleport; the next frame's step and leash run from there) */
+        int p, x, y, d = -1;
+        int n = sscanf(line, "%*s %d %d %d %d", &p, &x, &y, &d);
+        if (n < 3 || p < 1 || p > PLATFORM_MAX_PLAYERS || coop_companion_entity(p - 1) < 0) {
+            script_error("usage: companion P X Y [DIR] (P walks a visible Companion)%s", "");
+        } else {
+            CoopCompanion *c = &coop.companions[p - 1];
+            c->x = (uint16_t)x;
+            c->y = (uint16_t)y;
+            c->x_frac = c->y_frac = 0;
+            if (n >= 4)
+                c->direction = (uint16_t)(d & 6);
+        }
     } else if (strcmp(cmd, "flag") == 0) {
         if (nv < 1 || v1 < 1 || v1 >= EVENT_FLAG_COUNT) {
             script_error("usage: flag N [0|1]%s", "");

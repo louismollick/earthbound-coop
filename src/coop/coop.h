@@ -68,6 +68,26 @@ typedef struct {
     uint8_t unused;                /* explicit padding (savestates hash every byte) */
 } CoopCamera;
 
+/*
+ * One absent Player's Companion (coop_companion.h): Mr. Saturn, an NPC-slot
+ * entity this Player walks with the Walker step. Not a Party member.
+ */
+typedef struct {
+    uint16_t x, y;                 /* world position, like game_state.leader_x/y_coord */
+    uint16_t x_frac, y_frac;       /* like game_state.leader_x/y_frac */
+    uint16_t direction;            /* facing, always a cardinal (0 UP, 2 RIGHT, 4 DOWN, 6 LEFT) */
+    uint16_t surface;              /* like game_state.trodden_tile_type */
+    uint16_t walking_style;        /* normal, or ladder/rope while on one */
+    int16_t entity;                /* its entity slot (0-21) while `spawned` */
+    uint8_t spawned;               /* 1: `entity` is this Player's Mr. Saturn */
+    uint8_t shown;                 /* 1: visible and walking; 0: hidden, parked next to the
+                                    * Leader when shown again */
+    uint8_t moved;                 /* it moved this frame */
+    uint8_t anim;                  /* walking frames, for the 2-frame walk cycle */
+    uint8_t retry;                 /* frames to wait before the next spawn attempt */
+    uint8_t unused;                /* explicit padding (savestates hash every byte) */
+} CoopCompanion;
+
 typedef struct {
     uint8_t player_count;                       /* joined Players, 1..PLATFORM_MAX_PLAYERS */
     uint8_t join_order[PLATFORM_MAX_PLAYERS];   /* Players (0 = P1) in join order; [0] is P1,
@@ -107,6 +127,7 @@ typedef struct {
      * 256-entry trail is 2 KB), about 8.4 KB, all of it in savestates. */
     CoopWalker walkers[PLATFORM_MAX_PLAYERS];
     CoopCamera camera;
+    CoopCompanion companions[PLATFORM_MAX_PLAYERS]; /* by Player */
 } CoopState;
 
 extern CoopState coop;
@@ -128,7 +149,8 @@ int coop_player_count(void);
 
 /* Co-op runs the overworld's Walkers and camera this frame: more than one
  * Player, or the last other Player has just left and the Party isn't back in
- * vanilla formation with the camera on the Leader yet (a few frames). Always
+ * vanilla formation with the camera on the Leader yet (a few frames) or a
+ * Companion is still to despawn. Always
  * false in a session that never had co-op. The overworld hooks for walking and
  * the camera use this instead of coop_player_count() > 1. */
 bool coop_overworld_active(void);
@@ -150,6 +172,10 @@ uint8_t coop_walker(int player);
  * Player in join order walks the k-th eligible Guest in Party order. Dungeon
  * Man (10) and the Teddy Bears (16, 17) are never walked. */
 uint8_t coop_standin(int player);
+
+/* Player p walks a Companion (Mr. Saturn): co-op, joined, none of p's Heroes
+ * in the Party, and no Guest for p to stand in for. Derived every call. */
+bool coop_companion(int player);
 
 /* The name the game gives party member `id` (EB-encoded, up to *len bytes,
  * 0-terminated if shorter): a Hero's char_struct name, or a Guest's battler

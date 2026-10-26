@@ -5,10 +5,13 @@
 
 #include "coop/coop.h"
 #include "coop/coop_battle.h"
+#include "coop/coop_companion.h"
+#include "coop/coop_look.h"
 #include "coop/coop_walk.h"
 #include "core/memory.h"
 #include "core/mode_stack.h"
 #include "entity/entity.h"
+#include "game/audio.h"
 #include "game/game_state.h"
 #include "game/overworld.h"
 #include "game/window.h"
@@ -76,6 +79,27 @@ static uint16_t focused(const uint16_t v[PLATFORM_MAX_PLAYERS], int f) {
     return all;
 }
 
+#define COMPANION_SFX 114 /* SFX::MYSTERIOUS_2, as Saturn Valley's Mr. Saturns */
+
+/* The buttons with which Player p may take the overworld lock: all of
+ * COOP_CAPTURE_BUTTONS with a Walker, A and L while walking a visible
+ * Companion (it can only Check/Talk), none for a Spectator. */
+static uint16_t capture_buttons(int p) {
+    if (coop_walker(p))
+        return COOP_CAPTURE_BUTTONS;
+    return coop_companion_entity(p) >= 0 ? (PAD_A | PAD_L) : 0;
+}
+
+/* A Companion's Player drives this focus: their A is L (Check/Talk, and a
+ * confirm or text advance like A), so the pause menu never opens for them. */
+static bool companion_focus(int f) {
+    return f < PLATFORM_MAX_PLAYERS && coop.focus_locked && coop_companion(f);
+}
+
+static uint16_t a_as_l(uint16_t pad) {
+    return (pad & PAD_A) ? (uint16_t)((pad & ~PAD_A) | PAD_L) : pad;
+}
+
 /* This frame's focus. `pressed`: each Player's new presses. */
 static int decide_focus(const uint16_t pressed[PLATFORM_MAX_PLAYERS]) {
     if (coop_player_count() <= 1) {
@@ -99,7 +123,7 @@ static int decide_focus(const uint16_t pressed[PLATFORM_MAX_PLAYERS]) {
         coop.focus_locked = 0;
     if (!coop.focus_locked && capture_eligible()) {
         for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
-            if ((pressed[p] & COOP_CAPTURE_BUTTONS) && coop_walker(p)) {
+            if (pressed[p] & capture_buttons(p)) {
                 coop.focus_locked = 1;
                 return p;
             }
@@ -117,8 +141,10 @@ uint16_t coop_input_feed(uint16_t p1_pad, bool unwinding) {
         pressed[p] = unwinding ? 0 : (uint16_t)(held[p] & ~coop.prev_held[p]);
     }
     int want = decide_focus(pressed);
+    bool remap = companion_focus(want);
     if (want != coop.focus) {
-        memory_rebase_joypad(focused(coop.prev_held, want));
+        uint16_t prev = focused(coop.prev_held, want);
+        memory_rebase_joypad(remap ? a_as_l(prev) : prev);
         coop.focus = (uint8_t)want;
     }
     coop.focus_new = focused(pressed, want);
@@ -126,7 +152,12 @@ uint16_t coop_input_feed(uint16_t p1_pad, bool unwinding) {
         coop_battle_note_claims(pressed, want);  /* A queues for the next command menu */
         coop_battle_retitle();  /* the open command menu's tag names its Player */
     }
-    return focused(held, want);
+    uint16_t pad = focused(held, want);
+    if (remap) {
+        coop.focus_new = a_as_l(coop.focus_new);
+        pad = a_as_l(pad);
+    }
+    return pad;
 }
 
 int coop_focus(void) {
@@ -186,6 +217,8 @@ void coop_leader_pad_leave(void) {
 uint32_t coop_interact(uint32_t (*fn)(void)) {
     int p = coop.focus;
     CoopWalkerInfo w;
+    if (coop_player_count() > 1 && p < PLATFORM_MAX_PLAYERS && coop_companion(p))
+        return coop_companion_interact(p, fn);
     if (coop_player_count() <= 1 || p >= PLATFORM_MAX_PLAYERS || !coop_walker_info(p, &w) || !w.independent)
         return fn();
     uint16_t lx = game_state.leader_x_coord, ly = game_state.leader_y_coord;
@@ -202,6 +235,16 @@ uint32_t coop_interact(uint32_t (*fn)(void)) {
     game_state.leader_direction = ldir;
     game_state.current_party_members = lslot;
     return text;
+}
+
+bool coop_interact_muted(uint32_t text) {
+    int p = coop.focus;
+    if (p >= PLATFORM_MAX_PLAYERS || !coop_companion(p) || coop_look_only(text))
+        return false;
+    /* No text and no window (talk_to / check_action opened the empty one) */
+    close_window(WINDOW_TEXT_STANDARD);
+    play_sfx(COMPANION_SFX);
+    return true;
 }
 
 /* ---- Menus ---- */

@@ -22,7 +22,7 @@ def run(ctx):
     # Join order P1, P3, P4, P2: Ness -> P1, Paula -> P3, Jeff -> P4, Poo -> P2
     expect(p[1].owns == ["Ness"] and p[1].walker == "Ness", "P1 owns Ness", p[1])
     for n in (2, 3, 4):
-        expect(p[n].owns == [] and p[n].spectator, f"P{n} a Spectator (no owned Hero in the Party)", p[n])
+        expect(p[n].owns == [] and p[n].companion, f"P{n} a Companion (no owned Hero in the Party)", p[n])
 
     # Plain commands still mean P1: Ness walks
     before = s.state().pos

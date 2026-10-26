@@ -10,6 +10,7 @@
 #include "core/state_dump.h"
 #include "game/smooth_camera.h"
 #include "coop/coop.h"
+#include "coop/coop_look.h"
 #include "net/net.h"
 
 /* Unix-specific: set save file path (defined in sdl2_save.c) */
@@ -40,6 +41,7 @@ static void platform_cleanup(void) {
 int main(int argc, char *argv[]) {
     const char *verify_rom_path = NULL;
     bool savestate_selftest = false;
+    bool look_selftest = false;
     const char *coldload_prefix = NULL;
     int players = 1;
     NetConfig net = { .input_delay = NET_DEFAULT_INPUT_DELAY, .local_players = 1 };
@@ -51,6 +53,10 @@ int main(int argc, char *argv[]) {
             /* Run the savestate save->load->save round-trip self-test and exit.
              * Implies headless so it neither opens a window nor plays the game. */
             savestate_selftest = true;
+            platform_headless = true;
+        } else if (strcmp(argv[i], "--selftest-look") == 0) {
+            /* Classify the co-op Look-only test labels and every NPC's text, then exit. */
+            look_selftest = true;
             platform_headless = true;
         } else if (strcmp(argv[i], "--selftest-coldload") == 0 && i + 1 < argc) {
             /* Load PREFIX.0/.1 in this fresh process, re-save, compare; then exit. */
@@ -122,7 +128,7 @@ int main(int argc, char *argv[]) {
                 verbose_level++;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--smooth-camera] [--players N] [--host PORT] [--join ADDR[:PORT]] [--input-delay N] [--local-players N] [--verbose] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX]\n",
+            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--smooth-camera] [--players N] [--host PORT] [--join ADDR[:PORT]] [--input-delay N] [--local-players N] [--verbose] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX] [--selftest-look]\n",
                     argv[0]);
             return 1;
         }
@@ -133,7 +139,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "--host and --join are exclusive\n");
         return 1;
     }
-    if (netplay && (players > 1 || savestate_selftest || coldload_prefix)) {
+    if (netplay && (players > 1 || savestate_selftest || coldload_prefix || look_selftest)) {
         fprintf(stderr, "--host/--join can't be combined with --players or the self-tests\n");
         return 1;
     }
@@ -199,6 +205,9 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "savestate reject (bad size / layout id / mode stack / index range / PSI pairing / corrupt) self-test: %s\n", ok_rj ? "PASS" : "FAIL");
         exit((ok && ok_pert && ok_cs && ok_ap && ok_rj) ? 0 : 1);
     }
+
+    if (look_selftest)
+        exit(coop_look_selftest());
 
     if (coldload_prefix) {
         platform_savestate_set_path(coldload_prefix);
