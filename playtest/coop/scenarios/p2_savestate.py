@@ -37,4 +37,4 @@ def run(ctx):
     expect(joined(st2.players) == [1, 2], "P2 joined after the cold restore", st2.players_line)
     expect(st2.pos == st.pos, f"the restored Leader at {st.pos}", st2.pos)
     p = st2.players
-    expect(p[2].owns == [] and p[2].spectator, "P2 a Spectator after the cold restore", p[2])
+    expect(p[2].owns == [] and p[2].companion, "P2 a Companion after the cold restore", p[2])

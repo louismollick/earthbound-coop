@@ -91,41 +91,45 @@ Other Party changes:
 
 ## Look-only scan
 
+**As built (M7):** `coop_look_scan` / `coop_look_only` (`src/coop/coop_look.c`), over `display_text_resolve` (`display_text.c`). Lists below are what it does; they come from the C runtime (`step_display_text_run`, the `cc_18`..`cc_1f` dispatchers), not `opcodes.py`. `--selftest-look` prints the test labels and NPC stats; `tests/test_coop_look.py` checks them. Of the NPC config entries with text: PERSON 536 Look-only / 463 not, OBJECT 69 / 69, ITEM_BOX 0 / 177. A YAML-level reachability walk with the same whitelist agrees on all 1314.
+
 **Where text lives.**
-- Text is one dialogue blob, addresses ≥ 0x100000 (`display_text.c:85`, `resolve_text_addr` `:520`).
+- Text is one dialogue blob, addresses ≥ 0x100000 (`display_text.c:85`, `resolve_text_addr` `:520`). Lower addresses are the inline string table; jumps can land there, and the scan follows them too.
 - NPC text comes from `get_npc_config_text_pointer` via `talk_to` / `check_action`.
-- The CC dispatch is at `display_text.c:2195-2237`. The full opcode/arg table is in `ebtools/text_dsl/opcodes.py`.
+- Argument lengths follow the C handlers. `opcodes.py` differs on 18 08 (U24, the runtime reads a dword), 19 24 (4 bytes, the runtime and the asm read 5) and 1C 09 (none, the runtime reads 1).
 
 **Allowed CCs.**
-- Printable bytes ≥ 0x20, and 0x15-0x17 (+1).
-- 00, 01, 03, 07, 0B-0F, 10-14.
-- 18 00-0A.
-- 19 02 (variable length; ends at 00/02, or 01 + a 4-byte label), and 19 04, 10, 11, 14, 16, 18-25, 27, 28.
-- 1A 01, 1A 05.
+- Letters ≥ 0x20. 15-17 are 1-byte no-ops in the C runtime (no dictionary; `cc_skip_args`), not +1.
+- 00, 01, 03, 06-14.
+- 18 00-0A, 0D (status window).
+- 19 02, 04, 10, 11, 14, 16, 18-1B, 1D (only with a 0 second byte; non-zero clears the queued item), 1E-25, 27, 28.
+- 1A 00, 01, 04, 05, 08, 09.
 - All of 1B.
-- All of 1C except 13.
-- 1D 02-05, 0A, 0B, 0D, 10, 11, 14, 15, 17, 19, 20-24.
-- 1F 02, 04, 30, 31, 52, 60, 62, A2, D1.
+- 1C 00-0F, 11, 12, 14, 15.
+- 1D 02-05, 0A-0D, 10, 11, 14, 15, 17, 19-24 (24 not with argument 2, which clears `unknownC4`).
+- 1F 02, 04, 30, 31, 50, 51, 52, 60, 62, A2, C0, D1.
 
-**Branches to follow:** 06, 08, 09, 0A, 1B 02/03, 1A 01, 1F C0, and the 19 02 label.
+**Branches followed:** 06, 08, 09, 0A, 1B 02/03, 1F C0 (zero entries skipped), 18 08 (the post-menu jump, if non-zero), 1A 00/01 (the 4 member scripts, if non-zero), and the 19 02 hover script (01 + dword, if non-zero). A label stops after 25 bytes without a terminator and the rest runs as script, as in the runtime.
 
-**Effects (forbidden):**
-- 04 and 05 (flag set/clear).
-- 19 05, 19 26, 19 1C.
-- 1A 06/07/0A (shop, Escargo, phone).
+**Forbidden:** everything else. Notably:
+- 04, 05.
+- 19 05, 1C (removes an item), 26.
+- 1A 06/07/0A/0B (shop, Escargo, phone, teleport menu).
 - 1C 13.
-- 1D 00, 01, 06-09, 0C, 0E, 0F, 12, 13, 18.
+- 1D 00, 01, 06-09, 0E, 0F, 12, 13, 18.
 - All of 1E.
-- Every other 1F.
+- Every other 1F, including 1F 61 (waits on an actionscript).
 
-**Scan.** A static DFS with a visited set, capped at about 512 targets; fail closed. Any effect on any path means the script isn't look-only. It's about 250 lines in `src/coop/coop_look.c`, plus a public resolver wrapper.
+**Fail closed:** a CC off the list (including ones the runtime FATALs on, like 1C 10), a 0 or unresolvable target where the runtime would jump (it warns and falls through), running off the end of a block, more than 512 targets (the most any NPC text uses is 57).
+
+**Deviations from the first draft:** 19 1C was listed both as allowed and as an effect; it is an effect. 1D 0C is a read (Escargo item status), so it is allowed. 15-17 take no argument. Added 18 0D, 1A 00/04/08/09, 1F 50/51/C0 and the 18 08 / 1A 00 / 19 02 branches. 1C 10 doesn't exist.
 
 **Hook.**
 - A Companion's A or L press takes the lock and is treated as L (QUICK_CHECKTALK).
 - `coop_interact` uses the Companion's position.
 - In `QCT_TEXT`, if the text isn't look-only: play the SFX, set `phase=QCT_FADE`, and return CONTINUE.
 
-**Test labels:** `MSG_TWSN_BUS_B` (look-only), `MSG_ONET_SHARK_D_JOIN_REFUSE` (not look-only).
+**Test labels:** `MSG_TWSN_BUS_B` (look-only), `MSG_ONET_SHARK_D_JOIN_REFUSE` (not look-only), plus a sign, the Hotel Onett porter, clerk and phone, an ATM, a shop clerk, a present and a flag-setting NPC (`tests/test_coop_look.py`).
 
 ## Battle rotation
 

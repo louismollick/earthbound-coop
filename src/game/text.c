@@ -3467,6 +3467,8 @@ StepResult mode_step_quick_checktalk(ModeState *ms) {
             text_ptr = MSG_SYS_NOTHING_WRONG_HERE;
 
         st->phase = QCT_FADE;
+        if (coop_player_count() > 1 && coop_interact_muted(text_ptr))
+            return STEP_RESULT_CONTINUE();  /* co-op: a Companion's non-Look-only target, no text */
         if (dt_make_child_init(&g_mode_push_init, text_ptr))
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", text_ptr);

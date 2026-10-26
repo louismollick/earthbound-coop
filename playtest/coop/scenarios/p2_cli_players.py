@@ -12,6 +12,6 @@ def run(ctx):
 
     st = s.new_game()
     p = st.players
-    expect(p[2].joined and p[2].owns == [] and p[2].spectator, "P2 joined as a Spectator in the bedroom", p[2])
+    expect(p[2].joined and p[2].owns == [] and p[2].companion, "P2 joined as a Companion in the bedroom", p[2])
     expect(p[1].owns == ["Ness"] and p[1].walker == "Ness", "P1 owns and walks Ness", p[1])
     ctx.shot(s, "bedroom --players 2")

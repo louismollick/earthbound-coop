@@ -61,6 +61,8 @@ class Player:
     walk: int | None = None
     spectator: bool = False
     standin: bool = False  # the Walker is a Guest this Player stands in for
+    companion: bool = False  # the Player walks a Mr. Saturn Companion (walker == "Mr. Saturn")
+    hidden: bool = False  # a Companion that is hidden right now (no pos)
 
     def __str__(self):
         if not self.joined:
@@ -68,13 +70,16 @@ class Player:
         s = f"P{self.num}:joined owns={','.join(self.owns) or '-'} walker={self.walker or '-'}"
         if self.pos:
             s += f" pos={self.pos} dir={self.dir} walk={self.walk}"
-        return s + (" spectator" if self.spectator else "") + (" standin" if self.standin else "")
+        s += " spectator" if self.spectator else ""
+        s += " standin" if self.standin else ""
+        return s + (" companion" if self.companion else "") + (" hidden" if self.hidden else "")
 
 
 def parse_players(line):
     """``PLAYERS P1:joined owns=Ness walker=Ness pos=(1,2) dir=UP walk=0 | P2:- ...`` -> {1: Player, ...}.
 
-    A Guest's name may have spaces: ``walker=Bubble Monkey standin pos=...``.
+    A Guest's name may have spaces: ``walker=Bubble Monkey standin pos=...``. A Companion is
+    ``walker=Mr. Saturn companion pos=...`` (or ``... companion hidden``).
     """
     out = {}
     for seg in line[len("PLAYERS") :].split("|"):
@@ -87,7 +92,7 @@ def parse_players(line):
             out[num] = Player(num, False)
             continue
         owns = re.search(r"owns=(\S+)", rest)
-        walker = re.search(r"walker=(.+?)(?= standin| spectator| pos=|$)", rest)
+        walker = re.search(r"walker=(.+?)(?= standin| spectator| companion| pos=|$)", rest)
         pos = re.search(r"pos=\((\d+),(\d+)\)", rest)
         dir_ = re.search(r"dir=(\S+)", rest)
         walk = re.search(r"walk=(\d+)", rest)
@@ -101,6 +106,8 @@ def parse_players(line):
             walk=int(walk.group(1)) if walk else None,
             spectator=" spectator" in rest,
             standin=" standin" in rest,
+            companion=" companion" in rest,
+            hidden=" hidden" in rest,
         )
     return out
 

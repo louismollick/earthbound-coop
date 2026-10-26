@@ -3,6 +3,8 @@
  */
 #include "coop/coop.h"
 
+#include "coop/coop_companion.h"
+
 #include "data/assets.h"
 #include "game/battle.h"
 #include "game/game_state.h"
@@ -74,6 +76,7 @@ void coop_tick(const uint16_t held[PLATFORM_MAX_PLAYERS]) {
             coop.leave_hold[p] = 0;
         }
     }
+    coop_companion_watch();
 }
 
 void coop_unwind_frame(void) {
@@ -86,8 +89,13 @@ int coop_player_count(void) {
 }
 
 bool coop_overworld_active(void) {
-    return coop.player_count > 1 || coop.regroup || coop.camera.midpoint || coop.camera.ease_x ||
-           coop.camera.ease_y;
+    if (coop.player_count > 1 || coop.regroup || coop.camera.midpoint || coop.camera.ease_x || coop.camera.ease_y)
+        return true;
+    /* A Companion still to despawn after its Player left */
+    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
+        if (coop.companions[p].spawned)
+            return true;
+    return false;
 }
 
 bool coop_player_joined(int player) {
@@ -141,6 +149,10 @@ uint8_t coop_standin(int player) {
             return id;
     }
     return 0;
+}
+
+bool coop_companion(int player) {
+    return coop.player_count > 1 && coop_player_joined(player) && absent(player) && !coop_standin(player);
 }
 
 uint8_t coop_walker(int player) {

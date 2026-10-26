@@ -1,4 +1,4 @@
-"""P2 presses Start in Ness's bedroom: P2 joins as a Spectator (Paula and Poo aren't in the Party)."""
+"""P2 presses Start in Ness's bedroom: P2 joins as a Spectator walking a Mr. Saturn Companion (Paula and Poo aren't in the Party)."""
 
 from lib import expect
 
@@ -15,7 +15,7 @@ def run(ctx):
     s.do("P2 press START")
     p = s.players()
     expect(p[2].joined, "P2 joined after 'P2 press START'", p[2])
-    expect(p[2].owns == [] and p[2].walker is None and p[2].spectator, "P2 owns no Hero and spectates", p[2])
+    expect(p[2].owns == [] and p[2].walker == "Mr. Saturn" and p[2].companion, "P2 owns no Hero: a Companion", p[2])
     expect(p[1].owns == ["Ness"] and p[1].walker == "Ness", "P1 still owns and walks Ness", p[1])
     expect(not p[3].joined and not p[4].joined, "P3 and P4 not joined", f"{p[3]} {p[4]}")
 

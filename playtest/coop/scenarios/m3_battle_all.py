@@ -1,6 +1,6 @@
 """A Spectator advances battle text, but the command menus are the Heroes' Owners' (M2).
 
-Onett street, Ness alone (P2 a Spectator). Ness's menu has focus P1: P2's presses change nothing, P1
+Onett street, Ness alone (P2 a Spectator: its Companion sits out the battle). Ness's menu has focus P1: P2's presses change nothing, P1
 picks Bash and the target, P2 reads the battle out (outside command menus the focus is ALL), with P1
 still holding A: under ALL any one Player's press counts. Back on the overworld the focus is the
 Leader's Owner's again.
@@ -15,7 +15,7 @@ def run(ctx):
     s.do("teleport 2660 440 4; until battle 500 DOWN|RIGHT|LEFT; until input 1500; wait 10")
     st = s.state()
     expect("BATTLE_MENU" in st.state and st.focus == "P1", "Ness's battle menu with focus P1", st.players_line)
-    expect(st.players[2].spectator, "P2 a Spectator", st.players[2])
+    expect(st.players[2].companion, "P2 absent: a Companion (no command menu)", st.players[2])
     ctx.shot(s, "battle, focus P1")
     before = s.windows()
     s.do("P2 press A; wait 10")

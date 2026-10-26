@@ -1,6 +1,6 @@
 """Edge case: P2 joins while Ness rides the bicycle (05-Twoson, Ness alone).
 
-No forced dismount: a join never changes the Party, so the bicycle stays legal. P2 joins as a Spectator
+No forced dismount: a join never changes the Party, so the bicycle stays legal. P2 joins as a Companion (hidden while Ness rides)
 (no Walker), Ness keeps riding, and the ride matches a solo session frame for frame (P2's pad does
 nothing).
 """
@@ -32,7 +32,9 @@ def run(ctx):
     ref.do("P2 press SELECT; wait 5")  # the same frames; an unjoined pad's SELECT does nothing
     st, r = s.state(), ref.state()
     p2 = st.players[2]
-    expect(p2.joined and p2.spectator and p2.walker is None, "P2 joined as a Spectator", st.players_line)
+    expect(
+        p2.joined and p2.companion and p2.hidden, "P2 joined as a Companion, hidden while Ness rides", st.players_line
+    )
     expect(f"walk={BICYCLE}" in st.state and st.players[1].walk == BICYCLE, "Ness still riding", st.state)
     expect(st.pos == r.pos, f"Ness where solo Ness is {r.pos}", st.pos)
 

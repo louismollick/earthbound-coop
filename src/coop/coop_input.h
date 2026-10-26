@@ -19,7 +19,9 @@
  * - Overworld, unlocked: the Leader's Owner (it walks the Leader).
  * - Overworld lock: on a capture-eligible frame (the Party idle, no window
  *   open), the lowest-numbered Player with a Walker who newly presses A, L, X,
- *   B or SELECT takes the lock. The focus moves to them before the overworld's
+ *   B or SELECT takes the lock; a Companion's Player (coop_companion.h) takes
+ *   it with A or L only, and while they hold it their A reads as L, so they
+ *   Check/Talk from Mr. Saturn and never open the pause menu. The focus moves to them before the overworld's
  *   input check runs, so that same press opens the pause menu, Check, the town
  *   map or the HP/PP window exactly as in vanilla, and they drive every menu,
  *   text box, yes/no prompt, shop, phone or save that follows. The lock is
@@ -91,11 +93,18 @@ void coop_leader_pad_enter(void);
 void coop_leader_pad_leave(void);
 
 /* Talk to / Check (pause menu and the L button): run `fn` (talk_to or
- * check_action) searching from the focused Player's Walker instead of the
- * Leader (position, direction, hitbox entity), so the NPC faces that Walker.
+ * check_action) searching from the focused Player's Walker, or their
+ * Companion, instead of the Leader (position, direction, hitbox entity), so
+ * the NPC faces that Walker.
  * The Walker turns to face what it found, as the Leader does. In solo, or for
  * a Walker that is the Leader or trails it, this is just fn(). */
 uint32_t coop_interact(uint32_t (*fn)(void));
+
+/* Hook, QUICK_CHECKTALK after the text is resolved (co-op only): true when
+ * the focused Player is a Companion and `text` isn't a Look-only interaction
+ * (coop_look.h). Then there is no text and no window: the empty text window
+ * is closed and a Mr. Saturn sound plays, and the caller skips the text. */
+bool coop_interact_muted(uint32_t text);
 
 /* char_select_make_init: the starting cursor of an overworld "Who?" select
  * (Goods, PSI, Equip, Status). In co-op it's the focused Player's Walker; for

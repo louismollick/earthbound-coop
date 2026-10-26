@@ -642,6 +642,15 @@ bool display_text_init(void) {
     return ok;
 }
 
+const uint8_t *display_text_resolve(uint32_t addr, size_t *remaining) {
+    TextBlock *blk = NULL;
+    const uint8_t *ptr = resolve_text_addr(addr, &blk);
+    if (!ptr || !blk)
+        return NULL;
+    *remaining = blk->size - (size_t)(ptr - blk->data);
+    return ptr;
+}
+
 /* Battle text is part of the dialogue blob — no separate loading needed. */
 bool display_text_load_battle_text(void) { return true; }
 

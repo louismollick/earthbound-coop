@@ -44,6 +44,12 @@ typedef struct {
  * Returns true on success. */
 bool display_text_init(void);
 
+/* Resolve a text address the way CC jumps and CALL_TEXT do (dialogue blob at
+ * >= 0x100000, inline string table below). Returns the bytes at addr and sets
+ * *remaining to the bytes left in that block, or returns NULL if unresolvable.
+ * Read-only; used by the co-op Look-only scan (coop_look.c). */
+const uint8_t *display_text_resolve(uint32_t addr, size_t *remaining);
+
 /* No-ops kept for API compatibility (all text lives in the dialogue blob). */
 bool display_text_load_battle_text(void);
 void display_text_free_battle_text(void);

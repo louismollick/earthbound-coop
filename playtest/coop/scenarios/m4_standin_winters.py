@@ -3,7 +3,7 @@
 2 Players: P1 owns Ness and Jeff, P2 owns Paula and Poo, who are both away. P2 stands in for
 Bubble Monkey: P2's pad walks him while Jeff stays put, and P2 can take the lock and open the menu.
 3 Players: P3 owns Jeff (the Leader, so P3 has the focus); P1 and P2 are absent, and the first
-absent Player in join order (P1) gets the only Guest. P2 has none left: a Spectator.
+absent Player in join order (P1) gets the only Guest. P2 has none left: a Companion (Mr. Saturn).
 """
 
 from lib import expect
@@ -47,7 +47,7 @@ def run(ctx):
     lead = st.pos
     expect(p[3].walker == "Jeff" and st.focus == "P3", "P3 walks Jeff, the Leader, and has the focus", st.players_line)
     expect(p[1].owns == [] and p[1].walker == "Bubble Monkey" and p[1].standin, "P1 stands in", st.players_line)
-    expect(p[2].spectator and not p[2].standin, "P2 a Spectator: no Guest left", st.players_line)
+    expect(p[2].companion and not p[2].standin, "P2 a Companion: no Guest left", st.players_line)
 
     s3.do("P1 40 RIGHT")
     st = s3.state()
@@ -56,4 +56,4 @@ def run(ctx):
     st2 = s3.state()
     expect(st2.pos[0] < lead[0] - 20, "P3 walks Jeff left", st2.pos)
     expect(st2.players[1].pos == st.players[1].pos, "the Monkey stays", st2.players_line)
-    ctx.shot(s3, "3P: P3 Jeff, P1 Monkey, P2 spectates")
+    ctx.shot(s3, "3P: P3 Jeff, P1 Monkey, P2 Mr. Saturn")
