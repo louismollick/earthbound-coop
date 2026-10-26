@@ -177,18 +177,24 @@ static void pump_events(void) {
     }
 }
 
-/* Netplay: this machine's pad for the next net frame (P1's keys + first
- * controller, or the script's P1 commands). */
-static uint16_t net_sample_local(void) {
+/* Netplay: this machine's pads for the next net frame. Local pad k is what would
+ * be Player k+1's pad in local play (keyboard layouts and controllers in
+ * connection order, or the script's P1..P4 commands); it goes to this machine's
+ * k-th Player in the Session. */
+static void net_sample_local(uint16_t pads[PLATFORM_MAX_PLAYERS], int count) {
+    uint16_t local[PLATFORM_MAX_PLAYERS] = { 0 };
     if (input_script_active()) {
-        uint16_t pads[PLATFORM_MAX_PLAYERS], aux = 0;
-        input_script_next(pads, &aux);
-        return pads[0];
+        uint16_t aux = 0;
+        input_script_next(local, &aux);
+    } else {
+        for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
+            local[p] = p < 2 ? key_state[p] : 0;
+            if (controllers[p])
+                local[p] |= controller_pad(controllers[p]);
+        }
     }
-    uint16_t pad = key_state[0];
-    if (controllers[0])
-        pad |= controller_pad(controllers[0]);
-    return pad;
+    for (int k = 0; k < PLATFORM_MAX_PLAYERS; k++)
+        pads[k] = k < count ? local[k] : 0;
 }
 
 void platform_input_poll(void) {

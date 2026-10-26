@@ -23,7 +23,7 @@ def run(ctx):
     r = netrun.run(
         ctx.bin,
         ctx.dir / "run",
-        "05-Twoson",
+        "16-Fourside",
         netrun.boot_then(netrun.random_play(1, frames)),
         [netrun.Peer("p2", netrun.random_play(2, frames), env=env)],
         netrun.Net(latency=100, jitter=30, loss=0.02, seed=1),

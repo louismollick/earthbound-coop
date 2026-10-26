@@ -45,7 +45,7 @@ def run(ctx):
     left = frame_of(host, r"^NET LEAVE P2 f=")
     # Nothing ran while the Session waited for the dead machine
     expect(1200 <= left <= 1200 + 60, "P2 to leave right where its machine died (frame 1200+)", left)
-    expect(again.event(r"^NET WELCOME P2 "), "the restarted machine to be P2 again", again.events)
+    expect(again.event(r"^NET WELCOME P2\+0 "), "the restarted machine to be P2 again", again.events)
     joins = [int(re.search(r"f=(\d+)", e).group(1)) for e in host.events if e.startswith("NET JOIN P2 ")]
     expect(len(joins) == 2, "P2 to join twice", joins)
     rejoined = joins[1]

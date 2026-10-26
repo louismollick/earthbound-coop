@@ -1,4 +1,4 @@
-"""A Player joins a running Session mid-game (Twoson, after the Host has played 1500 frames).
+"""A Player joins a running Session mid-game (Fourside, after the Host has played 1500 frames).
 
 The joiner gets the Host's savestate + SRAM at a root boundary and resumes on the
 same frame; its PLAYERS line and state hashes must match the Host's on every hash
@@ -20,7 +20,7 @@ def run(ctx):
     r = netrun.run(
         ctx.bin,
         ctx.dir / "run",
-        "05-Twoson",
+        "16-Fourside",
         netrun.boot_then(netrun.random_play(3, end)),
         [netrun.Peer("p2", netrun.random_play(4, end), start_after=1500, env=env)],
         netrun.Net(latency=30, jitter=10, loss=0.01, seed=2),

@@ -28,6 +28,8 @@ typedef struct {
     int host_port;          /* > 0: host a Session on this UDP port */
     const char *join;       /* "ADDR[:PORT]": join the Session there */
     int input_delay;        /* Host: frames of input delay (clients take the Host's) */
+    int local_players;      /* Players at this machine (1-4): the Host is P1..PN, a client
+                             * gets the next N free Players */
     uint32_t end_frame;     /* Host, tests: every machine quits after running this frame (0 = never) */
     int wait_players;       /* Host: the game waits until this many Players are in (0/1 = don't) */
 } NetConfig;
@@ -35,7 +37,8 @@ typedef struct {
 /* Hooks net_frame needs from the input layer. */
 typedef struct {
     void (*pump)(void);            /* handle pending SDL events (quit, keys) */
-    uint16_t (*sample_local)(void);/* this machine's pad, sampled once per net frame */
+    /* this machine's pads (local pad k = its k-th Player), sampled once per net frame */
+    void (*sample_local)(uint16_t pads[PLATFORM_MAX_PLAYERS], int count);
 } NetInputHooks;
 
 /* Open the socket and, for a client, connect (blocks up to 10 s for the Host's

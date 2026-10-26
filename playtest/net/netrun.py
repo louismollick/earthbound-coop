@@ -50,11 +50,18 @@ class NetError(Exception):
     """A netplay check failed."""
 
 
-def random_play(seed, frames, menus=True):
-    """An input script: a seeded random walk with occasional A/B presses, ``frames`` long, then idle."""
+def random_play(seed, frames, menus=True, players=1):
+    """An input script: a seeded random walk with occasional A/B presses, ``frames`` long, then idle.
+
+    With ``players`` > 1 (several local Players at one machine), P2.. walk too: their
+    direction is a sticky hold that changes now and then while P1's commands run.
+    """
     rng = random.Random(seed)  # noqa: S311 - test input, not crypto
     out, t = [], 0
     while t < frames:
+        for k in range(2, players + 1):
+            if rng.random() < 0.3:
+                out.append(f"hold P{k} {rng.choice(DIRS)}" if rng.random() < 0.8 else f"release P{k}")
         r = rng.random()
         if menus and r < 0.05:
             out.append("press A")
@@ -107,6 +114,7 @@ class Peer:
     start_on: str | None = None  # ... or once a Host line matches this regex (after start_after)
     kill_after: int | None = None  # SIGKILL it (no goodbye) once it has hashed this frame
     env: dict = field(default_factory=dict)
+    local_players: int = 1  # Players at this machine (--local-players)
 
 
 @dataclass
@@ -204,6 +212,7 @@ def run(
     timeout=600.0,
     host_env=None,
     wait_players=0,
+    host_local_players=1,
 ):
     """Run one Session. ``save``: story save name or .srm path for the Host. Returns a :class:`Result`."""
     net = net or Net()
@@ -247,6 +256,8 @@ def run(
         host_args += ["--net-end-frame", str(end_frame)]
     if wait_players:
         host_args += ["--net-wait-players", str(wait_players)]
+    if host_local_players > 1:
+        host_args += ["--local-players", str(host_local_players)]
     launch("host", host_args, host_script, host_env)
     order = ["host"] + [c.name for c in clients]
     pending = list(zip(clients, links, strict=True))
@@ -271,7 +282,7 @@ def run(
                 pending.remove((c, lk))
                 if c.name in machines:  # a rejoin under the same name: keep the old one's output
                     raise NetError(f"duplicate peer name {c.name}")
-                launch(c.name, ["--join", f"127.0.0.1:{lk}"], c.script, c.env)
+                launch(c.name, ["--join", f"127.0.0.1:{lk}", "--local-players", str(c.local_players)], c.script, c.env)
                 open_streams += 1
             try:
                 name, ln = q.get(timeout=0.05)

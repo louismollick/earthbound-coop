@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
     bool savestate_selftest = false;
     const char *coldload_prefix = NULL;
     int players = 1;
-    NetConfig net = { .input_delay = NET_DEFAULT_INPUT_DELAY };
+    NetConfig net = { .input_delay = NET_DEFAULT_INPUT_DELAY, .local_players = 1 };
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--verify") == 0 && i + 1 < argc) {
@@ -103,6 +103,9 @@ int main(int argc, char *argv[]) {
             net.join = argv[++i];
         } else if (strcmp(argv[i], "--input-delay") == 0 && i + 1 < argc) {
             net.input_delay = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--local-players") == 0 && i + 1 < argc) {
+            /* Online co-op: Players at this machine (keyboard, IJKL layout, controllers) */
+            net.local_players = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--net-wait-players") == 0 && i + 1 < argc) {
             /* Host: the game waits until N Players (the Host included) are in */
             net.wait_players = atoi(argv[++i]);
@@ -119,7 +122,7 @@ int main(int argc, char *argv[]) {
                 verbose_level++;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--smooth-camera] [--players N] [--host PORT] [--join ADDR[:PORT]] [--input-delay N] [--verbose] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX]\n",
+            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--smooth-camera] [--players N] [--host PORT] [--join ADDR[:PORT]] [--input-delay N] [--local-players N] [--verbose] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX]\n",
                     argv[0]);
             return 1;
         }
@@ -174,6 +177,9 @@ int main(int argc, char *argv[]) {
 
     /* Initialize game systems */
     game_init();
+    /* The Host's local Players are in from the start, like --players */
+    if (net.host_port > 0)
+        players = net.local_players;
     for (int p = 1; p < players; p++)
         coop_join(p);
 

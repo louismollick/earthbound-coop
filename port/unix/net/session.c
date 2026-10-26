@@ -2,19 +2,26 @@
  * Online co-op Session: the wire protocol, the Host relay, the client, joins,
  * disconnects and desync detection. Overview in net.h and docs/coop-online.md.
  *
+ * Machines and Players. A machine has one or more local Players (--local-players
+ * N): the Host is P1..PN, and a client asks for N slots and gets the next free
+ * Players. Its local pads go to them in order (net_frame's sample_local).
+ *
  * Frames. Net frame f is the f-th call of net_frame() since the Host started (the
  * Host's local counter; a joiner starts at the frame it joins on). Each confirmed
- * frame carries all four pads and at most one session event:
+ * frame carries all four pads and at most one session event, for a mask of Players
+ * (one machine's):
  *
- *   EV_CAPTURE p  every machine requests a root call (host_request_root_call): the
+ *   EV_CAPTURE    every machine requests a root call (host_request_root_call): the
  *                 same torn-safe unwind a savestate uses. At the root boundary the
- *                 Host serializes the game + SRAM for joiner p. The Host confirms
- *                 nothing past this frame until the join resolves, so everyone
- *                 waits at the next frame (J) while the joiner loads.
- *   EV_JOIN p     coop_join(p) on every machine; p's pad is 0 for frames J..J+D-1
- *                 and its own input from J+D on. The joiner resumes at J.
- *   EV_LEAVE p    coop_leave(p) on every machine. The Host stopped waiting for p's
- *                 input when it dropped p (pads are 0 from then on).
+ *                 Host serializes the game + SRAM for the joining machine. The Host
+ *                 confirms nothing past this frame until the join resolves, so
+ *                 everyone waits at the next frame (J) while the joiner loads.
+ *   EV_JOIN       coop_join(p) for each Player on every machine; their pads are 0
+ *                 for frames J..J+D-1 and their own input from J+D on. The joiner
+ *                 resumes at J.
+ *   EV_LEAVE      coop_leave(p) for each Player on every machine. The Host stopped
+ *                 waiting for their input when it dropped the machine (pads are 0
+ *                 from then on).
  *   EV_END        tests (--net-end-frame): every machine quits after this frame.
  *
  * Redundancy. A client's INPUT carries every local pad the Host hasn't confirmed
@@ -81,14 +88,14 @@ void platform_save_set_path(const char *path);
 static uint32_t hash_interval = 60;
 
 enum {
-    MSG_HELLO = 1,  /* C->H  u32 nonce, u32 layout id */
-    MSG_WELCOME,    /* H->C  u32 nonce, u8 player, u8 input delay */
+    MSG_HELLO = 1,  /* C->H  u32 nonce, u32 layout id, u8 local Players */
+    MSG_WELCOME,    /* H->C  u32 nonce, u8 n, n x u8 Player, u8 input delay */
     MSG_REJECT,     /* H->C  u32 nonce, u8 reason (STOP_*) */
-    MSG_INPUT,      /* C->H  u8 player, u32 ack, u32 first, u8 n, n x u16 pad, report */
-    MSG_FRAMES,     /* H->C  u32 first, u8 n, n x (4 x u16 pad, u8 event, u8 event player) */
+    MSG_INPUT,      /* C->H  u8 first Player, u32 ack, u32 first, u8 n, u8 k, n x k x u16 pad, report */
+    MSG_FRAMES,     /* H->C  u32 first, u8 n, n x (4 x u16 pad, u8 event, u8 Player mask) */
     MSG_CHUNK,      /* H->C  u32 nonce, u32 total, u16 index, u16 count, u16 len, bytes */
     MSG_CHUNK_ACK,  /* C->H  u32 nonce, u16 count, ceil(count/8) bitmap bytes */
-    MSG_STOP,       /* H->C  u8 reason, u32 frame, u8 player, u8 n, n x u8 section index */
+    MSG_STOP,       /* H->C  u8 reason, u32 frame, u8 Player, u8 n, n x u8 section index */
     MSG_BYE,        /* both  leaving */
 };
 /* report = u8 present, then u32 frame, u8 n, n x u32 section hash */
@@ -98,7 +105,7 @@ enum { EV_NONE = 0, EV_CAPTURE, EV_JOIN, EV_LEAVE, EV_END };
 
 typedef struct {
     uint16_t pad[PLATFORM_MAX_PLAYERS];
-    uint8_t ev, ev_player;
+    uint8_t ev, ev_mask;   /* session event and the Players (bit p = Player p) it is for */
 } FrameSet;
 
 typedef struct {
@@ -186,17 +193,20 @@ static bool get_report(Rd *r, HashReport *rep) {
 
 /* ---- State ---- */
 
+/* One remote machine (Host side). */
 enum { P_FREE, P_JOINING, P_IN, P_LEAVING };
 typedef struct {
     int state;
+    uint8_t nplayers;
+    uint8_t player[PLATFORM_MAX_PLAYERS]; /* its Players, in local pad order */
     UdpAddr addr;
     uint32_t nonce;
     uint64_t last_recv, last_send;
     uint32_t ack;          /* the client holds the confirmed sets of frames < ack */
     uint32_t sent_end;     /* set_end when FRAMES were last sent to it */
-    uint32_t first_frame;  /* its pad is 0 before this frame */
+    uint32_t first_frame;  /* its pads are 0 before this frame */
     uint32_t retry_at;     /* joining: capture no earlier than this frame */
-    uint16_t in[RING];
+    uint16_t in[RING][PLATFORM_MAX_PLAYERS];
     uint32_t in_tag[RING]; /* frame + 1 of in[] (0 = empty) */
     HashReport report;
     bool has_report;
@@ -211,7 +221,9 @@ static struct {
     bool host_left;               /* client: the Host said goodbye (finish the frames held, then stop) */
     int fd;
     int delay;
-    int me;                       /* this machine's Player (0 = P1) */
+    int me;                       /* this machine's first Player (0 = P1) */
+    int nlocal;                   /* its local Players */
+    uint8_t mine[PLATFORM_MAX_PLAYERS]; /* which Players they are, in local pad order */
     uint32_t frame;               /* next net frame to run */
     uint32_t end_frame;           /* Host: EV_END on this frame (0 = never) */
     bool end_emitted;
@@ -219,7 +231,7 @@ static struct {
     FrameSet set[RING];
     uint32_t set_tag[RING];       /* client: frame + 1 held in set[] */
     uint32_t set_end;             /* confirmed sets are known for frames < set_end */
-    uint16_t local[RING];
+    uint16_t local[RING][PLATFORM_MAX_PLAYERS];
     uint32_t local_start;         /* first frame this machine contributes a pad to */
     uint32_t local_end;           /* local pads are recorded for frames < local_end */
     uint32_t test_desync_frame;   /* EB_NET_TEST_DESYNC: perturb the RNG on this frame */
@@ -245,7 +257,7 @@ static struct {
 } n = { .fd = -1 };
 
 static struct {
-    int phase, player;
+    int phase, peer;              /* the joining machine (n.peer index), -1 = none / gone */
     uint32_t nonce;
     unsigned char *blob;
     uint32_t len;
@@ -253,7 +265,7 @@ static struct {
     uint8_t acked[MAX_CHUNKS];
     uint64_t sent_ms[MAX_CHUNKS];
     uint64_t started;
-} join = { .player = -1 };
+} join = { .peer = -1 };
 
 static uint64_t now_ms(void) {
     uint64_t tps = platform_timer_ticks_per_sec();
@@ -462,38 +474,65 @@ static const char *differs_list(const bool *differs, int count) {
 
 /* ---- Host ---- */
 
-static bool peer_active(int p) {
-    return n.peer[p].state == P_JOINING || n.peer[p].state == P_IN;
+/* Remote machines live in n.peer[1..MAX_PEERS] (slot 0 is unused). */
+#define MAX_PEERS (PLATFORM_MAX_PLAYERS - 1)
+
+static bool peer_active(int s) {
+    return n.peer[s].state == P_JOINING || n.peer[s].state == P_IN;
+}
+
+/* The 1-based number of machine s's first Player, for messages. */
+static int peer_pnum(int s) {
+    return n.peer[s].player[0] + 1;
+}
+
+static uint8_t peer_mask(int s) {
+    uint8_t m = 0;
+    for (int k = 0; k < n.peer[s].nplayers; k++)
+        m |= (uint8_t)(1u << n.peer[s].player[k]);
+    return m;
 }
 
 static int peer_by_addr(const UdpAddr *a) {
-    for (int p = 1; p < PLATFORM_MAX_PLAYERS; p++)
-        if (peer_active(p) && udp_addr_equal(&n.peer[p].addr, a))
-            return p;
+    for (int s = 1; s <= MAX_PEERS; s++)
+        if (peer_active(s) && udp_addr_equal(&n.peer[s].addr, a))
+            return s;
     return -1;
+}
+
+/* Players nobody holds: not the Host's and not any machine's (a leaving machine
+ * keeps its Players until its EV_LEAVE). */
+static uint8_t free_players(void) {
+    uint8_t m = 0;
+    for (int p = n.nlocal; p < PLATFORM_MAX_PLAYERS; p++)
+        m |= (uint8_t)(1u << p);
+    for (int s = 1; s <= MAX_PEERS; s++)
+        if (n.peer[s].state != P_FREE)
+            m &= (uint8_t)~peer_mask(s);
+    return m;
 }
 
 static void join_reset(void) {
     free(join.blob);
     join.blob = NULL;
     join.phase = J_NONE;
-    join.player = -1;
+    join.peer = -1;
     n.hold = false;
 }
 
-/* Stop waiting for Player p. In the Session, p leaves (EV_LEAVE) on the next frame
- * the Host confirms; its pad is 0 from now on. */
-static void host_drop(int p, const char *why) {
-    Peer *pe = &n.peer[p];
+/* Stop waiting for machine s. In the Session, its Players leave (EV_LEAVE) on the
+ * next frame the Host confirms; their pads are 0 from now on. */
+static void host_drop(int s, const char *why) {
+    Peer *pe = &n.peer[s];
     if (pe->state == P_IN) {
         pe->state = P_LEAVING;
-        say("DROP P%d %s", p + 1, why);
-        fprintf(stderr, "netplay: P%d %s; they leave the game\n", p + 1, why);
+        say("DROP P%d %s", peer_pnum(s), why);
+        fprintf(stderr, "netplay: P%d %s; they leave the game\n", peer_pnum(s), why);
     } else if (pe->state == P_JOINING) {
-        say("DROP P%d %s (while joining)", p + 1, why);
-        if (join.player == p) {
+        say("DROP P%d %s (while joining)", peer_pnum(s), why);
+        if (join.peer == s) {
             if (join.phase == J_CAPTURING)
-                join.player = -1; /* the capture callback releases the hold */
+                join.peer = -1; /* the capture callback releases the hold */
             else
                 join_reset();
         }
@@ -508,10 +547,10 @@ static void host_pick_event(uint32_t g, FrameSet *fs) {
         n.end_emitted = true;
         return;
     }
-    if (join.phase == J_READY && join.player > 0) {
-        Peer *pe = &n.peer[join.player];
+    if (join.phase == J_READY && join.peer > 0) {
+        Peer *pe = &n.peer[join.peer];
         fs->ev = EV_JOIN;
-        fs->ev_player = (uint8_t)join.player;
+        fs->ev_mask = peer_mask(join.peer);
         pe->state = P_IN;
         pe->first_frame = g + (uint32_t)n.delay;
         pe->sent_end = g;
@@ -519,23 +558,23 @@ static void host_pick_event(uint32_t g, FrameSet *fs) {
         join_reset();
         return;
     }
-    for (int p = 1; p < PLATFORM_MAX_PLAYERS; p++) {
-        if (n.peer[p].state == P_LEAVING) {
+    for (int s = 1; s <= MAX_PEERS; s++) {
+        if (n.peer[s].state == P_LEAVING) {
             fs->ev = EV_LEAVE;
-            fs->ev_player = (uint8_t)p;
-            n.peer[p].state = P_FREE;
+            fs->ev_mask = peer_mask(s);
+            n.peer[s].state = P_FREE;
             return;
         }
     }
     if (join.phase != J_NONE)
         return;
-    for (int p = 1; p < PLATFORM_MAX_PLAYERS; p++) {
-        if (n.peer[p].state == P_JOINING && n.peer[p].retry_at <= g) {
+    for (int s = 1; s <= MAX_PEERS; s++) {
+        if (n.peer[s].state == P_JOINING && n.peer[s].retry_at <= g) {
             fs->ev = EV_CAPTURE;
-            fs->ev_player = (uint8_t)p;
+            fs->ev_mask = peer_mask(s);
             join.phase = J_CAPTURING;
-            join.player = p;
-            join.nonce = n.peer[p].nonce;
+            join.peer = s;
+            join.nonce = n.peer[s].nonce;
             join.started = now_ms();
             n.hold = true;
             n.hold_frame = g;
@@ -547,9 +586,10 @@ static void host_pick_event(uint32_t g, FrameSet *fs) {
 /* --net-wait-players: until enough Players are in, only frames that move a join
  * along (EV_CAPTURE / EV_JOIN) are confirmed, so the game waits on that frame. */
 static bool host_waiting_ok(uint32_t g) {
-    int in = 1;
-    for (int p = 1; p < PLATFORM_MAX_PLAYERS; p++)
-        in += n.peer[p].state == P_IN;
+    int in = n.nlocal;
+    for (int s = 1; s <= MAX_PEERS; s++)
+        if (n.peer[s].state == P_IN)
+            in += n.peer[s].nplayers;
     if (in >= n.wait_players) {
         n.wait_players = 0;
         return true;
@@ -558,8 +598,8 @@ static bool host_waiting_ok(uint32_t g) {
         return true;
     if (join.phase != J_NONE)
         return false;
-    for (int p = 1; p < PLATFORM_MAX_PLAYERS; p++)
-        if (n.peer[p].state == P_JOINING && n.peer[p].retry_at <= g)
+    for (int s = 1; s <= MAX_PEERS; s++)
+        if (n.peer[s].state == P_JOINING && n.peer[s].retry_at <= g)
             return true;
     return false;
 }
@@ -576,16 +616,19 @@ static void host_confirm(void) {
             break;
         FrameSet fs;
         memset(&fs, 0, sizeof fs);
-        fs.pad[0] = n.local[g % RING];
+        for (int k = 0; k < n.nlocal; k++)
+            fs.pad[k] = n.local[g % RING][k];
         bool ready = true;
-        for (int p = 1; p < PLATFORM_MAX_PLAYERS && ready; p++) {
-            Peer *pe = &n.peer[p];
+        for (int s = 1; s <= MAX_PEERS && ready; s++) {
+            Peer *pe = &n.peer[s];
             if (pe->state != P_IN || g < pe->first_frame)
                 continue;
-            if (pe->in_tag[g % RING] != g + 1)
+            if (pe->in_tag[g % RING] != g + 1) {
                 ready = false;
-            else
-                fs.pad[p] = pe->in[g % RING];
+                break;
+            }
+            for (int k = 0; k < pe->nplayers; k++)
+                fs.pad[pe->player[k]] = pe->in[g % RING][k];
         }
         if (!ready)
             break;
@@ -595,10 +638,10 @@ static void host_confirm(void) {
     }
 }
 
-static void host_send_frames(int p, uint64_t t) {
-    Peer *pe = &n.peer[p];
+static void host_send_frames(int s, uint64_t t) {
+    Peer *pe = &n.peer[s];
     if (pe->ack + RING <= n.set_end) {
-        host_drop(p, "fell too far behind");
+        host_drop(s, "fell too far behind");
         return;
     }
     uint32_t first = pe->ack < n.set_end ? pe->ack : n.set_end;
@@ -614,24 +657,24 @@ static void host_send_frames(int p, uint64_t t) {
         for (int k = 0; k < PLATFORM_MAX_PLAYERS; k++)
             put16(&pk, fs->pad[k]);
         put8(&pk, fs->ev);
-        put8(&pk, fs->ev_player);
+        put8(&pk, fs->ev_mask);
     }
     send_pkt(&pe->addr, &pk);
     pe->last_send = t;
     pe->sent_end = n.set_end;
 }
 
-/* FRAMES to every Player in the Session: new frames at once, unacknowledged ones
+/* FRAMES to every machine in the Session: new frames at once, unacknowledged ones
  * every RESEND_MS, a keepalive every KEEPALIVE_MS. */
 static void host_broadcast(uint64_t t) {
-    for (int p = 1; p < PLATFORM_MAX_PLAYERS; p++) {
-        Peer *pe = &n.peer[p];
+    for (int s = 1; s <= MAX_PEERS; s++) {
+        Peer *pe = &n.peer[s];
         if (pe->state != P_IN)
             continue;
         bool fresh = pe->sent_end < n.set_end;
         bool lagging = pe->ack < n.set_end && t - pe->last_send >= RESEND_MS;
         if (fresh || lagging || t - pe->last_send >= KEEPALIVE_MS)
-            host_send_frames(p, t);
+            host_send_frames(s, t);
     }
 }
 
@@ -649,49 +692,49 @@ static void host_send_stop(int reason, uint32_t frame, int player, const bool *d
     put8(&pk, cnt);
     putn(&pk, idx, cnt);
     for (int rep = 0; rep < 5; rep++) {
-        for (int p = 1; p < PLATFORM_MAX_PLAYERS; p++)
-            if (peer_active(p))
-                send_pkt(&n.peer[p].addr, &pk);
+        for (int s = 1; s <= MAX_PEERS; s++)
+            if (peer_active(s))
+                send_pkt(&n.peer[s].addr, &pk);
         udp_sleep(20);
     }
 }
 
-/* Compare Player p's latest hash report with the Host's snapshot of that frame. */
-static void host_check(int p) {
-    Peer *pe = &n.peer[p];
+/* Compare machine s's latest hash report with the Host's snapshot of that frame. */
+static void host_check(int s) {
+    Peer *pe = &n.peer[s];
     if (n.shutting || pe->state != P_IN || !pe->has_report || pe->report.frame == pe->checked)
         return;
-    Snapshot *s = find_snapshot(pe->report.frame);
-    if (!s)
+    Snapshot *sn = find_snapshot(pe->report.frame);
+    if (!sn)
         return; /* not hashed here yet (the client runs up to D frames ahead) */
     pe->checked = pe->report.frame;
     bool differs[MAX_SECTIONS] = { false };
-    bool any = pe->report.count != s->rep.count;
-    for (int i = 0; i < s->rep.count && i < pe->report.count; i++)
-        if (pe->report.hash[i] != s->rep.hash[i])
+    bool any = pe->report.count != sn->rep.count;
+    for (int i = 0; i < sn->rep.count && i < pe->report.count; i++)
+        if (pe->report.hash[i] != sn->rep.hash[i])
             differs[i] = any = true;
     if (!any)
         return;
-    uint32_t frame = s->frame;
-    const char *list = differs_list(differs, s->rep.count);
-    say("DESYNC f=%u P1 P%d sections=%s", (unsigned)frame, p + 1, list);
+    uint32_t frame = sn->frame;
+    const char *list = differs_list(differs, sn->rep.count);
+    say("DESYNC f=%u P1 P%d sections=%s", (unsigned)frame, peer_pnum(s), list);
     write_dump(frame, differs);
-    host_send_stop(STOP_DESYNC, frame, p, differs);
+    host_send_stop(STOP_DESYNC, frame, pe->player[0], differs);
     fatal(3, "desync at frame %u: P1 and P%d disagree on %s (dumps: desync-%u-P*.state/.txt)", (unsigned)frame,
-          p + 1, list, (unsigned)frame);
+          peer_pnum(s), list, (unsigned)frame);
 }
 
 static void host_send_chunks(uint64_t t) {
     if (join.phase != J_TRANSFER)
         return;
     if (t - join.started > JOIN_TIMEOUT_MS) {
-        int p = join.player;
-        say("JOIN P%d timed out", p + 1);
+        int s = join.peer;
+        say("JOIN P%d timed out", peer_pnum(s));
         join_reset();
-        n.peer[p].state = P_FREE;
+        n.peer[s].state = P_FREE;
         return;
     }
-    Peer *pe = &n.peer[join.player];
+    Peer *pe = &n.peer[join.peer];
     int sent = 0;
     for (uint16_t i = 0; i < join.chunks && sent < CHUNKS_PER_TICK; i++) {
         if (join.acked[i] || (join.sent_ms[i] && t - join.sent_ms[i] < CHUNK_RESEND_MS))
@@ -712,61 +755,71 @@ static void host_send_chunks(uint64_t t) {
     }
 }
 
+static void host_send_welcome(int s, const UdpAddr *to) {
+    Pkt pk;
+    pkt_begin(&pk, MSG_WELCOME);
+    put32(&pk, n.peer[s].nonce);
+    put8(&pk, n.peer[s].nplayers);
+    for (int k = 0; k < n.peer[s].nplayers; k++)
+        put8(&pk, n.peer[s].player[k]);
+    put8(&pk, (uint32_t)n.delay);
+    send_pkt(to, &pk);
+}
+
 static void host_handle(const UdpAddr *from, int type, Rd *r, uint64_t t) {
-    int p = peer_by_addr(from);
+    int s = peer_by_addr(from);
     switch (type) {
     case MSG_HELLO: {
-        uint32_t nonce = get32(r), layout = get32(r);
+        uint32_t nonce = get32(r), layout = get32(r), want = get8(r);
         if (!r->ok)
             return;
-        if (p > 0 && n.peer[p].nonce != nonce) {
-            host_drop(p, "restarted"); /* same address, new process: the old one is gone */
-            p = -1;
+        if (s > 0 && n.peer[s].nonce != nonce) {
+            host_drop(s, "restarted"); /* same address, new process: the old one is gone */
+            s = -1;
         }
-        Pkt pk;
-        if (p > 0) { /* our WELCOME was lost: repeat it */
-            n.peer[p].last_recv = t;
-            pkt_begin(&pk, MSG_WELCOME);
-            put32(&pk, nonce);
-            put8(&pk, (uint32_t)p);
-            put8(&pk, (uint32_t)n.delay);
-            send_pkt(from, &pk);
+        if (s > 0) { /* our WELCOME was lost: repeat it */
+            n.peer[s].last_recv = t;
+            host_send_welcome(s, from);
             return;
         }
         int reason = 0;
+        uint8_t avail = free_players();
+        int nfree = 0;
+        for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
+            nfree += (avail >> p) & 1;
         if (layout != state_dump_layout_id()) {
             reason = STOP_BUILD;
         } else {
-            for (p = 1; p < PLATFORM_MAX_PLAYERS && n.peer[p].state != P_FREE; p++) {
+            for (s = 1; s <= MAX_PEERS && n.peer[s].state != P_FREE; s++) {
             }
-            if (p == PLATFORM_MAX_PLAYERS)
+            if (s > MAX_PEERS || want < 1 || (int)want > nfree)
                 reason = STOP_FULL;
         }
         if (reason) {
+            Pkt pk;
             pkt_begin(&pk, MSG_REJECT);
             put32(&pk, nonce);
             put8(&pk, (uint32_t)reason);
             send_pkt(from, &pk);
             return;
         }
-        Peer *pe = &n.peer[p];
+        Peer *pe = &n.peer[s];
         memset(pe, 0, sizeof *pe);
         pe->state = P_JOINING;
         pe->addr = *from;
         pe->nonce = nonce;
         pe->last_recv = t;
         pe->checked = UINT32_MAX;
-        say("HELLO P%d from %s", p + 1, udp_addr_str(from));
-        pkt_begin(&pk, MSG_WELCOME);
-        put32(&pk, nonce);
-        put8(&pk, (uint32_t)p);
-        put8(&pk, (uint32_t)n.delay);
-        send_pkt(from, &pk);
+        for (int p = 0; p < PLATFORM_MAX_PLAYERS && pe->nplayers < want; p++)
+            if ((avail >> p) & 1)
+                pe->player[pe->nplayers++] = (uint8_t)p;
+        say("HELLO P%d+%d from %s", peer_pnum(s), pe->nplayers - 1, udp_addr_str(from));
+        host_send_welcome(s, from);
         return;
     }
     case MSG_INPUT: {
         int player = (int)get8(r);
-        if (p < 0) {
+        if (s < 0) {
             /* Not (or no longer) in the Session: tell it to stop */
             Pkt pk;
             pkt_begin(&pk, MSG_STOP);
@@ -777,27 +830,29 @@ static void host_handle(const UdpAddr *from, int type, Rd *r, uint64_t t) {
             send_pkt(from, &pk);
             return;
         }
-        Peer *pe = &n.peer[p];
+        Peer *pe = &n.peer[s];
         pe->last_recv = t;
-        uint32_t ack = get32(r), first = get32(r), cnt = get8(r);
-        if (!r->ok || player != p)
+        uint32_t ack = get32(r), first = get32(r), cnt = get8(r), k_pads = get8(r);
+        if (!r->ok || k_pads != pe->nplayers)
             return;
         if (pe->state == P_JOINING) {
             /* The joiner's first INPUT says its game is loaded */
-            if (join.phase == J_TRANSFER && join.player == p && join.acked_count == join.chunks) {
+            if (join.phase == J_TRANSFER && join.peer == s && join.acked_count == join.chunks) {
                 join.phase = J_READY;
                 n.hold = false;
-                say("READY P%d", p + 1);
+                say("READY P%d", peer_pnum(s));
             }
             return;
         }
         if (ack > pe->ack)
             pe->ack = ack;
         for (uint32_t i = 0; i < cnt; i++) {
-            uint16_t pad = (uint16_t)get16(r);
+            uint16_t pads[PLATFORM_MAX_PLAYERS];
+            for (uint32_t k = 0; k < k_pads; k++)
+                pads[k] = (uint16_t)get16(r);
             uint32_t g = first + i;
             if (r->ok && g >= n.set_end && g >= pe->first_frame && g < n.set_end + RING / 2) {
-                pe->in[g % RING] = pad;
+                memcpy(pe->in[g % RING], pads, k_pads * sizeof(uint16_t));
                 pe->in_tag[g % RING] = g + 1;
             }
         }
@@ -805,35 +860,33 @@ static void host_handle(const UdpAddr *from, int type, Rd *r, uint64_t t) {
         if (get_report(r, &rep) && (!pe->has_report || rep.frame > pe->report.frame)) {
             pe->report = rep;
             pe->has_report = true;
-            host_check(p);
+            host_check(s);
         }
         return;
     }
     case MSG_CHUNK_ACK: {
-        if (p < 0 || join.player != p || join.phase != J_TRANSFER)
+        if (s < 0 || join.peer != s || join.phase != J_TRANSFER)
             return;
-        n.peer[p].last_recv = t;
+        n.peer[s].last_recv = t;
         uint32_t nonce = get32(r), cnt = get16(r);
         if (!r->ok || nonce != join.nonce || cnt != join.chunks)
             return;
-        for (uint32_t i = 0; i < cnt; i++) {
-            if (i % 8 == 0) {
-                uint32_t byte = get8(r);
-                if (!r->ok)
-                    return;
-                for (uint32_t k = 0; k < 8 && i + k < cnt; k++) {
-                    if ((byte >> k) & 1 && !join.acked[i + k]) {
-                        join.acked[i + k] = 1;
-                        join.acked_count++;
-                    }
+        for (uint32_t i = 0; i < cnt; i += 8) {
+            uint32_t byte = get8(r);
+            if (!r->ok)
+                return;
+            for (uint32_t k = 0; k < 8 && i + k < cnt; k++) {
+                if ((byte >> k) & 1 && !join.acked[i + k]) {
+                    join.acked[i + k] = 1;
+                    join.acked_count++;
                 }
             }
         }
         return;
     }
     case MSG_BYE:
-        if (p > 0)
-            host_drop(p, "quit");
+        if (s > 0)
+            host_drop(s, "quit");
         return;
     default:
         return;
@@ -844,8 +897,8 @@ static void host_handle(const UdpAddr *from, int type, Rd *r, uint64_t t) {
 static void capture_done(bool reached) {
     if (!n.host)
         return;
-    int p = join.player;
-    if (p < 0 || n.peer[p].state != P_JOINING) {
+    int s = join.peer;
+    if (s < 0 || n.peer[s].state != P_JOINING) {
         join_reset();
         return;
     }
@@ -856,8 +909,8 @@ static void capture_done(bool reached) {
         savestate_mem_enable(true);
         savestate_mem_clear();
         bool ok = state_dump_save_slots();
-        for (int s = 0; s < 2 && !state; s++)
-            state = savestate_mem_data(s, &state_len);
+        for (int slot = 0; slot < 2 && !state; slot++)
+            state = savestate_mem_data(slot, &state_len);
         static unsigned char sram[SRAM_MAX];
         size_t sram_len = ok && state ? platform_save_read(sram, 0, sizeof sram) : 0;
         if (ok && state && J == n.hold_frame + 1) {
@@ -889,20 +942,20 @@ static void capture_done(bool reached) {
                 memset(join.sent_ms, 0, sizeof join.sent_ms);
                 join.phase = J_TRANSFER;
                 join.started = now_ms();
-                say("CAPTURE P%d f=%u bytes=%u", p + 1, (unsigned)J, (unsigned)len);
+                say("CAPTURE P%d f=%u bytes=%u", peer_pnum(s), (unsigned)J, (unsigned)len);
                 return;
             }
             free(b);
         }
         savestate_mem_clear();
         savestate_mem_enable(false);
-        fprintf(stderr, "netplay: could not serialize the game for P%d\n", p + 1);
+        fprintf(stderr, "netplay: could not serialize the game for P%d\n", peer_pnum(s));
     }
     /* The game sat in an input wait (or the save failed): try again a bit later */
     join_reset();
-    n.peer[p].retry_at = n.frame + JOIN_RETRY_FRAMES;
-    say("JOIN P%d postponed: the game is busy, retrying in %u frames", p + 1, (unsigned)JOIN_RETRY_FRAMES);
-    fprintf(stderr, "netplay: P%d is waiting to join (the game is busy; retrying)\n", p + 1);
+    n.peer[s].retry_at = n.frame + JOIN_RETRY_FRAMES;
+    say("JOIN P%d postponed: the game is busy, retrying in %u frames", peer_pnum(s), (unsigned)JOIN_RETRY_FRAMES);
+    fprintf(stderr, "netplay: P%d is waiting to join (the game is busy; retrying)\n", peer_pnum(s));
 }
 
 /* ---- Client ---- */
@@ -918,8 +971,10 @@ static void client_send_input(void) {
         cnt = MAX_SEND_INPUTS;
     put32(&pk, first);
     put8(&pk, cnt);
+    put8(&pk, (uint32_t)n.nlocal);
     for (uint32_t g = first; g < first + cnt; g++)
-        put16(&pk, n.local[g % RING]);
+        for (int k = 0; k < n.nlocal; k++)
+            put16(&pk, n.local[g % RING][k]);
     put_report(&pk, &n.my_report, n.have_report);
     send_pkt(&n.host_addr, &pk);
 }
@@ -929,6 +984,7 @@ static void client_send_hello(void) {
     pkt_begin(&pk, MSG_HELLO);
     put32(&pk, n.nonce);
     put32(&pk, state_dump_layout_id());
+    put8(&pk, (uint32_t)n.nlocal);
     send_pkt(&n.host_addr, &pk);
 }
 
@@ -949,7 +1005,7 @@ static void client_send_chunk_ack(void) {
 static const char *stop_reason(int reason) {
     switch (reason) {
     case STOP_KICKED: return "the Host dropped this machine from the Session";
-    case STOP_FULL:   return "the Session is full (4 Players)";
+    case STOP_FULL:   return "the Session has no room for this machine's Players (4 at most)";
     case STOP_BUILD:  return "the Host runs a different build (both need the same game version and viewport)";
     default:          return "stopped by the Host";
     }
@@ -967,7 +1023,7 @@ static void client_handle(int type, Rd *r, uint64_t t) {
             for (int k = 0; k < PLATFORM_MAX_PLAYERS; k++)
                 fs.pad[k] = (uint16_t)get16(r);
             fs.ev = (uint8_t)get8(r);
-            fs.ev_player = (uint8_t)get8(r);
+            fs.ev_mask = (uint8_t)get8(r);
             uint32_t g = first + i;
             if (!r->ok)
                 break;
@@ -1115,22 +1171,36 @@ static void service(void) {
     }
 }
 
+static bool is_mine(int p) {
+    for (int k = 0; k < n.nlocal; k++)
+        if (n.mine[k] == p)
+            return true;
+    return false;
+}
+
 static void apply_event(uint32_t f, const FrameSet *fs) {
-    int p = fs->ev_player;
     switch (fs->ev) {
     case EV_CAPTURE:
         if (!host_request_root_call(capture_done))
             capture_done(false);
         break;
     case EV_JOIN:
-        coop_join(p);
-        say("JOIN P%d f=%u", p + 1, (unsigned)f);
+        for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
+            if (fs->ev_mask & (1u << p)) {
+                coop_join(p);
+                say("JOIN P%d f=%u", p + 1, (unsigned)f);
+            }
+        }
         break;
     case EV_LEAVE:
-        if (p == n.me)
-            fatal(2, "%s", stop_reason(STOP_KICKED));
-        coop_leave(p);
-        say("LEAVE P%d f=%u", p + 1, (unsigned)f);
+        for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
+            if (!(fs->ev_mask & (1u << p)))
+                continue;
+            if (!n.host && is_mine(p))
+                fatal(2, "%s", stop_reason(STOP_KICKED));
+            coop_leave(p);
+            say("LEAVE P%d f=%u", p + 1, (unsigned)f);
+        }
         break;
     case EV_END:
         n.ended = true;
@@ -1179,7 +1249,9 @@ void net_frame(uint16_t pads[PLATFORM_MAX_PLAYERS], const NetInputHooks *hk) {
 
     /* This machine's pad, for frame f + D */
     uint32_t g = f + (uint32_t)n.delay;
-    n.local[g % RING] = hk->sample_local();
+    uint16_t local[PLATFORM_MAX_PLAYERS] = { 0 };
+    hk->sample_local(local, n.nlocal);
+    memcpy(n.local[g % RING], local, sizeof local);
     n.local_end = g + 1;
 
     if (n.host) {
@@ -1234,6 +1306,11 @@ bool net_start(const NetConfig *cfg) {
     const char *td = getenv("EB_NET_TEST_DESYNC");
     n.test_desync_frame = td ? (uint32_t)strtoul(td, NULL, 10) : 0;
     n.delay = cfg->input_delay;
+    n.nlocal = cfg->local_players;
+    if (n.nlocal < 1 || n.nlocal > PLATFORM_MAX_PLAYERS) {
+        fprintf(stderr, "--local-players takes 1-%d\n", PLATFORM_MAX_PLAYERS);
+        return false;
+    }
     if (n.delay < 1 || n.delay > MAX_DELAY) {
         fprintf(stderr, "--input-delay takes 1-%d\n", MAX_DELAY);
         return false;
@@ -1247,6 +1324,9 @@ bool net_start(const NetConfig *cfg) {
         }
         n.host = true;
         n.me = 0;
+        n.nlocal = cfg->local_players;
+        for (int k = 0; k < n.nlocal; k++)
+            n.mine[k] = (uint8_t)k;
         n.end_frame = cfg->end_frame;
         n.wait_players = cfg->wait_players > 1 ? cfg->wait_players : 0;
         n.local_start = 0;
@@ -1304,14 +1384,20 @@ bool net_start(const NetConfig *cfg) {
             Rd r = { buf, (size_t)len, 4, true };
             uint32_t nonce = get32(&r);
             if (buf[3] == MSG_WELCOME && nonce == n.nonce) {
-                n.me = (int)get8(&r);
+                int cnt = (int)get8(&r);
+                bool bad = cnt != n.nlocal;
+                for (int k = 0; k < cnt && k < PLATFORM_MAX_PLAYERS; k++) {
+                    n.mine[k] = (uint8_t)get8(&r);
+                    bad |= n.mine[k] < 1 || n.mine[k] >= PLATFORM_MAX_PLAYERS;
+                }
+                n.me = n.mine[0];
                 n.delay = (int)get8(&r);
-                if (!r.ok || n.me < 1 || n.me >= PLATFORM_MAX_PLAYERS || n.delay < 1 || n.delay > MAX_DELAY)
+                if (!r.ok || bad || n.delay < 1 || n.delay > MAX_DELAY)
                     continue;
                 n.cstate = C_WAIT_STATE;
                 n.last_host_recv = now_ms();
                 n.active = true;
-                say("WELCOME P%d delay=%d", n.me + 1, n.delay);
+                say("WELCOME P%d+%d delay=%d", n.me + 1, n.nlocal - 1, n.delay);
                 fprintf(stderr, "netplay: joined %s as P%d (input delay %d); waiting for the game\n", cfg->join,
                         n.me + 1, n.delay);
                 return true;
