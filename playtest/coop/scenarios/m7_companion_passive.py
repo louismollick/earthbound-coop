@@ -1,8 +1,10 @@
-"""Companion: Mr. Saturn is passive. Doors are walls for it, enemies don't fight it, NPCs don't stop it.
+"""Companion: Mr. Saturn is passive. Doors are walls for it, enemies don't fight it, NPCs stop it.
 
 - 05-Twoson hotel lobby (Ness alone, P2 the Companion): Mr. Saturn walks into the arch door to the
   side room and stays in the lobby; Ness walking the same line goes through.
-- 34-Magicant (Ness alone): the creature npc1325 blocks Ness, Mr. Saturn walks through it.
+- 34-Magicant (Ness alone): the creature npc1325 blocks Ness and Mr. Saturn alike; Mr. Saturn placed on
+  top of it walks off.
+- 01-Start: the barricade npc187 (the game's road blocks are NPCs) stops Mr. Saturn walking into it.
 - 17-GoldMine with 4 Players (Ness, Paula, Jeff; P4 the Companion): Mr. Saturn walks through an
   overworld enemy in the desert and no battle starts.
 """
@@ -40,7 +42,7 @@ def run(ctx):
     st = s.state()
     expect(abs(st.pos[1] - lead[1]) > 500, "the same walk takes Ness through the door", st.pos)
 
-    # NPCs don't stop it
+    # NPCs stop it
     m = ctx.session("magicant", save="34-Magicant", players=2)
     m.boot()
     m.do("teleport 5760 4690 6; 8 DOWN; 110 LEFT; 200 UP")
@@ -50,11 +52,26 @@ def run(ctx):
     m.do("snap npc")
     m.do(f"companion 2 {npc[0] + 40} {npc[1] - 2} 6; wait 1; P2 50 LEFT")
     st = m.state()
-    expect(st.players[2].pos[0] < npc[0] - 12, f"Mr. Saturn walked through npc1325 at {npc}", st.players[2])
-    ctx.shot(m, "Mr. Saturn walked through the creature")
+    expect(st.players[2].pos[0] > npc[0] + 8, f"npc1325 at {npc} stops Mr. Saturn", st.players[2])
+    ctx.shot(m, "the creature stops Mr. Saturn")
+    m.do(f"companion 2 {npc[0]} {npc[1]} 6; wait 1; P2 30 LEFT")
+    st = m.state()
+    expect(st.players[2].pos[0] < npc[0] - 12, "Mr. Saturn placed on npc1325 walks off it", st.players[2])
     m.do(f"restore npc; teleport {npc[0] + 40} {npc[1] - 2} 6; wait 1; 50 LEFT")
     st = m.state()
     expect(st.pos[0] > npc[0] + 12, f"npc1325 at {npc} stops Ness", st.pos)
+
+    # A road block
+    b = ctx.session("barricade", save="01-Start", players=2)
+    b.boot()
+    b.do("teleport 2120 300 0; wait 30")
+    st = b.state()
+    dx, dy = st.near["npc187"]
+    bar = (st.pos[0] + dx, st.pos[1] + dy)
+    b.do(f"companion 2 {bar[0]} {bar[1] + 28} 0; wait 1; P2 60 UP")
+    st = b.state()
+    expect(st.players[2].pos[1] > bar[1], f"the barricade npc187 at {bar} stops Mr. Saturn", st.players[2])
+    ctx.shot(b, "the barricade stops Mr. Saturn")
 
     # Enemies don't fight it
     g = ctx.session("goldmine", save="17-GoldMine", players=4)

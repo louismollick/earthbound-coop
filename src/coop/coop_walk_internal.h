@@ -8,6 +8,7 @@
  */
 
 #include "core/types.h"
+#include "include/constants.h"
 
 typedef enum {
     WALK_FREE,        /* plain overworld control: Walkers step */
@@ -41,5 +42,11 @@ bool coop_borrowed_step(CoopStepKind kind, uint16_t pad, CoopBody *b, int16_t sl
 /* A leash-reverted step's remaining position is clear of walls and NPCs for
  * entity `slot` stepping there from (from_x, from_y). Side-effect free. */
 bool coop_leashed_position_clear(int16_t from_x, int16_t from_y, int16_t x, int16_t y, uint16_t slot);
+
+/* Around a borrowed step for entity `slot` at (x, y): NPCs it already overlaps
+ * (and, with `pass_enemies`, every enemy) stop colliding until
+ * coop_unshade_npcs(saved). See coop_walk.c. */
+void coop_shade_npcs(int16_t x, int16_t y, int16_t slot, bool pass_enemies, int16_t saved[INIT_ENTITY_SLOT]);
+void coop_unshade_npcs(const int16_t saved[INIT_ENTITY_SLOT]);
 
 #endif /* EB_COOP_COOP_WALK_INTERNAL_H */

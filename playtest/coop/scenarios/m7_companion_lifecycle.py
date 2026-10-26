@@ -6,8 +6,8 @@
   through the battle and is back next to Ness after the win.
 - A snap/restore in the same process and a restore in a fresh process bring it back where it stood.
 - Then a stationary scripted freeze (``freeze on``: DISABLE_CHARACTER_MOVEMENT 0xFF, a text script's
-  set_player_lock, which also stops the Leader's tick) hides it with Ness not moving; ``freeze off``
-  brings it back next to Ness.
+  set_player_lock, which also stops the Leader's tick, as most NPC dialogue does) leaves it standing
+  where it was, not walkable; after ``freeze off`` it walks on from there.
 """
 
 import shutil
@@ -67,18 +67,29 @@ def run(ctx):
     expect(t.state().players[2].pos[0] > saved[0] + 10, "and P2 walks it", t.state().players_line)
     ctx.shot(t, "cold restore: Mr. Saturn walks")
 
-    # A scripted freeze with nobody moving: hidden at once, back next to the Leader when it ends
+    # A scripted freeze with nobody moving: it stands where it is, then walks on from there
     lead = t.state().pos
+    spot = t.state().players[2].pos
     t.do("freeze on; wait 2")
     st = t.state()
-    expect(st.pos == lead and st.players[2].hidden, "Mr. Saturn hidden by a stationary freeze", st.players_line)
+    expect(
+        st.pos == lead and not st.players[2].hidden and st.players[2].pos == spot,
+        f"Mr. Saturn stays at {spot} under a stationary freeze",
+        st.players_line,
+    )
     t.do("P2 20 LEFT; wait 30")
-    expect(t.state().players[2].hidden, "and it stays hidden while the Party is frozen", t.state().players_line)
-    ctx.shot(t, "frozen Party: no Mr. Saturn")
+    st = t.state()
+    expect(
+        not st.players[2].hidden and st.players[2].pos == spot,
+        "and stands still while the Party is frozen",
+        st.players_line,
+    )
+    ctx.shot(t, "frozen Party: Mr. Saturn stands")
     t.do("freeze off; wait 2")
     st = t.state()
-    sat = st.players[2]
-    expect(not sat.hidden and dist(sat.pos, st.pos) <= 24, f"back next to Ness {st.pos} after the freeze", sat)
+    expect(not st.players[2].hidden and st.players[2].pos == spot, f"still at {spot} after the freeze", st.players_line)
+    t.do("P2 20 LEFT")
+    expect(t.state().players[2].pos[0] < spot[0], "and P2 walks it on", t.state().players_line)
 
     # A battle: hidden from the touch to the end, back next to the Leader after
     g = ctx.session("goldmine", save="17-GoldMine", players=4)

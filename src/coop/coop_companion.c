@@ -161,11 +161,27 @@ static bool off_screen(const CoopCompanion *c) {
     return sx < -8 || sx > EB_VIEWPORT_WIDTH + 8 || sy < 0 || sy > EB_VIEWPORT_HEIGHT + 24;
 }
 
-/* One frame of walking on Player p's pad. */
+/* Under game control it hides once the game moves the Party (boarding a bus,
+ * a cutscene walk) or the view leaves it behind; a freeze alone (most NPC
+ * dialogue) leaves it standing where it is. From the Leader's tick only:
+ * game_state.leader_moved is that tick's, and stale on frames it doesn't run. */
+static bool hidden_by_control(const CoopCompanion *c) {
+    return coop_game_moves_party() || off_screen(c);
+}
+
+/* One frame of walking on Player p's pad. For the step its hitbox is on and
+ * its own slot is skipped, so NPCs (the game's invisible road blocks too) stop
+ * it as they stop a Walker; enemies don't (no contact, no battle), and neither
+ * do NPCs it already stands on, so it can walk off them. */
 static void step(int p, CoopCompanion *c) {
     int16_t e = c->entity;
     CoopBody b = { c->x, c->y, c->x_frac, c->y_frac, c->direction, c->surface, c->walking_style };
     int16_t touched;
+    int16_t npc_collision[INIT_ENTITY_SLOT];
+    entities.hitbox_enabled[e] = 1;
+    entities.directions[e] = (int16_t)c->direction; /* the hitbox npc_collision_check picks */
+    coop_shade_npcs((int16_t)c->x, (int16_t)c->y, e, true, npc_collision);
+    entities.collided_objects[e] = ENTITY_COLLISION_DISABLED;
     /* A Companion's step is no player movement for the map's sake */
     uint8_t moved_since_load = ow.player_has_moved_since_map_load;
     bool stepped = coop_borrowed_step(COOP_STEP_COMPANION, coop.walk_pad[p], &b, e, &touched);
@@ -188,6 +204,8 @@ static void step(int p, CoopCompanion *c) {
         y = c->y;
         y_frac = c->y_frac;
     }
+    coop_unshade_npcs(npc_collision);
+    entities.hitbox_enabled[e] = 0;
     c->moved = stepped && (x != c->x || x_frac != c->x_frac || y != c->y || y_frac != c->y_frac);
     c->x = x;
     c->x_frac = x_frac;
@@ -205,12 +223,12 @@ void coop_companion_tick(WalkControl control) {
         CoopCompanion *c = &coop.companions[p];
         if (c->spawned && !owns_entity(p, c))
             hide(p, c); /* wiped by a map load or reclaimed: respawn next to the Leader */
-        if (!coop_companion(p) || control == WALK_BATTLE || control == WALK_CONTROLLED) {
+        if (!coop_companion(p) || control == WALK_BATTLE || (control == WALK_CONTROLLED && hidden_by_control(c))) {
             hide(p, c);
             continue;
         }
         if (control != WALK_FREE) {
-            c->moved = 0; /* paused: stand still */
+            c->moved = 0; /* paused or under game control: stand still */
         } else if (c->spawned || spawn(p, c)) {
             step(p, c);
             if (off_screen(c))
@@ -224,13 +242,19 @@ void coop_companion_tick(WalkControl control) {
 void coop_companion_watch(void) {
     /* From an enemy touch to the end of the battle, and in a cutscene that
      * freezes the Party (or the init entity), the Leader's tick and so
-     * coop_companion_tick don't run: hide here, once per frame. Hidden also
-     * whenever else the game controls movement, stationary or not. */
+     * coop_companion_tick don't run: hide here, once per frame, and under
+     * game control once the view has left it behind (whether the game moved
+     * the Party is coop_companion_tick's call, see hidden_by_control). */
     if (!coop_companion_spawned())
         return;
     WalkControl control = coop_walk_control();
-    if (control == WALK_BATTLE || control == WALK_CONTROLLED)
+    if (control == WALK_BATTLE) {
         coop_companion_hide_all();
+    } else if (control == WALK_CONTROLLED) {
+        for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
+            if (coop.companions[p].spawned && off_screen(&coop.companions[p]))
+                hide(p, &coop.companions[p]);
+    }
 }
 
 void coop_companion_hide_all(void) {

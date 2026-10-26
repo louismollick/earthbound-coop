@@ -9,9 +9,9 @@
  * Mr. Saturn on the overworld: an NPC-slot entity (sprite MR_SATURN, the
  * static NPC script EVENT_44) moved with the same borrowed Leader step as a
  * Walker (coop_walk_internal.h), so walls, water, ladders and ropes work;
- * doors, door text, stairs and escalators are walls for it. Its hitbox is off,
- * so it walks through NPCs, no NPC or enemy ever bumps into it, and it never
- * starts a battle. It doesn't move the camera; it is leashed to the view
+ * doors, door text, stairs and escalators are walls for it. NPCs block it
+ * (its hitbox is on only for its own step), enemies don't: no NPC or enemy ever
+ * bumps into it, and it never starts a battle. It doesn't move the camera; it is leashed to the view
  * instead (a step that would take it further than the leash margin out of the
  * view is reverted on that axis), and if the view leaves it behind anyway it
  * reappears next to the Leader.
@@ -19,10 +19,11 @@
  * Lifetime: spawned on the first free overworld frame (retried while entity
  * slots or sprite VRAM are full), in the highest free NPC slot. Hidden means
  * removed: it has an entity only while it is out. It hides when an enemy
- * touches the Party, for the battle, and whenever the game controls movement
- * (doors, stairs, escalators, the bicycle, teleport, a cutscene that freezes
- * or moves the Party), and reappears next to the Leader once the Party is free
- * again. A map load (clear_map_entities) wipes it and it respawns the same
+ * touches the Party, for the battle, at a door's fade or PSI Teleport, and
+ * under game control once the game moves the Party (stairs, escalators, the
+ * bicycle, boarding a bus, a cutscene walk) or the view leaves it behind; it
+ * reappears next to the Leader once the Party is free again. A freeze alone
+ * (most NPC dialogue) leaves it standing where it is. A map load (clear_map_entities) wipes it and it respawns the same
  * way. It is removed for good when its Player stops being a Companion (their
  * Hero rejoined, a Guest to stand in for arrived, they left).
  *
@@ -46,7 +47,8 @@
 void coop_companion_tick(WalkControl control);
 
 /* Once per game frame (coop_tick), entity ticks frozen or not: hides every
- * Companion while the game controls movement or a battle is coming or on. */
+ * Companion while a battle is coming or on, and any the view left behind while
+ * the game controls movement. */
 void coop_companion_watch(void);
 
 /* The Party regroups (a door's fade, PSI Teleport) or the Leader's trail was

@@ -2,7 +2,8 @@
 
 02-Sharks, Hotel Onett (Ness alone, P2 the Companion). P2's A takes the lock and Checks/Talks from
 Mr. Saturn (never the pause menu):
-- the porter npc59 (MSG_ONET_HOTEL_PORTER, only text) talks, and turns to face Mr. Saturn;
+- the porter npc59 (MSG_ONET_HOTEL_PORTER, only text) talks, and turns to face Mr. Saturn, who stays
+  out and on its spot through the dialogue (it freezes the Party), also when Ness was walking;
 - the clerk npc58 (a hotel: money, a night) and the phone npc60 (calls, saving) give SFX 114
   (MYSTERIOUS_2) and no text and no window on any frame;
 - outside, the hotel sign npc191 (an OBJECT, only text) reads with L;
@@ -67,16 +68,30 @@ def run(ctx):
 
     # The porter: his line shows, he faces Mr. Saturn, and nothing else happens
     s.do(f"companion 2 {porter[0] - 16} {porter[1]} 2; wait 2")
+    spot = s.state().players[2].pos
     out = s.do("P2 press A; wait 1")
     expect(MUTE_SFX not in out, "no Mr. Saturn sound for the porter", out)
     s.do("until text 120", met=True)
     st = s.state()
     expect(st.focus == "P2 locked" and "PAUSE_MENU" not in st.state, "P2 Talks (no pause menu)", st.state)
     ctx.shot(s, "porter talks to Mr. Saturn")
+    for _ in range(20):
+        sat = s.state().players[2]
+        expect(not sat.hidden and sat.pos == spot, f"Mr. Saturn stays at {spot} while the porter talks", sat)
+        s.do("wait 3")
     said = s.said("until idle 1500 P2 advance", met=True)
     expect(said or s.state().idle == "yes", "the porter's text", said)
     st = s.state()
+    expect(st.players[2].pos == spot, f"Mr. Saturn still at {spot} after the porter", st.players[2])
     expect(st.idle == "yes" and st.focus == "P1" and st.money == 829, "done, nothing changed", st.state)
+    # Again with Ness walking as P2 talks: the freeze must not read as the game moving the Party
+    s.do("hold P1 LEFT; wait 10; P2 press A; wait 1")
+    for _ in range(20):
+        sat = s.state().players[2]
+        expect(not sat.hidden and sat.pos == spot, f"Mr. Saturn stays at {spot} with Ness walking", sat)
+        s.do("wait 3")
+    s.do("release P1; until idle 1500 P2 advance", met=True)
+    expect(s.state().players[2].pos == spot, f"and still at {spot} after", s.state().players[2])
 
     # Outside: the sign reads, the trash can doesn't
     s.do("teleport 2110 1452 2; wait 30")

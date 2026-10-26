@@ -41,7 +41,7 @@ port/unix/build-wide/earthbound --join 127.0.0.1:7744               # window 2: 
 0. **Windows, 10 minutes (M5's last item):** build per `docs/coop-windows.md`, play with a controller and the keyboard, save at a phone, and try one online Session between the PC and the Mac over Tailscale. The M5 review fixes to the Windows-only code (the one-step save swap, named-pipe reconnects, Winsock socket handles) were only compile-checked on the Mac. Before you play, have the Windows session run `scripts/coop-gates.sh --full --framehash` once.
 1. **The leash and camera with 2 Players:** does the midpoint camera feel calm, and is the leash margin too tight?
 2. **Claimed battle menus:** is pressing A to claim a menu intuitive? Is the "P1 P2" waiting box clear enough, or would you rather have sequential menus back?
-3. **Mr. Saturn:** is it fun, and does the "can't do that" sound read clearly? It hides during any dialogue that locks the Party.
+3. **Mr. Saturn:** is it fun, and does the "can't do that" sound read clearly? NPCs block it like a Hero; enemies don't. It stands still through dialogue and hides only for battles, doors and when left off screen.
 4. **Online over Tailscale with a real person:** at what input delay does it stop feeling heavy?
 5. **Solo Chapters with friends:** is battle rotation fun, or annoying in long fights?
 
@@ -301,3 +301,10 @@ One entry per PLAN.md item: what changed, gate results, decisions and deviations
 - `UdpSocket` (`uintptr_t` = `SOCKET` on Windows, static-asserted in udp.c; `int` elsewhere) and `UDP_NO_SOCKET` carried through `session.c`; Winsock `select` gets nfds 0.
 - `framedigest.py`: `check` fails on an empty selection, a case with no recorded digest, and a recorded case that `-k` selects but didn't run. Both `record` and `check` reject a run without the final `SYNC rg-end`. `tests/test_framedigest.py` (fake digest; a `--frames 2` run is rejected).
 - Gates `--full --framehash` on the Mac: builds, ruff, pytest 1842 passed / 6 skipped, regress 0 of 32, framehash 0 of 31 (0 frames), framedigest `check base` 0 of 31, co-op 82/82, ASan+UBSan 82/82, globals, continuity 82/82. Not run on Windows: the save swap, the pipe paths and Winsock (compiled only).
+
+### Playtest fixes: Mr. Saturn teleported after talking, walked through NPCs (user report)
+- Bug: talking as Mr. Saturn (Xbox B = SNES A) moved it next to the Leader. Most NPC dialogue freezes the Party (`set_player_lock`), which is `WALK_CONTROLLED`, and the M7 review fix hid it there and re-parked it beside the Leader. Now under game control it stands where it is and hides only once the game moves the Party (`coop_game_moves_party`, the Walkers' signal: boarding the bus, a cutscene walk) or the view leaves it behind; battles, door fades, PSI Teleport and trail resets still hide it.
+- Bug: Mr. Saturn walked through NPCs, including the game's road blocks (the barricades and police lines are NPCs; map walls already stopped it). Its hitbox is now on for its own step only, with its slot collision-disabled; non-enemy NPCs block it and enemies don't (still no contact or battle). NPCs it already overlaps don't block it, as for Walkers (`shade_overlapped_npcs` became `coop_shade_npcs(..., pass_enemies, ...)` in `coop_walk_internal.h`). NPCs still walk through it (its hitbox is off outside its step).
+- Scenarios: `m7_companion_look` (on its spot and out on every sampled frame of the porter's dialogue, also with Ness walking as P2 talks: `coop_companion_watch` runs on frames without the Leader's tick, where `leader_moved` is stale, so only `coop_companion_tick` reads it), `m7_companion_lifecycle` (a stationary freeze leaves it standing; it walks on after), `m7_companion_passive` (npc1325 stops it, it walks off when placed on it, the 01-Start barricade npc187 stops it). All three fail on the old code.
+- No GPT review: a small playtest fix (one review per milestone is spent).
+
