@@ -1,5 +1,7 @@
 # Spike notes (2026-10-25, macOS arm64)
 
+Windows: see `docs/coop-windows.md` (MSYS2 toolchain, Git Bash, `scripts/coop-setup.sh` works there too).
+
 Repo: BrianPugh/earthbound pinned at d32c421e7417f5f76bed22344870d2e5d99d9fac, local branch `coop`.
 Only untracked additions: this file, `playtest/scripts/newgame.play`, gitignored `earthbound.sfc`, `playtest/saves/`, `.venv`, build dirs.
 

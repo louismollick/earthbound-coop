@@ -26,8 +26,9 @@ ROOT = Path(__file__).resolve().parent.parent
 LIB = ROOT / "port" / "unix" / "build-debug" / "game_lib" / "libearthbound_game.a"
 AUDIT = ROOT / "docs" / "coop-design" / "serialization-audit.md"
 STATE_DUMP = ROOT / "src" / "core" / "state_dump.c"
-# Compiler, sanitizer and vendored-library symbols, not game state.
-IGNORE = re.compile(r"^(l_|ltmp|_{2,3}asan|__odr|_{2,3}unnamed|\.L|__sancov|__llvm|__profc)")
+# Compiler, sanitizer and vendored-library symbols, not game state (a leading "." is a
+# local label or, from GNU nm on COFF objects, a section symbol: never a C name).
+IGNORE = re.compile(r"^(l_|ltmp|_{2,3}asan|__odr|_{2,3}unnamed|\.|__sancov|__llvm|__profc)")
 # Vendored tamp (de)compressor objects: library internals, not game state.
 VENDOR_OBJECTS = {"common.c", "compressor.c", "decompressor.c"}
 # The generated incbin asset table: read-only blobs, though COFF (Windows) puts them in .data.

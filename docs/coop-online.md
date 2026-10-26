@@ -48,6 +48,7 @@ There is no matchmaking and no NAT traversal. The Host's UDP port must be reacha
 
 - **Tailscale** (easiest): install it on every machine and join with the Host's Tailscale IP (`100.x.y.z`). Nothing needs to be opened on the router.
 - **Port forwarding:** forward UDP port 7744 on the Host's router to the Host's machine, then join with the Host's public IP.
+- **A Windows Host** also has to let the game through Windows Defender Firewall: allow it at the prompt the first `--host` shows, or see `docs/coop-windows.md`.
 
 IPv4 only.
 
@@ -84,7 +85,7 @@ A desync is a bug, usually game state that lives outside the savestate. Please s
   - the game data: a hash of every embedded asset, so the ROM and any edited assets must match;
   - the savestate layout.
 
-  The same commit built on macOS and on Windows is compatible.
+  The same commit built on macOS, Linux and Windows is compatible (checked Linux against Windows: 4 Players, 6000 frames, no desync).
 - Only the Host's save file is used. Clients keep a temporary save for the Session, so their own `earthbound.srm` is never touched. `--save` is ignored when joining.
 - F5 (debug), F6/F7 (savestates) and Tab (fast-forward) are disabled in a Session. F1 to F3 still work.
 - There is no rollback, so the input delay is always felt.

@@ -11,7 +11,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - **Absent Hero.** A Player whose Heroes are all out of the Party stands in for a Guest if there is one, and otherwise spectates. Solo Chapters fall out of this rule.
 - **Battle input** is sequential, as in the original. Simultaneous input is M7 (built as claimed menus: see the M7 decisions).
 - **Online** is input lockstep with a small fixed input delay and no rollback. The Host owns the save, and a joining Player receives a savestate.
-- **Windows (M5) waits for the user.** Skip it and continue with M6. Never block on it.
+- **Windows (M5) is done on the user's Windows PC** (a separate session; `docs/coop-windows.md`). Other machines don't work on it, but run `framedigest.py check base` (in `coop-gates.sh --framehash`) so every OS keeps matching.
 
 ## Working rules
 
@@ -93,10 +93,10 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - [x] Soak: a bot drives P2 to P4 (random walk biased toward the Leader, random menu presses) for 30 or more in-game minutes from every story save. It must not crash, the mode stack must not stay frozen, and there must be no ASan/UBSan reports.
 - [x] Short playtest notes for the user at the top of `docs/coop-log.md`: how to play local co-op on the Mac, and what to look at.
 
-## M5 Windows (user present, skip for now)
+## M5 Windows
 
-- [ ] MinGW-w64 build (apply the Companion-style Windows fixes).
-- [ ] The same replay on Mac and Windows produces identical frame hashes.
+- [x] MinGW-w64 build (apply the Companion-style Windows fixes).
+- [ ] The same replay on Mac and Windows produces identical frame hashes. Windows and Linux match `playtest/regress/framedigest/base.json` (every frame of 31 cases, recorded from Linux `build-base-fix`), and Windows matches the Mac-recorded text goldens at every checkpoint. Left: one `python playtest/framedigest.py check base port/unix/build-wide/earthbound` on the Mac (`coop-gates.sh --framehash` runs it); tick this box when it says 0 of 31 differ.
 - [ ] The user does a 10-minute test on their PC.
 
 ## M6 Online
@@ -164,6 +164,10 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - Companion (M7): every absent Player who isn't a Stand-in walks their own Mr. Saturn, in and out of Solo Chapters; it hides (its entity removed) for battles and whenever the game controls movement, and comes back next to the Leader. The game's own entities always win a slot from it, and lookups by sprite or NPC id never find it. It is leashed to the view, not part of the Walkers' spread, so it never holds anyone back. Its Player's A/L only Check/Talk (A reads as L under their lock); "nothing here" counts as not Look-only and gets the sound too. (M7)
 - Solo Chapter scenarios may cheat to reach a battle (Poo's dream has enemies off, so Poo is teleported into Magicant's pink maze) and use teleports and flags to reach a chapter's trigger; each scenario's docstring says where. The Andonuts lab Sky Runner to Summers (later in the story) is not tested: same ride code as the Winters one. (M4)
 - Look-only (M7): the whitelist follows the C runtime, not `opcodes.py`; 19 1C (item to queue) and 1A 0B (teleport menu) are effects, 1D 0C is a read, 1F 50/51 (input off/on) count as UI. (M7)
+
+- Windows toolchain: MSYS2 UCRT64 (gcc + SDL2 + Ninja), console subsystem with `SDL_MAIN_HANDLED` (headless runs print; no SDL2main), SDL2.dll copied next to the exe. ASan+UBSan via MSYS2 CLANG64 (gcc has no ASan on MinGW), without -Werror. (M5)
+- Windows harness: named pipes instead of FIFOs, served by the game (a `\\.\pipe\NAME` path for `--session` or `--record-video`), so the Python drivers stay clients as on Unix. No Windows baseline build: the vanilla gate there uses the tracked goldens and the cross-OS frame digest. (M5)
+- Checkouts are LF on every OS (`.gitattributes`); generated tracked files are written UTF-8 + LF, and CMake decodes git output as UTF-8, so a Windows and a Mac tree of the same commit get the same netplay fingerprint. (M5)
 
 ## Blocked
 
