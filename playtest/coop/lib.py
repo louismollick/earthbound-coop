@@ -127,6 +127,12 @@ class State:
         m = re.search(r"\| focus=(\S+( locked)?)", self.players_line)
         return m.group(1) if m else None
 
+    @property
+    def choose(self):
+        """PLAYERS ``| choose=P1,P2``: the Players a battle is waiting on to claim a command menu ([] if none)."""
+        m = re.search(r"\| choose=(\S+)", self.players_line)
+        return [int(p[1:]) for p in m.group(1).split(",")] if m else []
+
     def hp(self, member):
         """Party member ``member``'s (1-4) current HP from the PARTY line, or None."""
         m = re.search(rf"(?:^PARTY|\|) {member}:\S+ L\d+ HP (\d+)/", self.party)
@@ -319,6 +325,21 @@ class Session:
             if m:
                 return m.group(1)
         return None
+
+    def command_menu(self, frames=900, claimer=1):
+        """Advance text until a battle's command menu is up (the BATTLE_MENU mode).
+
+        In a co-op battle the turn's menus wait to be claimed (``choose=`` on the PLAYERS line): then P``claimer``
+        presses A for one.
+        """
+        who = f"P{claimer} " if claimer > 1 else ""
+        for _ in range(max(1, frames // 100)):
+            if any(ln.startswith("UNTIL met") for ln in self.do("until in:BATTLE_MENU 100 advance")):
+                return
+            if self.state().choose:
+                self.do(f"{who}press A; until in:BATTLE_MENU 300")
+                return
+        raise ScenarioError(f"expected a battle command menu within {frames} frames, saw {self.state().state}")
 
     def boot(self):
         """Boot the save's file 1 (Continue) until the Leader can walk."""

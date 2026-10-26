@@ -131,6 +131,8 @@ Other Party changes:
 
 `st->turn_counter` resets every battle, so turn 1 would always go to the Owner. Use a serialized `coop.rotation` instead, advanced from a hook in `btl_start_turn` when exactly one Hero is in the Party. Back/cancel doesn't move it.
 
+**As built (M7):** `coop_battle_menu_player()` in `src/coop/coop_battle.c` gives the menu's Player: the Owner, then the other joined Players in join order, indexed by `(coop.rotation - 1) % player_count`. The hook in `btl_start_turn` (`coop_battle_start_turn`) advances it. The focus hook and the title tag both go through `coop_battle_menu_player()`, so the rotation's Player holds the whole menu, Run Away included. Scenarios: `m7_rotation`, `m7_rotation_full_party`.
+
 `coop_battle_menu_player(member_id)`:
 - Normally: the Owner.
 - In a Solo Chapter: `[Owner, absent Players in join order][rotation % n]`.

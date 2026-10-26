@@ -86,11 +86,23 @@ typedef struct {
     /* Input focus (coop_input.h) */
     uint8_t focus;                              /* the Player (0-3) or COOP_FOCUS_ALL whose pad
                                                  * feeds core.pad1 now */
-    uint8_t focus_request;                      /* battle: coop_set_focus's request */
+    uint8_t unused_focus;                       /* explicit padding (savestates hash every byte) */
     uint8_t focus_locked;                       /* overworld: `focus` holds the lock */
     uint8_t focus_in_battle;                    /* the last feed was in a battle (entry edge) */
     uint16_t focus_new;                         /* this frame's new presses of the focused pad(s),
                                                  * from prev_held: coop_pad_new() */
+    /* Battle (coop_battle.h) */
+    uint16_t rotation;                          /* Battle rotation: Solo Chapter battle turns
+                                                 * started so far, carried across battles */
+    uint8_t claims[PLATFORM_MAX_PLAYERS];       /* Players who pressed A for the next command
+                                                 * menu, in press order (claim_count of them) */
+    uint8_t claim_count;
+    uint8_t claiming;                           /* 1 while this turn's command menus are being
+                                                 * claimed (the co-op menu loop) */
+    uint8_t menu_next;                          /* party slot + 1 whose menu opens next without a
+                                                 * claim (B: back or retry), 0 = none */
+    uint8_t choosers;                           /* while the battle waits for a claim: bit p set if
+                                                 * Player p has a Hero left to choose for */
     /* Non-Leader Walkers by Player. RAM: PLATFORM_MAX_PLAYERS x ~2.1 KB (the
      * 256-entry trail is 2 KB), about 8.4 KB, all of it in savestates. */
     CoopWalker walkers[PLATFORM_MAX_PLAYERS];

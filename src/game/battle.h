@@ -1164,4 +1164,8 @@ void load_battle_bg(uint16_t layer1_id, uint16_t layer2_id, uint16_t letterbox_s
  * Restores overworld map after battle/menu screens. */
 void reload_map(void);
 
+/* The command window of BattleMenuState.window_index (BATTLE_WINDOW_SIZES):
+ * co-op re-tags an open command menu's title (coop_battle.c). */
+uint8_t battle_menu_window_id(uint8_t window_index);
+
 #endif /* GAME_BATTLE_H */

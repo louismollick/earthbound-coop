@@ -10,7 +10,7 @@ Research memo, 2026-10-26. Line numbers are against d32c421 and drift.
 - Under ALL a press is any one Player's new press, for `core.pad1_pressed`/`pad1_autorepeat` as for `coop_pad_new()` (`coop_all_focus_edges`).
 - Talk/Check swap in the focused Walker only while it is independent (`coop_interact`).
 - The text-script party select (a shop's "Which of you will carry this?") also starts on the Walker.
-- Battle (M2, `src/coop/coop_battle.{h,c}`): one hook at the top of every `mode_step_battle` iteration requests the Owner of `party_members[party_slot]` during `BTL_MENU_SELECT`..`BTL_MENU_DECIDE` and ALL in every other phase, instead of separate calls at `menu_open`, `BTL_ENEMY_AI` and the abort paths. The title tag is `coop_battle_title()` in `bm_build_menu`.
+- Battle (M2, `src/coop/coop_battle.{h,c}`; M2 review fix): the host's feed derives the focus every frame from the battle routine's state in the mode stack: the menu Player of `party_members[party_slot]` during `BTL_MENU_SELECT`..`BTL_MENU_DECIDE`, ALL in every other phase (`coop_battle_focus()`), so a join or leave under an open menu or its children moves it on the next frame. The title tag is `coop_battle_title()` in `bm_build_menu`, reconciled every frame by `coop_battle_retitle()`.
 
 ## Model
 
@@ -106,3 +106,5 @@ Behaviour:
 ## Simultaneous battle input (M7)
 
 Parallel menus are hard: there is one mode stack and global menu state, and there are only 5 title slots. A cheap version, "first come, first served": in `btl_step_menu_body`, the next menu goes to whichever Player with unchosen Heroes presses A first. Turn order comes from initiative (`btl_find_attacker`, `battle.c:4413`), not from menu order.
+
+**As built:** claimed menus (`src/coop/coop_battle.{h,c}`). `btl_step_menu_body` hands over to `btl_step_menu_body_coop` while `coop_battle_claiming()` (set by the `btl_start_turn` hook in co-op, cleared at the loop's end): it computes the Heroes who can act and have no command yet (not in `bt.party_members_with_selected_actions[0..num_selected)`), and `coop_battle_claim()` picks the slot or waits a frame (a BW_FRAMES push, so the background moves). `coop_input_feed` queues A presses from Players who don't hold the open menu (`coop_battle_note_claims`, `CoopState.claims`). B in `btl_step_menu_decide` goes to `coop_battle_back()`. The PLAYERS line shows `choose=P1,P2` during the wait, and `until input` is met there.

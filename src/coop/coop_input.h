@@ -26,9 +26,11 @@
  *   released on the first frame the Party is idle again. While someone else
  *   holds the lock, the Leader's step still reads only its Owner's pad
  *   (coop_leader_pad_enter/leave), except for a scripted approach walk.
- * - Battle: entering a battle clears the lock and sets the focus to ALL;
- *   battle code then moves it with coop_set_focus: each Hero's command menu
- *   is its Owner's, everything else is ALL (coop_battle.h).
+ * - Battle: entering a battle clears the lock. Every frame the focus is
+ *   derived from the battle routine's serialized state (coop_battle_focus):
+ *   a command menu, with its Goods, PSI and target children, is its menu
+ *   Player's, everything else is ALL (coop_battle.h). So a join or leave that
+ *   hands an open menu to another Owner moves it on the next frame.
  *
  * Every hook is gated on coop_player_count() > 1, so solo play is vanilla: the
  * feed runs every frame but returns P1's pad unchanged, and coop_pad_new() is
@@ -45,12 +47,6 @@
 /* Buttons that take the overworld lock: A (pause menu), L (Check/Talk),
  * X (town map), B and SELECT (HP/PP window). */
 #define COOP_CAPTURE_BUTTONS (PAD_A | PAD_L | PAD_X | PAD_B | PAD_SELECT)
-
-/* Battle code (coop_battle.c): ask for the focus to move to Player `focus` (0-3) or to
- * COOP_FOCUS_ALL. The host applies it on its next frame, with a rebase. Only
- * consulted during a battle (outside one the overworld lock owns the focus);
- * battle entry resets it to ALL. An unjoined Player means ALL. */
-void coop_set_focus(int focus);
 
 /* The focus that feeds core.pad1 now: a Player 0-3 or COOP_FOCUS_ALL. */
 int coop_focus(void);
