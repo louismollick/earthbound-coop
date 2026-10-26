@@ -3,7 +3,9 @@
  * Extracted from callroutine.c.
  */
 #include "entity/callroutine_internal.h"
+#include "coop/coop.h"
 #include "coop/coop_camera.h"
+#include "coop/coop_walk.h"
 #include "entity/buffer_layout.h"
 #include "entity/entity.h"
 #include "entity/script.h"
@@ -455,6 +457,8 @@ static void tick_center_camera_with_rect_window(int16_t entity_offset) {
  * modes (normal, hide, distracted).
  * Port of asm/misc/update_party_follower_movement.asm. */
 static void tick_update_party_follower_movement(int16_t entity_offset) {
+    /* Co-op: a Stand-in walks Bubble Monkey (coop/coop_walk.h) */
+    if (coop_player_count() > 1 && coop_walk_follower_tick(entity_offset)) return;
     int16_t slot = entity_offset;
     int16_t char_id = entities.var[0][entity_offset];
     int16_t var1 = entities.var[1][entity_offset];

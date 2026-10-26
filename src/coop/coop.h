@@ -125,20 +125,31 @@ bool coop_player_joined(int player);
 /* The Owner of Hero h (0 = Ness .. 3 = Poo). */
 int coop_hero_owner(int hero);
 
-/* The party member id (1-4) of Player p's Walker, or 0 if p has none (a
- * Spectator): the Player's first owned Hero that is in the Party and conscious
- * (not unconscious or diamondized),
- * in Party order (game_state.party_order). Derived every call, so it follows
- * joins, leaves, KOs, revives and party changes by itself.
- * TODO(M4): a Player with no such Hero stands in for a Guest if there is one. */
+/* The party member id of Player p's Walker, or 0 if p has none (a Spectator):
+ * the Player's first owned Hero that is in the Party and conscious (not
+ * unconscious or diamondized), in Party order (game_state.party_order); else,
+ * if p is a Stand-in, the Guest it walks (coop_standin). Derived every call,
+ * so it follows joins, leaves, KOs, revives and party changes by itself. */
 uint8_t coop_walker(int player);
+
+/* The Guest (party member id 5-9 or 11-15) Player p stands in for, or 0. A
+ * Player none of whose Heroes is in the Party (conscious or not; a Player whose
+ * Heroes are all unconscious is a plain Spectator) is absent; the k-th absent
+ * Player in join order walks the k-th eligible Guest in Party order. Dungeon
+ * Man (10) and the Teddy Bears (16, 17) are never walked. */
+uint8_t coop_standin(int player);
+
+/* The name the game gives party member `id` (EB-encoded, up to *len bytes,
+ * 0-terminated if shorter): a Hero's char_struct name, or a Guest's battler
+ * name (its enemy configuration through NPC_AI_TABLE). NULL for an unknown id. */
+const uint8_t *coop_member_name(uint8_t id, int *len);
 
 /* Hero id (1-4) at Party position i (party_order) if it is a Hero who can walk
  * (not unconscious or diamondized), else 0. */
 uint8_t coop_conscious_hero(int i);
 
-/* The Player who owns the Leader (party_order[0]); P1 (0) if the Leader is a
- * Guest or there is no Party. */
+/* The Player who owns the Leader (party_order[0]): a Hero's Owner, a Guest's
+ * Stand-in; P1 (0) for a Guest nobody stands in for, or no Party. */
 int coop_leader_owner(void);
 
 #endif /* EB_COOP_COOP_H */

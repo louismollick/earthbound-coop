@@ -25,6 +25,7 @@
 
 #define NO_MEMBER 0xFF
 #define FOLLOWER_TICK_ADDR 0xC04D78   /* UPDATE_FOLLOWER_STATE, as in callroutine_screen.c */
+#define MONKEY_TICK_ADDR 0xEF031E     /* UPDATE_PARTY_FOLLOWER_MOVEMENT (Bubble Monkey) */
 #define CHARACTER_SIZES_COUNT 17      /* CHARACTER_SIZES entries, as in position_buffer.c */
 #define VAR7_SPACING_FLAG (1 << 12)   /* entity var7 bit 12, set while a follower catches up */
 
@@ -58,12 +59,23 @@ static uint8_t party_pos_pidx(int i) {
 }
 
 /* Player p's chain as the Party stands now: the party_characters indices of p's
- * conscious owned Heroes in Party order, the Walker first. Empty (returns 0) if
- * p has no Walker, or walks the Leader (the Leader's Owner's chain is vanilla). */
+ * conscious owned Heroes in Party order, the Walker first, or a Stand-in's
+ * Guest alone. Empty (returns 0) if p has no Walker, or walks the Leader (the
+ * Leader's Owner's chain is vanilla). */
 static int current_chain(int p, uint8_t out[TOTAL_PARTY_COUNT]) {
     memset(out, NO_MEMBER, TOTAL_PARTY_COUNT);
-    if (!coop_player_joined(p) || p == coop_leader_owner())
+    uint8_t walker = coop_walker(p);
+    if (!walker || p == coop_leader_owner())
         return 0;
+    if (walker > COOP_HERO_COUNT) {
+        for (int i = 1; i < game_state.party_count && i < TOTAL_PARTY_COUNT; i++) {
+            if (game_state.party_order[i] != walker)
+                continue;
+            out[0] = party_pos_pidx(i);
+            return out[0] != NO_MEMBER;
+        }
+        return 0;
+    }
     int n = 0;
     for (int i = 1; i < game_state.party_count && i < TOTAL_PARTY_COUNT; i++) {
         uint8_t id = coop_conscious_hero(i);
@@ -84,16 +96,26 @@ static int chain_length(const uint8_t chain[TOTAL_PARTY_COUNT]) {
     return n;
 }
 
-/* A party entity whose tick is the follower tick (frozen or not). */
-static bool runs_follower_tick(int16_t e) {
-    uint32_t addr = ((uint32_t)(entities.tick_callback_hi[e] & 0xFF) << 16) | entities.tick_callback_lo[e];
-    return entities.script_table[e] != ENTITY_NONE && addr == FOLLOWER_TICK_ADDR;
+static uint32_t tick_addr(int16_t e) {
+    return ((uint32_t)(entities.tick_callback_hi[e] & 0xFF) << 16) | entities.tick_callback_lo[e];
 }
 
-/* A party entity that no longer runs the follower tick: a script owns it, it's
- * frozen, or it's gone. */
+/* A party entity whose tick is a follower tick (frozen or not): vanilla's, or
+ * Bubble Monkey's own (EVENT_SCRIPT_003). */
+static bool runs_follower_tick(int16_t e) {
+    uint32_t addr = tick_addr(e);
+    return entities.script_table[e] != ENTITY_NONE && (addr == FOLLOWER_TICK_ADDR || addr == MONKEY_TICK_ADDR);
+}
+
+/* A party entity that no longer runs a follower tick: a script owns it, it's
+ * frozen, or it's gone. Bubble Monkey also counts as scripted while he does
+ * his own thing (hiding, catching up, distracted: bubble_monkey_mode != 0).
+ * His tick advances those modes; while P2 walks him it doesn't run, so he
+ * stays in mode 0 until his chain snaps. */
 static bool member_scripted(int16_t e) {
-    return !runs_follower_tick(e) || (entities.tick_callback_hi[e] & OBJECT_TICK_DISABLED);
+    if (!runs_follower_tick(e) || (entities.tick_callback_hi[e] & OBJECT_TICK_DISABLED))
+        return true;
+    return tick_addr(e) == MONKEY_TICK_ADDR && ow.bubble_monkey_mode != 0;
 }
 
 /* A chain member is scripted: the game controls that chain. */
@@ -561,20 +583,23 @@ void coop_walk_leader_tick(void) {
 
 /* ---- Chain members' ticks ---- */
 
-/* The Player whose independent chain has entity `ent` at position *k, or -1. */
+/* The Player whose independent chain has party entity `ent` at position *k,
+ * or -1. Heroes and Guests alike: chains hold party_characters indices. */
 static int chain_of_entity(int16_t ent, int *k) {
-    int16_t char_id = entities.var[0][ent];
+    if (ent < PARTY_LEADER_ENTITY_INDEX || ent >= MAX_ENTITIES)
+        return -1;
     int16_t pidx = entities.var[1][ent];
-    if (char_id < 0 || char_id >= COOP_HERO_COUNT || pidx < 0 || pidx >= TOTAL_PARTY_COUNT)
+    if (pidx < 0 || pidx >= TOTAL_PARTY_COUNT || member_entity((uint8_t)pidx) != ent)
         return -1;
-    int p = coop_hero_owner(char_id);
-    const CoopWalker *w = &coop.walkers[p];
-    if (!w->active)
-        return -1;
-    for (int i = 0; i < TOTAL_PARTY_COUNT && w->chain[i] != NO_MEMBER; i++) {
-        if (w->chain[i] == pidx) {
-            *k = i;
-            return p;
+    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
+        const CoopWalker *w = &coop.walkers[p];
+        if (!w->active)
+            continue;
+        for (int i = 0; i < TOTAL_PARTY_COUNT && w->chain[i] != NO_MEMBER; i++) {
+            if (w->chain[i] == pidx) {
+                *k = i;
+                return p;
+            }
         }
     }
     return -1;
@@ -678,7 +703,9 @@ int16_t coop_walker_touching(int16_t slot) {
 uint16_t coop_contact_facing(int16_t target) {
     if (target >= PARTY_LEADER_ENTITY_INDEX && target < MAX_ENTITIES && target != (int16_t)game_state.current_party_members) {
         int16_t char_id = entities.var[0][target];
-        if (char_id >= 0 && char_id < COOP_HERO_COUNT && coop_hero_owner(char_id) != coop_leader_owner())
+        int k;
+        if ((char_id >= 0 && char_id < COOP_HERO_COUNT && coop_hero_owner(char_id) != coop_leader_owner()) ||
+            chain_of_entity(target, &k) >= 0)
             return (uint16_t)(entities.directions[target] & 7);
     }
     return game_state.leader_direction;

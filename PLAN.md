@@ -86,10 +86,10 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 
 ## M4 Party changes and soak
 
-- [ ] Stand-in: a Player whose Heroes are all absent walks a Guest when one is present. Guest battle actions stay AI-driven unless giving the Stand-in a command menu is simple.
-- [ ] Unconscious Heroes trail the Leader as vanilla ghosts, and their Owner's Walker becomes their next owned conscious Hero. If they have none, they spectate until a revive.
+- [x] Stand-in: a Player whose Heroes are all absent walks a Guest when one is present. Guest battle actions stay AI-driven unless giving the Stand-in a command menu is simple.
+- [x] Unconscious Heroes trail the Leader as vanilla ghosts, and their Owner's Walker becomes their next owned conscious Hero. If they have none, they spectate until a revive.
 - [ ] Solo Chapters (Jeff in Winters, Poo's Mu training, Magicant, Paula's kidnapping) play correctly with 2 to 4 Players joined.
-- [ ] Edge cases: the bicycle (joining while Ness rides forces a dismount, or the join is deferred until he dismounts, whichever is simpler), Teleport, Sky Runner, the bus and the taxi with several Walkers.
+- [ ] Edge cases: the bicycle (joining while Ness rides forces a dismount, or the join is deferred until he dismounts, whichever is simpler), Teleport, Sky Runner, the bus and the taxi with several Walkers. Bicycle and Teleport done (`m4_bicycle_join`, `m4_teleport_3p`); the bus is Blocked (below); Sky Runner untested (no save near it); the taxi doesn't exist.
 - [ ] Soak: a bot drives P2 to P4 (random walk biased toward the Leader, random menu presses) for 30 or more in-game minutes from every story save. It must not crash, the mode stack must not stay frozen, and there must be no ASan/UBSan reports.
 - [ ] Short playtest notes for the user at the top of `docs/coop-log.md`: how to play local co-op on the Mac, and what to look at.
 
@@ -150,8 +150,9 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - "Who?" cursors (Goods, PSI if the Hero can use PSI, Equip, Status, and the text-script party select such as a shop's "Which of you will carry this?") start on the focused Walker. "Whom?" target selects keep vanilla's start. (M3)
 - Whoever starts an interaction drives all of it, saving at a phone included, though CONTEXT.md lists saving as a Leader action: the lock is simpler than a per-action rule, and the save is party-wide anyway. (M3)
 - Battle focus is ALL for the whole battle until M2 moves it per Hero with `coop_set_focus()`. (M3)
+- Stand-in: a Stand-in's chain is its Guest alone; Bubble Monkey's own tick counts as a follower tick, and his chain snaps while he is off on his own (`bubble_monkey_mode != 0`). A Guest that leads (every Hero unconscious) belongs to its Stand-in, or to P1 if nobody stands in for it. PSI Teleport (which swaps the party's ticks, so co-op's tick doesn't run) regroups the Party when it takes the ticks. (M4)
 - A join or leave while a chain walks regroups the whole Party behind the Leader on the next frame outside a battle, then the new chains unsnap. After the last other Player leaves, co-op keeps the camera until it has eased back to the Leader; a session that never had co-op never runs any of it. A leashed step slides along the leash only if the position left is clear of walls and NPCs, else it is rejected whole. (M1 review)
 
 ## Blocked
 
-(append here)
+- **Bus (M4 edge case).** The Runaway Five bus never starts, in solo too (the known regress `bus` case): `earthbound.yml` names the C3 script bank `bank_c3_scripts_combined`, but `ebtools/cli/extract.py` still maps `events/bank_c3_scripts.bin` to `locale/events/bank_c3_scripts.json`, so that JSON is never written and `pack_all` skips the text-address remap for every C3 event script. EVENT_181 (`asm/data/events/scripts/181.asm`) then queues the raw ROM pointer 0xC79B98 and `resolve_text_addr` returns NULL. Fixing it means changing extract/pack and re-extracting the shared assets in the main checkout, which this agent must not touch. `m4_bus_2p` waits for that fix.
