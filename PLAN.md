@@ -96,7 +96,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 ## M5 Windows
 
 - [x] MinGW-w64 build (apply the Companion-style Windows fixes).
-- [ ] The same replay on Mac and Windows produces identical frame hashes. Windows and Linux match `playtest/regress/framedigest/base.json` (every frame of 31 cases, recorded from Linux `build-base-fix`), and Windows matches the Mac-recorded text goldens at every checkpoint. Left: one `python playtest/framedigest.py check base port/unix/build-wide/earthbound` on the Mac (`coop-gates.sh --framehash` runs it); tick this box when it says 0 of 31 differ.
+- [x] The same replay on Mac and Windows produces identical frame hashes. Windows, Linux and the Mac all match `playtest/regress/framedigest/base.json` (every frame of 31 cases); Mac check 2026-10-26 on ee093f65: 0 of 31 differ.
 - [ ] The user does a 10-minute test on their PC.
 
 ## M6 Online
