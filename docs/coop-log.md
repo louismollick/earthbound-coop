@@ -2,7 +2,7 @@
 
 ## Summary for Louis (read this first)
 
-M0 to M4, M6 and M7 are done. M5 (Windows) is with the session on your desktop. Nothing is blocked. The `coop` branch builds clean at both viewports, and with one Player the game is bit-identical to upstream (32 regress cases, every frame hashed). 80 co-op scenarios pass, also under ASan+UBSan and across a save/restore in a fresh process. A bot soaked all 36 story saves for 30 in-game minutes with 4 Players, and a 30-minute online Session ran with 100 ms latency, 30 ms jitter and 2% loss without a desync.
+M0 to M4, M6 and M7 are done. M5 (Windows) is with the session on your desktop. Nothing is blocked. The `coop` branch builds clean at both viewports, and with one Player the game is bit-identical to upstream (32 regress cases, every frame hashed). 82 co-op scenarios pass, also under ASan+UBSan and across a save/restore in a fresh process. A bot soaked all 36 story saves for 30 in-game minutes with 4 Players (with a detector that fails any 90 s with no game progress), and a 30-minute online Session ran with 100 ms latency, 30 ms jitter and 2% loss without a desync.
 
 ### What works
 - **Joining:** up to 4 Players, local, online or mixed. Press Start on an unjoined pad to join. Hold Select+Start for 2 s to leave.
@@ -15,7 +15,7 @@ M0 to M4, M6 and M7 are done. M5 (Windows) is with the session on your desktop. 
   - In Solo Chapters, the solo Hero's battle menu rotates through every Player, one turn each.
   - KO'd Heroes trail as ghosts, and their Owner walks their next conscious Hero.
 - **Online:** input lockstep. A mid-game join gets the Host's state. A dropped Player is removed after 10 s. Desyncs are detected and dumped. Mismatched builds are refused by name.
-- **Fixed along the way (in vanilla too):** the Runaway Five bus (an upstream asset-packing bug), plus several cases of state not restored after a savestate load in a fresh process: battle tables, the HP/PP window palettes, menu texts, and two unsaved globals.
+- **Fixed along the way (in vanilla too):** the Runaway Five bus (an upstream asset-packing bug), plus several cases of state not restored after a savestate load in a fresh process: battle tables, the HP/PP window palettes, menu texts, and two unsaved globals. One side effect: a Guest who joins before your first battle now gets their real HP (a Flying Man gets 300), as in the original game. The port used to give them 0.
 
 ### Play local co-op on the Mac
 ```
@@ -45,7 +45,8 @@ port/unix/build-wide/earthbound --join 127.0.0.1:7744               # window 2: 
 5. **Solo Chapters with friends:** is battle rotation fun, or annoying in long fights?
 
 ### Known limitations
-- **Not tested end to end:** real controllers and the IJKL layout in a window (headless tests drive pads directly), the later Sky Runner ride, and hotspot-only transitions.
+- **Not tested end to end:** real controllers and the IJKL layout in a window (headless tests drive pads directly), the later Sky Runner ride, hotspot-only transitions, and the Moonside to Monotoli stretch (Paula's chapter), which is covered at both ends.
+- **Bubble Monkey:** after a door, ride or battle he does his own catch-up dance for about 4 s, and his Stand-in can't walk him until he's done.
 - **Mr. Saturn:** it uses one of the 22 NPC slots, and gives it up whenever the game needs it. It can reappear in a boxed-in spot.
 - **Walker stuck behind a wall:** it holds the Leader back through the leash. If that's annoying in play, the fix is a "warp to Leader" button combo.
 - **Online:** IPv4 only, the same commit and viewport on every machine, and the joiner's music restarts.
