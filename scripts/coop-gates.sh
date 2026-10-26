@@ -10,15 +10,17 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+# In a git worktree, the venv, saves and base build live in the main checkout.
+MAIN="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
 # shellcheck disable=SC1091
-source .venv/bin/activate
+source "$MAIN/.venv/bin/activate"
 NPROC="$(sysctl -n hw.ncpu 2>/dev/null || nproc)"
 OUT="$ROOT/playtest/out/gates"; mkdir -p "$OUT"
 FULL=0; FRAMEHASH=0
 for a in "$@"; do
   case "$a" in --full) FULL=1 ;; --framehash) FRAMEHASH=1 ;; *) echo "unknown arg $a"; exit 2 ;; esac
 done
-BASE="$ROOT/port/unix/build-base/earthbound"
+BASE="${EB_BASE_BIN:-$MAIN/port/unix/build-base/earthbound}"
 WIDE="$ROOT/port/unix/build-wide/earthbound"
 [ -x "$BASE" ] || { echo "VERDICT FAIL: no $BASE (run scripts/coop-setup.sh)"; exit 1; }
 
