@@ -96,3 +96,7 @@ One entry per PLAN.md item: what changed, gate results, decisions and deviations
 - Bug: a join/leave while a battle menu (or its PSI/Goods/target child) is open leaves the menu on the old Owner's pad and a stale tag. Sent to the M7 battle agent (it is reworking the same focus code) with a scenario-first brief.
 - Risk: `m2_exits` lock check passes vacuously when P2 has no Walker. Same agent.
 - Rebutted: "Run belongs to another Owner when the Leader cannot act". When the Leader is asleep or can't act, vanilla puts Run on the first Hero who can act; that Hero's Owner holding Run keeps the escape option with someone who has a menu this turn, and a Leader who can't act shouldn't block the Party. PLAN's M2 wording now states this explicitly.
+
+### M6 review (GPT 6.1 Sol, one pass)
+- Bugs, all to a fix agent (m6fix): (1) an unvalidated HELLO from a spoofed endpoint evicts an active client; (2) a delayed BYE from an old connection drops a rejoined client (no connection epoch); (3) the handshake accepts a 256x224 client on a 320x240 Host (layout id isn't a simulation fingerprint), which then desyncs; (4) `netrun.py` exits 0 when neither process ran.
+- Rebutted: frame-counter wrap stalls lockstep. It needs ~829 days of one continuous Session at 60 fps; documented as a limitation instead.
