@@ -8,7 +8,9 @@ Usage::
 Prints ``PASS name`` / ``FAIL name: reason`` per scenario and a summary, and exits
 non-zero on any failure. Scenarios run in parallel. ``$EB_BIN`` must be an absolute
 path. ``EB_COOP_SANITIZE=1`` also fails a scenario whose game printed an ASan/UBSan
-report. ``--sheet-only`` runs nothing: it tiles the important shots of each
+report. ``--continuity [cold|warm]`` also runs playtest/coop/continuity.py over every passing
+scenario's sessions (snap at the middle batch, restore in a fresh process, compare the
+end slots). ``--sheet-only`` runs nothing: it tiles the important shots of each
 scenario's latest run (``playtest/out/coop/<name>/important.json``) into OUT.png.
 """
 
@@ -25,6 +27,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import continuity  # noqa: E402
 import lib  # noqa: E402
 
 SCENARIOS = Path(__file__).resolve().parent / "scenarios"
@@ -38,8 +41,12 @@ def scenario_files(names):
     return files
 
 
-def run_one(path, binary):
-    """Run scenario file ``path``; return (name, error message or None, seconds)."""
+def run_one(path, binary, continuity_mode=None):
+    """Run scenario file ``path``; return (name, error message or None, seconds).
+
+    ``continuity_mode`` ("cold" or "warm"): when the scenario passes, also run continuity.py's
+    check over each of its sessions' command streams.
+    """
     t0 = time.time()
     ctx = lib.Scenario(path.stem, binary)
     err = None
@@ -56,6 +63,20 @@ def run_one(path, binary):
         ctx.close()
     except lib.ScenarioError as e:
         err = f"{err}; {e}" if err else str(e)
+    if continuity_mode and not err:
+        notes = []
+        for s in ctx.sessions:
+            label = f"{path.stem}-{s.dir.name}"
+            try:
+                problems = continuity.check_session(label, binary, s, warm=continuity_mode == "warm")
+            except continuity.SkipError as e:
+                notes.append(f"{s.dir.name}: continuity skipped ({e})")
+                continue
+            if problems:
+                err = f"continuity {s.dir.name}: " + "; ".join(problems)
+                break
+        if not err and notes:
+            print(f"  {path.stem}: " + ", ".join(notes), flush=True)
     return path.stem, err, time.time() - t0
 
 
@@ -91,6 +112,13 @@ def main():
     ap.add_argument("names", nargs="*", help="run only these scenarios")
     ap.add_argument("--sheet-only", metavar="OUT.png", help="build the contact sheet of the latest run and exit")
     ap.add_argument("-j", "--jobs", type=int, default=os.cpu_count() or 4)
+    ap.add_argument(
+        "--continuity",
+        nargs="?",
+        const="cold",
+        choices=["cold", "warm"],
+        help="also check every passing scenario's sessions with continuity.py (default cold; warm: B boots first)",
+    )
     a = ap.parse_args()
     if a.sheet_only:
         contact_sheet(a.sheet_only)
@@ -104,7 +132,7 @@ def main():
     t0 = time.time()
     failed = 0
     with ThreadPoolExecutor(max_workers=a.jobs) as ex:
-        for name, err, secs in ex.map(lambda p: run_one(p, binary), files):
+        for name, err, secs in ex.map(lambda p: run_one(p, binary, a.continuity), files):
             if err:
                 failed += 1
                 print(f"FAIL {name}: {err}", flush=True)
