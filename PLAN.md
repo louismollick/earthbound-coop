@@ -122,7 +122,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 
 - [ ] Simultaneous battle input: every Player picks their Heroes' commands at the same time, and the turn starts when all are locked in. Vanilla order is preserved when one Player owns several Heroes.
 - [ ] Solo Chapter Companion (CONTEXT.md): Spectators walk a Mr. Saturn (existing overworld sprite) during Solo Chapters. Overworld only, sits out battles. A Companion can trigger Look-only interactions (static scan of the text script); anything else plays a Mr. Saturn sound with no text. On by default, no flag.
-- [ ] Battle rotation in Solo Chapters: the solo Hero's command menu goes to its Owner, then each Spectator in join order, one turn each.
+- [x] Battle rotation in Solo Chapters: the solo Hero's command menu goes to its Owner, then each Spectator in join order, one turn each.
 
 ## Decisions made during the build
 
@@ -154,6 +154,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - Battle focus is per phase: the Hero's Owner from `BTL_MENU_SELECT` to `BTL_MENU_DECIDE`, ALL in every other phase. Between two command menus there are 1-2 ALL frames where presses do nothing. During Auto Fight the focus still visits each Owner on those menu frames; B is read at text pushes under ALL, so any Player cancels it. (M2)
 - A Spectator gets no command menu until Battle rotation (a later item): in a Solo Chapter battle the solo Hero's Owner picks every command, and the Spectator only advances text. (M2)
 - The turn tag is the Owner's pad number in the title's tiny font after a space ("Paula P2"), co-op only. With custom 5-letter names it is still 8 glyphs, well inside the 16-tile title slot and the narrowest (Jeff) window. (M2)
+- Battle rotation applies to every battle with exactly one Hero in the Party and more than one Player (so early Onett too, not only story Solo Chapters). The rotation is the Owner, then every other joined Player in join order (all of them are absent then). `CoopState.rotation` counts such turns, advanced in `btl_start_turn`, so a turn whose menu is skipped (asleep, enemy-first surprise) still uses up that Player's turn, and the count carries across battles and savestates. The menu's Player gets the focus, the tag and Run Away. (M7)
 
 ## Blocked
 

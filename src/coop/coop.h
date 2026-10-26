@@ -88,6 +88,9 @@ typedef struct {
     uint8_t focus_in_battle;                    /* the last feed was in a battle (entry edge) */
     uint16_t focus_new;                         /* this frame's new presses of the focused pad(s),
                                                  * from prev_held: coop_pad_new() */
+    /* Battle (coop_battle.h) */
+    uint16_t rotation;                          /* Battle rotation: Solo Chapter battle turns
+                                                 * started so far, carried across battles */
     /* Non-Leader Walkers by Player. RAM: PLATFORM_MAX_PLAYERS x ~2.1 KB (the
      * 256-entry trail is 2 KB), about 8.4 KB, all of it in savestates. */
     CoopWalker walkers[PLATFORM_MAX_PLAYERS];

@@ -4159,6 +4159,8 @@ setup_item_drop:
  * Phase 4: Start turn (lines 1110-1176)
  * ================================================================ */
 static void btl_start_turn(BattleRoutineState *st) {
+    if (coop_player_count() > 1)  /* co-op: Battle rotation counts turns */
+        coop_battle_start_turn();
     st->turn_counter++;
     sort_battlers_into_rows();
 
