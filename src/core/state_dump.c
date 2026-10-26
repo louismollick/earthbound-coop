@@ -217,6 +217,7 @@ typedef struct {
     uint32_t size;
     void (*pack)(void *scratch);         /* NULL for direct sections */
     void (*unpack)(const void *scratch); /* NULL for direct sections */
+    const char *name;                    /* the id's name without "SECTION_" (state_dump_visit) */
 } StateSection;
 
 /* Scratch buffer for the pack/unpack (file-static-backed) sections. They share one
@@ -239,9 +240,9 @@ static PackScratch s_pack;
 /* Every serialized section, in write order. Every entry is a link-time constant,
  * so the table is const and lives in flash on the embedded targets: no RAM, and no
  * ~880-byte (ILP32) copy on the 4 KB Pico core-0 stack per save/load. */
-#define ADD(id_, ptr_, size_)  { (uint16_t)(id_), (void *)(ptr_), (uint32_t)(size_), NULL, NULL }
+#define ADD(id_, ptr_, size_)  { (uint16_t)(id_), (void *)(ptr_), (uint32_t)(size_), NULL, NULL, &#id_[8] }
 #define ADDFN(id_, scratch_, pack_, unpack_) \
-    { (uint16_t)(id_), (void *)(scratch_), (uint32_t)sizeof(*(scratch_)), (pack_), (unpack_) }
+    { (uint16_t)(id_), (void *)(scratch_), (uint32_t)sizeof(*(scratch_)), (pack_), (unpack_), &#id_[8] }
 static const StateSection k_sections[] = {
     ADD(SECTION_CORE,             &core,                sizeof(core)),
     ADD(SECTION_GAME_STATE,       &game_state,          sizeof(game_state)),
@@ -526,9 +527,10 @@ static const PtrSlot k_ptr_slots[] = {
 #define PTR_SLOT_BYTES 8u
 _Static_assert(sizeof(void *) <= PTR_SLOT_BYTES, "pointer slots are 8 bytes");
 
-/* Compress `size` bytes of section `id` from `base`, with its pointer slots
+/* Feed `size` bytes of section `id` from `base` to `sink`, with its pointer slots
  * canonicalized (see k_ptr_slots). */
-static void comp_section(CompCtx *x, uint16_t id, const uint8_t *base, uint32_t size) {
+typedef void (*ByteSink)(void *ctx, const void *data, size_t n);
+static void emit_section(ByteSink sink, void *x, uint16_t id, const uint8_t *base, uint32_t size) {
     uint8_t next[PTR_SLOT_COUNT] = { 0 };
     uint32_t pos = 0;
     for (;;) {
@@ -546,17 +548,26 @@ static void comp_section(CompCtx *x, uint16_t id, const uint8_t *base, uint32_t 
         }
         if (best < 0 || best_off + PTR_SLOT_BYTES > size)
             break;
-        comp_write(x, base + pos, best_off - pos);
+        sink(x, base + pos, best_off - pos);
         const void *p;
         memcpy(&p, base + best_off, sizeof p);
         uint8_t canon[PTR_SLOT_BYTES] = { 0 };
         canon[0] = (k_ptr_slots[best].mode == PTR_FLAG_NONNULL && p != NULL) ? 1u : 0u;
-        comp_write(x, canon, sizeof canon);
+        sink(x, canon, sizeof canon);
         pos = best_off + PTR_SLOT_BYTES;
         next[best]++;
     }
     if (size > pos)
-        comp_write(x, base + pos, size - pos);
+        sink(x, base + pos, size - pos);
+}
+
+static void comp_sink(void *x, const void *data, size_t n) {
+    comp_write((CompCtx *)x, data, n);
+}
+
+/* Compress `size` bytes of section `id` from `base`, pointer slots canonicalized. */
+static void comp_section(CompCtx *x, uint16_t id, const uint8_t *base, uint32_t size) {
+    emit_section(comp_sink, x, id, base, size);
 }
 
 /* Layout fingerprint for the header: STATE_LAYOUT_SOURCE_HASH (the source text of
@@ -576,6 +587,10 @@ static uint32_t state_layout_id(void) {
         crc = crc32_step(crc, &k_sections[i].size, sizeof k_sections[i].size);
     }
     return crc ^ 0xFFFFFFFFu;
+}
+
+uint32_t state_dump_layout_id(void) {
+    return state_layout_id();
 }
 
 /* Write the 24-byte uncompressed header at offset 0. Called LAST (after the compress
@@ -1269,6 +1284,19 @@ bool state_dump_load_slots(void) {
     if (first >= 0 && read_slot(first))        ok = true;
     else if (second >= 0 && read_slot(second)) ok = true;
     return ok;
+}
+
+/* Walk the live state section by section, as a slot write would serialize it. See
+ * state_dump.h. Pack sections gather into the shared scratch, which nothing else
+ * reads outside a save or load, so this changes no game state. */
+void state_dump_visit(const StateDumpVisitor *v) {
+    for (int i = 0; i < SECTION_COUNT; i++) {
+        const StateSection *sec = &k_sections[i];
+        if (sec->pack)
+            sec->pack(sec->ptr);
+        v->begin(v->ctx, sec->id, sec->name, sec->size);
+        emit_section(v->bytes, v->ctx, sec->id, (const uint8_t *)sec->ptr, sec->size);
+    }
 }
 
 /* ---- Desktop diagnostics (the `--selftest-savestate` flag) ---- */

@@ -638,6 +638,11 @@ static void print_players(void) {
     printf("\n");
 }
 
+/* Netplay prints the PLAYERS line at every hash point (net/session.c). */
+void input_script_print_players(void) {
+    print_players();
+}
+
 static void print_state(const char *label) {
     said_flush();
     printf("STATE %s frame=%u modes=[", label[0] ? label : "-", (unsigned)core.frame_counter);
@@ -914,6 +919,13 @@ static void take_shot(const char *line) {
         script_error("cannot write screenshot %s", path);
     }
     fflush(stdout);
+}
+
+/* Netplay tests (EB_NET_SHOT_FRAMES, net/session.c): a screenshot at a net frame. */
+void input_script_shot(const char *path) {
+    char line[300];
+    snprintf(line, sizeof line, "shot %s", path);
+    take_shot(line);
 }
 
 /* ---- Script input ---- */

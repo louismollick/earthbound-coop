@@ -404,15 +404,19 @@ void text_load_window_gfx(void) {
            BUF_TEXT_TILES_BLOCK6_SIZE);
 }
 
+/* Bind the flavour palette asset on first use. Every reader goes through this, so a
+ * savestate loaded into a fresh process (netplay joins, F7 after a restart) animates
+ * the HP/PP window flash at once instead of only after the next window palette load. */
+static bool ensure_flavour_palettes(void) {
+    if (!flavour_palettes)
+        flavour_palettes = (const uint16_t *)ASSET_DATA(ASSET_GRAPHICS_TEXT_WINDOW_FLAVOUR_PALETTES_PAL);
+    return flavour_palettes != NULL;
+}
+
 void text_load_flavour_palette(uint8_t flavour) {
-    if (!flavour_palettes) {
-        const uint8_t *pal_data = ASSET_DATA(ASSET_GRAPHICS_TEXT_WINDOW_FLAVOUR_PALETTES_PAL);
-        if (pal_data) {
-            flavour_palettes = (const uint16_t *)pal_data;
-        } else {
-            LOG_WARN("Failed to load flavour palettes\n");
-            return;
-        }
+    if (!ensure_flavour_palettes()) {
+        LOG_WARN("Failed to load flavour palettes\n");
+        return;
     }
 
     /* Apply the selected flavour to ert.palettes[] mirror (BG ert.palettes 0-1).
@@ -430,15 +434,8 @@ void text_load_flavour_palette(uint8_t flavour) {
  * This is why windows turn red after a fight whose last member is down, and
  * why Pokey's escape-speech window is pink when Poo is down (emu-checked). */
 void load_character_window_palette(void) {
-    /* Ensure flavour palette data is loaded */
-    if (!flavour_palettes) {
-        const uint8_t *pal_data = ASSET_DATA(ASSET_GRAPHICS_TEXT_WINDOW_FLAVOUR_PALETTES_PAL);
-        if (pal_data) {
-            flavour_palettes = (const uint16_t *)pal_data;
-        } else {
-            return;
-        }
-    }
+    if (!ensure_flavour_palettes())
+        return;
 
     /* Assembly lines 7-20: check last party member's status */
     uint8_t count = game_state.player_controlled_party_count;
@@ -470,7 +467,7 @@ void load_character_window_palette(void) {
  * creating a blinking animation on the HP/PP window borders.
  * Writes 4 colors (BPP2PALETTE_SIZE) to palette sub-palette 5. */
 void update_text_window_palette(void) {
-    if (!flavour_palettes)
+    if (!ensure_flavour_palettes())
         return;
 
     uint8_t flavour_raw = game_state.text_flavour;  /* 1-indexed */
@@ -4632,15 +4629,8 @@ void initialize_window_flavour_palette(void) {
         party_characters[i].hp_pp_window_options = 0x0400;
     }
 
-    /* Ensure flavour palette data is loaded */
-    if (!flavour_palettes) {
-        const uint8_t *pal_data = ASSET_DATA(ASSET_GRAPHICS_TEXT_WINDOW_FLAVOUR_PALETTES_PAL);
-        if (pal_data) {
-            flavour_palettes = (const uint16_t *)pal_data;
-        } else {
-            return;
-        }
-    }
+    if (!ensure_flavour_palettes())
+        return;
 
     /* Step 2-3: text_flavour is 1-indexed (1=Plain..5=Peanut), matching assembly.
      * TEXT_WINDOW_PROPERTIES gives byte offsets per flavour into the palette data.
