@@ -38,7 +38,7 @@ port/unix/build-wide/earthbound --join 127.0.0.1:7744               # window 2: 
 - **Networking:** there's no NAT traversal. Use Tailscale, or forward UDP 7744. Full guide in `docs/coop-online.md`.
 
 ### What I'd like you to playtest by feel
-0. **Windows, 10 minutes (M5's last item):** build per `docs/coop-windows.md`, play with a controller and the keyboard, and try one online Session between the PC and the Mac over Tailscale.
+0. **Windows, 10 minutes (M5's last item):** build per `docs/coop-windows.md`, play with a controller and the keyboard, save at a phone, and try one online Session between the PC and the Mac over Tailscale. The M5 review fixes to the Windows-only code (the one-step save swap, named-pipe reconnects, Winsock socket handles) were only compile-checked on the Mac. Before you play, have the Windows session run `scripts/coop-gates.sh --full --framehash` once.
 1. **The leash and camera with 2 Players:** does the midpoint camera feel calm, and is the leash margin too tight?
 2. **Claimed battle menus:** is pressing A to claim a menu intuitive? Is the "P1 P2" waiting box clear enough, or would you rather have sequential menus back?
 3. **Mr. Saturn:** is it fun, and does the "can't do that" sound read clearly? It hides during any dialogue that locks the Party.
