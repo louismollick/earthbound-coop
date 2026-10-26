@@ -85,4 +85,15 @@ typedef enum {
 
 HostCaptureStatus host_capture_status(void);
 
+/* Netplay (port/unix/net/): run `fn` at the next root-loop boundary, after the same
+ * torn-safe unwind a capture uses. fn(true) runs at the boundary; fn(false) runs if
+ * the unwind is abandoned at the cap. Every machine in a Session requests it on the
+ * same frame, so all of them unwind identically. Ignored while another root action
+ * is pending (returns false). Doesn't touch host_capture_status(). */
+bool host_request_root_call(void (*fn)(bool reached));
+
+/* True while a root action (capture, load or root call) is pending, i.e. this
+ * frame is a free-run unwind frame that sees no input. */
+bool host_capture_unwinding(void);
+
 #endif /* GAME_MAIN_H */

@@ -33,7 +33,10 @@ endif()
 # link. GLOB_RECURSE + CONFIGURE_DEPENDS works there and matches src/CMakeLists.txt.
 # platform/ has no subdirectories, so this is equivalent to a flat glob.
 file(GLOB_RECURSE PLATFORM_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/platform/*.c")
-add_executable(earthbound main.c ${PLATFORM_SOURCES})
+# Online co-op (net/net.h)
+file(GLOB_RECURSE NET_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/net/*.c")
+add_executable(earthbound main.c ${PLATFORM_SOURCES} ${NET_SOURCES})
+target_include_directories(earthbound PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(earthbound earthbound_game)
 

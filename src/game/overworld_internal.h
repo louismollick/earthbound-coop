@@ -27,7 +27,6 @@ int16_t choose_entity_direction_to_player(void);
 
 /* ---- Spawn functions (overworld_spawn.c) ---- */
 bool ensure_delivery_tables(void);
-void load_enemy_spawn_data(void);
 
 /* ---- Palette/damage functions (overworld_palette.c) ---- */
 void restore_bg_palette_callback(void);
