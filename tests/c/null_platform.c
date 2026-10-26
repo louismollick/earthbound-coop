@@ -21,6 +21,8 @@ void platform_video_set_vsync(bool enabled) { (void)enabled; }
 void platform_input_poll(void) {}
 uint16_t platform_input_get_pad(void) { return 0; }
 uint16_t platform_input_get_pad_new(void) { return 0; }
+uint16_t platform_input_get_pad_n(int player) { (void)player; return 0; }
+uint16_t platform_input_get_pad_new_n(int player) { (void)player; return 0; }
 uint16_t platform_input_get_aux(void) { return 0; }
 bool platform_input_quit_requested(void) { return false; }
 void platform_request_quit(void) {}

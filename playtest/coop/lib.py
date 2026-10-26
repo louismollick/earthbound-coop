@@ -1,0 +1,286 @@
+"""Helpers for co-op scenarios (``playtest/coop/scenarios/*.py``).
+
+A scenario is a module with ``run(ctx)``. ``ctx`` is a :class:`Scenario`: it starts
+headless game sessions (``ctx.session(...)``), each driven over the ``--session``
+FIFO with the input-script language of ``port/unix/platform/sdl2_input_script.c``
+(Player prefixes included: ``P2 press START``). A session blocks between commands,
+so every step is deterministic.
+
+    s = ctx.session(players=2)           # empty SRAM; --players 2 auto-joins P2
+    s.new_game()                         # playtest/scripts/newgame.play: Ness in his bedroom
+    p = s.players()                      # parsed PLAYERS line, keyed 1..4
+    expect(p[2].joined and p[2].owns == [], "P2 joined, owning nothing", p[2])
+    ctx.shot(s, "bedroom")               # an important shot: it goes on the contact sheet
+
+Failures raise :class:`ScenarioError` with what was expected and what was seen.
+With ``EB_COOP_SANITIZE=1``, closing a session fails if the game's stderr has an
+ASan/UBSan report. Output goes to ``playtest/out/coop/<scenario>/<session>/``.
+"""
+
+import json
+import os
+import queue
+import re
+import shutil
+import subprocess
+import threading
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+PLAYTEST = HERE.parent
+OUT = PLAYTEST / "out" / "coop"
+NEWGAME = PLAYTEST / "scripts" / "newgame.play"
+SAVES = PLAYTEST / "saves"
+# Title screen -> file select -> file 1 -> Continue, then wait for control (pt.py BOOT)
+BOOT = "300 -; 1 START; 200 -; 1 A; 120 -; 1 A; 120 -; 1 A; until idle 900"
+SANITIZER = re.compile(r"runtime error:|ERROR: AddressSanitizer|ERROR: LeakSanitizer")
+
+
+class ScenarioError(Exception):
+    """A scenario check failed; the message says what was expected and what was seen."""
+
+
+def expect(cond, what, seen):
+    """Fail with ``expected WHAT, saw SEEN`` unless ``cond``."""
+    if not cond:
+        raise ScenarioError(f"expected {what}, saw {seen}")
+
+
+@dataclass
+class Player:
+    """One segment of the PLAYERS line."""
+
+    num: int
+    joined: bool
+    owns: list = field(default_factory=list)
+    walker: str | None = None
+    pos: tuple | None = None
+    spectator: bool = False
+
+    def __str__(self):
+        if not self.joined:
+            return f"P{self.num}:-"
+        s = f"P{self.num}:joined owns={','.join(self.owns) or '-'} walker={self.walker or '-'}"
+        if self.pos:
+            s += f" pos={self.pos}"
+        return s + (" spectator" if self.spectator else "")
+
+
+def parse_players(line):
+    """``PLAYERS P1:joined owns=Ness walker=Ness pos=(1,2) | P2:- ...`` -> {1: Player, ...}."""
+    out = {}
+    for seg in line[len("PLAYERS") :].split("|"):
+        seg = seg.strip()
+        m = re.match(r"P(\d):(\S+)(.*)", seg)
+        if not m:
+            continue
+        num, rest = int(m.group(1)), m.group(3)
+        if m.group(2) != "joined":
+            out[num] = Player(num, False)
+            continue
+        owns = re.search(r"owns=(\S+)", rest)
+        walker = re.search(r"walker=(\S+)", rest)
+        pos = re.search(r"pos=\((\d+),(\d+)\)", rest)
+        out[num] = Player(
+            num,
+            True,
+            owns=[] if not owns or owns.group(1) == "-" else owns.group(1).split(","),
+            walker=None if not walker or walker.group(1) == "-" else walker.group(1),
+            pos=(int(pos.group(1)), int(pos.group(2))) if pos else None,
+            spectator=" spectator" in rest,
+        )
+    return out
+
+
+@dataclass
+class State:
+    """The lines one ``state`` command printed."""
+
+    state: str = ""
+    party: str = ""
+    players_line: str = ""
+    follow: str = ""
+
+    @property
+    def players(self):
+        return parse_players(self.players_line)
+
+    @property
+    def pos(self):
+        m = re.search(r"pos=\((\d+),(\d+)\)", self.state)
+        return (int(m.group(1)), int(m.group(2))) if m else None
+
+    @property
+    def follow_offsets(self):
+        """FOLLOW line as {party member id: (dx, dy) from the Leader}."""
+        return {int(m[0]): (int(m[1]), int(m[2])) for m in re.findall(r" (\d+):\(([+-]\d+),([+-]\d+)\)", self.follow)}
+
+    @property
+    def idle(self):
+        m = re.search(r"idle=(\S+)", self.state)
+        return m.group(1) if m else None
+
+
+def split_commands(cmds):
+    return [c.strip() for c in re.split(r"[;\n]", cmds) if c.strip() and not c.strip().startswith("#")]
+
+
+class Session:
+    """One headless game process driven over its ``--session`` FIFO."""
+
+    def __init__(self, scenario, name, save=None, players=1, timeout=120.0):
+        self.scenario = scenario
+        self.dir = scenario.dir / name
+        shutil.rmtree(self.dir, ignore_errors=True)
+        self.dir.mkdir(parents=True)
+        if save:
+            shutil.copy(save, self.dir / "save.srm")
+        else:
+            (self.dir / "save.srm").write_bytes(bytes(8192))  # empty SRAM: new game
+        os.mkfifo(self.dir / "cmd.fifo")
+        args = [scenario.bin, "--headless", "--save", "save.srm", "--session", "cmd.fifo"]
+        if players > 1:
+            args += ["--players", str(players)]
+        self.timeout = timeout
+        self.seq = 0
+        self.log = (self.dir / "log.txt").open("w")
+        self.stderr = (self.dir / "stderr.txt").open("w")
+        self.proc = subprocess.Popen(  # noqa: S603
+            args, cwd=self.dir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=self.stderr, text=True
+        )
+        self.lines = queue.Queue()
+        threading.Thread(target=self._read, daemon=True).start()
+        self.fifo = None
+        deadline = time.time() + 10
+        while self.fifo is None:
+            try:
+                self.fifo = os.open(self.dir / "cmd.fifo", os.O_WRONLY | os.O_NONBLOCK)
+            except OSError:
+                if self.proc.poll() is not None or time.time() > deadline:
+                    raise ScenarioError(f"game did not open its session FIFO (rc={self.proc.poll()})") from None
+                time.sleep(0.01)
+        os.set_blocking(self.fifo, True)
+
+    def _read(self):
+        for ln in self.proc.stdout:
+            self.log.write(ln)
+            self.lines.put(ln.rstrip("\n"))
+        self.lines.put(None)
+
+    def do(self, cmds, timeout=None):
+        """Send ``;``/newline-separated commands; return the lines printed until they finish."""
+        self.seq += 1
+        body = split_commands(cmds) + [f"sync {self.seq}"]
+        os.write(self.fifo, ("\n".join(body) + "\n").encode())
+        marker = f"SYNC {self.seq} "
+        out = []
+        deadline = time.time() + (timeout or self.timeout)
+        while True:
+            try:
+                ln = self.lines.get(timeout=max(0.1, deadline - time.time()))
+            except queue.Empty:
+                raise ScenarioError(f"timed out waiting for {cmds!r} (last lines: {out[-5:]})") from None
+            if ln is None:
+                raise ScenarioError(f"game exited during {cmds!r} (rc={self.proc.poll()}, last lines: {out[-5:]})")
+            if ln.startswith(marker):
+                return out
+            if ln.startswith("ERR"):
+                raise ScenarioError(f"script error during {cmds!r}: {ln}")
+            out.append(ln)
+
+    def state(self, label="-"):
+        st = State()
+        for ln in self.do(f"state {label}"):
+            if ln.startswith("STATE "):
+                st.state = ln
+            elif ln.startswith("PARTY"):
+                st.party = ln
+            elif ln.startswith("PLAYERS"):
+                st.players_line = ln
+            elif ln.startswith("FOLLOW"):
+                st.follow = ln
+        expect(st.players_line, "a PLAYERS line after 'state'", st.state or "nothing")
+        return st
+
+    def players(self):
+        return self.state().players
+
+    def boot(self):
+        """Boot the save's file 1 (Continue) until the Leader can walk."""
+        self.do(BOOT, timeout=300)
+        st = self.state("booted")
+        expect(st.idle == "yes", "the Party idle after booting the save", st.state)
+        return st
+
+    def new_game(self):
+        """Play playtest/scripts/newgame.play: default names, Ness controllable in his bedroom."""
+        self.do("\n".join(ln for ln in NEWGAME.read_text().splitlines() if not ln.startswith("sync")), timeout=300)
+        st = self.state("bedroom")
+        expect(st.idle == "yes", "Ness idle in his bedroom after the new-game script", st.state)
+        return st
+
+    def shot(self, label):
+        for ln in self.do(f"shot {label}"):
+            if ln.startswith("SHOT "):
+                return self.dir / ln.split()[1]
+        raise ScenarioError(f"no SHOT line for shot {label}")
+
+    def close(self):
+        if self.proc.poll() is None:
+            try:
+                os.write(self.fifo, b"quit\n")
+                self.proc.wait(timeout=10)
+            except (OSError, subprocess.TimeoutExpired):
+                self.proc.kill()
+                self.proc.wait()
+        os.close(self.fifo)
+        self.stderr.close()
+        self.log.close()
+        if os.environ.get("EB_COOP_SANITIZE") == "1":
+            err = (self.dir / "stderr.txt").read_text(errors="replace")
+            m = SANITIZER.search(err)
+            if m:
+                line = err[m.start() : err.find("\n", m.start())]
+                raise ScenarioError(f"no sanitizer report, saw: {line} (see {self.dir / 'stderr.txt'})")
+
+
+class Scenario:
+    """What a scenario's ``run(ctx)`` gets: sessions, important shots, its output dir."""
+
+    def __init__(self, name, binary):
+        self.name = name
+        self.bin = binary
+        self.dir = OUT / name
+        shutil.rmtree(self.dir, ignore_errors=True)
+        self.dir.mkdir(parents=True)
+        self.sessions = []
+        self.important = []
+
+    def session(self, name="main", save=None, players=1):
+        """A new game session. ``save``: a story save name (``27-Kraken``) or .srm path; None = empty SRAM."""
+        if save and not str(save).endswith(".srm"):
+            save = SAVES / f"{save}.srm"
+            if not save.exists():
+                raise ScenarioError(f"story save {save} (see docs/coop-setup.md)")
+        s = Session(self, name, save=save, players=players)
+        self.sessions.append(s)
+        return s
+
+    def shot(self, session, label):
+        """Take a screenshot that belongs on the contact sheet."""
+        path = session.shot(label)
+        self.important.append({"path": str(path), "label": f"{self.name}: {label}"})
+        (self.dir / "important.json").write_text(json.dumps(self.important, indent=1))
+        return path
+
+    def close(self):
+        errors = []
+        for s in self.sessions:
+            try:
+                s.close()
+            except ScenarioError as e:
+                errors.append(str(e))
+        if errors:
+            raise ScenarioError("; ".join(errors))

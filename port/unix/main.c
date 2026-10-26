@@ -9,6 +9,7 @@
 #include "core/log.h"
 #include "core/state_dump.h"
 #include "game/smooth_camera.h"
+#include "coop/coop.h"
 
 /* Unix-specific: set save file path (defined in sdl2_save.c) */
 void platform_save_set_path(const char *path);
@@ -39,6 +40,7 @@ int main(int argc, char *argv[]) {
     const char *verify_rom_path = NULL;
     bool savestate_selftest = false;
     const char *coldload_prefix = NULL;
+    int players = 1;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--verify") == 0 && i + 1 < argc) {
@@ -80,6 +82,13 @@ int main(int argc, char *argv[]) {
             /* Presentation only: sub-pixel scenery scroll while walking
              * (game/smooth_camera.h). Also EB_SMOOTH_CAMERA=1. */
             smooth_camera_enabled = true;
+        } else if (strcmp(argv[i], "--players") == 0 && i + 1 < argc) {
+            /* Co-op test flag: auto-join P2..PN at startup, in order */
+            players = atoi(argv[++i]);
+            if (players < 1 || players > PLATFORM_MAX_PLAYERS) {
+                fprintf(stderr, "--players takes 1-%d\n", PLATFORM_MAX_PLAYERS);
+                return 1;
+            }
         } else if (strcmp(argv[i], "--skip-intro") == 0) {
             platform_skip_intro = true;
         } else if (strcmp(argv[i], "--verbose") == 0) {
@@ -90,7 +99,7 @@ int main(int argc, char *argv[]) {
                 verbose_level++;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--smooth-camera] [--verbose] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX]\n",
+            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--smooth-camera] [--players N] [--verbose] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX]\n",
                     argv[0]);
             return 1;
         }
@@ -127,6 +136,8 @@ int main(int argc, char *argv[]) {
 
     /* Initialize game systems */
     game_init();
+    for (int p = 1; p < players; p++)
+        coop_join(p);
 
     /* Savestate round-trip self-test: prove state_dump_load() reads back exactly
      * what state_dump_save() wrote (byte-identical), then exit. Runs against the

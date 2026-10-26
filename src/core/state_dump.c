@@ -42,6 +42,7 @@
 #include "tamp/decompressor.h"
 #include "core/log.h"
 #include "core/state_layout.h"
+#include "coop/coop.h"
 
 /* Container format (24-byte header, all fields little-endian — asserted below):
  *   magic       u32  "EBSD"
@@ -138,6 +139,7 @@ enum {
     SECTION_BATTLE_BG            = 0x0029,
     SECTION_FRAME_CALLBACK       = 0x002A,
     SECTION_ENDING_CREDITS       = 0x002B,
+    SECTION_COOP                 = 0x002C,  /* co-op join state (coop/coop.h) */
     SECTION_TERMINATOR       = 0xFFFF,
 };
 
@@ -198,6 +200,7 @@ _Static_assert(sizeof(g_mode_stack)         == 3964,  "ABI: g_mode_stack");
 _Static_assert(sizeof(overworld_spritemaps) == 900,   "ABI: overworld_spritemaps");
 _Static_assert(sizeof(loaded_bg_data_layer1)== 124,   "ABI: loaded_bg_data_layer1");
 _Static_assert(sizeof(text_render_state)    == 6,     "ABI: text_render_state");
+_Static_assert(sizeof(coop)                 == 17,    "ABI: coop");
 #ifdef EB_ENABLE_AUDIO
 _Static_assert(sizeof(audio_state)          == 6,     "ABI: audio_state");
 #endif
@@ -263,6 +266,7 @@ static const StateSection k_sections[] = {
 #endif
     ADD(SECTION_PSI_ANIMATION,    &psi_animation_state, sizeof(psi_animation_state)),
     ADD(SECTION_MODE_STACK,       &g_mode_stack,        sizeof(g_mode_stack)),
+    ADD(SECTION_COOP,             &coop,                sizeof(coop)),
 
     /* Loose globals outside the module structs that are nevertheless live game
      * state. Without these, a load leaves stale runtime bookkeeping: the sprite

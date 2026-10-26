@@ -47,7 +47,7 @@ def run(name, save, script, cols=6, boot=True):
         text=True,
         timeout=600,
     )
-    keep = ("STATE", "PARTY", "ENEMIES", "NEAR", "SHOT", "UNTIL", "TEXT", "WIN", "MENU", "ERR")
+    keep = ("STATE", "PARTY", "PLAYERS", "ENEMIES", "NEAR", "SHOT", "UNTIL", "TEXT", "WIN", "MENU", "ERR")
     lines = [ln for ln in p.stdout.splitlines() if ln.startswith(keep)]
     errs = [
         ln

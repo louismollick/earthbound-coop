@@ -56,6 +56,15 @@ uint16_t platform_input_get_pad_new(void) {
     return pad_state & ~pad_prev;
 }
 
+/* One pad: it is P1, and P2-P4 never press anything */
+uint16_t platform_input_get_pad_n(int player) {
+    return player == 0 ? platform_input_get_pad() : 0;
+}
+
+uint16_t platform_input_get_pad_new_n(int player) {
+    return player == 0 ? platform_input_get_pad_new() : 0;
+}
+
 bool platform_input_quit_requested(void) {
     return false;  /* No quit concept on SNES */
 }

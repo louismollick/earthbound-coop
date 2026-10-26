@@ -8,6 +8,7 @@
 #include "core/mode_stack.h"
 #include "core/memory.h"
 #include "core/state_dump.h"
+#include "coop/coop.h"
 #include "core/math.h"
 #include "core/decomp.h"
 #include "data/assets.h"
@@ -483,6 +484,16 @@ void host_process_frame(void) {
         current_pad = core.pad1_raw;
     }
     memory_update_joypad(current_pad);
+
+    /* Co-op join/leave (coop/coop.h). Like P1's pad above, an unwind sees no input. */
+    {
+        uint16_t held[PLATFORM_MAX_PLAYERS], pressed[PLATFORM_MAX_PLAYERS];
+        for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
+            held[p] = capture_unwinding ? 0 : platform_input_get_pad_n(p);
+            pressed[p] = capture_unwinding ? 0 : platform_input_get_pad_new_n(p);
+        }
+        coop_tick(held, pressed);
+    }
 
 #ifdef EB_ENABLE_VERIFY
     verify_frame(current_pad);

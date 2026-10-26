@@ -3,6 +3,7 @@ project(earthbound_game C)
 set(CMAKE_C_STANDARD 11)
 
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
+    "coop/*.c"
     "core/*.c"
     "entity/*.c"
     "game/*.c"

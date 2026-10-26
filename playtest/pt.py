@@ -65,11 +65,18 @@ def engine(d):
     return f.read_text().strip() if f.exists() else "port"
 
 
+def players(d):
+    """Session dir ``d``'s co-op Player count (``start --players N``; default 1)."""
+    f = d / "players"
+    return int(f.read_text()) if f.exists() else 1
+
+
 def game_command(d):
     """The game command line (before its arguments) for session dir ``d``'s engine."""
     if engine(d) == "emu":
         return [sys.executable, str(EMU)]
-    return [BIN]
+    n = players(d)
+    return [BIN, "--players", str(n)] if n > 1 else [BIN]
 
 
 def check_binary(d):
@@ -101,6 +108,7 @@ KEEP = (
     "FOLLOW",
     "STATUS",
     "DEBUG",
+    "PLAYERS",
     ">",
 )
 PROBLEM = re.compile(r"error|halt|assert|abort|unknown script", re.IGNORECASE)
@@ -249,7 +257,7 @@ def do(name, cmds, shot=True, sheet=False, scale=1, timeout=300.0, quiet=False, 
         print(f"SHEET {out}")
 
 
-def start(name, save, boot=True, scale=1, history=None, emu=False):
+def start(name, save, boot=True, scale=1, history=None, emu=False, num_players=1):
     d = session_dir(name)
     if read_pid(d) is not None:
         sys.exit(f"session {name} is already running (stop it first)")
@@ -257,6 +265,8 @@ def start(name, save, boot=True, scale=1, history=None, emu=False):
     d.mkdir(parents=True)
     if emu:
         (d / "engine").write_text("emu\n")
+    if num_players > 1:
+        (d / "players").write_text(f"{num_players}\n")
     check_binary(d)
     shutil.copy(save, d / "save.srm")
     shutil.copy(save, d / "start.srm")
@@ -312,7 +322,7 @@ def replay(name, new):
     SESSIONS.mkdir(parents=True, exist_ok=True)
     shutil.copy(src / "start.srm", tmp)
     try:
-        start(new, tmp, history="\n".join(cmds), emu=engine(src) == "emu")
+        start(new, tmp, history="\n".join(cmds), emu=engine(src) == "emu", num_players=players(src))
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -491,6 +501,7 @@ def main():
     s.add_argument("--no-boot", action="store_true", help="stay on the title screen")
     s.add_argument("--scale", type=int, default=1, help="upscale screenshots by this factor")
     s.add_argument("--emu", action="store_true", help="run the original game in the reference emulator (emu.py)")
+    s.add_argument("--players", type=int, default=1, help="co-op: auto-join P2..PN at startup (game --players)")
     s = sub.add_parser("do", help="run commands, then print text/state and a screenshot")
     s.add_argument("name")
     s.add_argument("commands", help="';' or newline separated commands")
@@ -522,7 +533,7 @@ def main():
     a = ap.parse_args()
 
     if a.cmd == "start":
-        start(a.name, a.save, boot=not a.no_boot, scale=a.scale, emu=a.emu)
+        start(a.name, a.save, boot=not a.no_boot, scale=a.scale, emu=a.emu, num_players=a.players)
     elif a.cmd == "do":
         do(
             a.name,

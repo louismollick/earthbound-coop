@@ -34,6 +34,18 @@
  *                      battle        an enemy was touched / a battle started
  *   end | quit       stop playback and quit the game
  *
+ * Players (co-op): a pad command (N BUTTONS, wait, press, until, hold,
+ * release) acts on P1 unless it carries a Player token P1..P4, either before
+ * the verb or anywhere after it: 'P2 10 RIGHT', '10 P2 RIGHT', 'press P3 A',
+ * 'P2 press START', 'until idle 600 P2 RIGHT', 'P2 until text 60 START*'.
+ * While a command runs, every other Player's pad is 0 except for sticky holds:
+ *
+ *   hold [Pn] BUTTONS  Player n keeps BUTTONS held (OR'd into its pad) across
+ *                    the commands that follow; 'hold Pn -' clears it. Instant.
+ *   release [Pn]     same as 'hold Pn -'
+ *
+ * e.g. 'hold P2 RIGHT; 30 UP; release P2' moves P1 up and P2 right together.
+ *
  * Instant commands (take no frame; they act on the state after all earlier
  * input):
  *
@@ -41,7 +53,7 @@
  *                    write the current frame as a PNG (PATH if it ends in
  *                    .png, else shots/NNNN[-LABEL].png). Prints SHOT path.
  *                    --crop: a WxH box centred on the leader; --zoom: scale up
- *   state [LABEL]    print STATE/PARTY/FOLLOW(/NEAR/ENEMIES) lines
+ *   state [LABEL]    print STATE/PARTY/PLAYERS/FOLLOW(/NEAR/ENEMIES) lines
  *   text             print the text in every open window (WIN) and the
  *                    active menu (MENU)
  *   sync ID          print "SYNC ID" (the session driver waits for it)
@@ -88,6 +100,7 @@
 #include "core/math.h"
 #include "core/memory.h"
 #include "core/mode_stack.h"
+#include "coop/coop.h"
 #include "entity/entity.h"
 #include "game/battle.h"
 #include "game/display_text.h"
@@ -130,6 +143,12 @@ static bool frame_was_rendered;  /* this poll's frame reached the framebuffer */
 static uint16_t press_pad;
 static int press_left;
 static int press_phase;
+
+/* The Player (0 = P1) whose pad the running frame-taking command (N BUTTONS,
+ * wait, press, until) drives; only one runs at a time. */
+static int cmd_player;
+/* Sticky holds per Player ('hold Pn BUTTONS'), OR'd into its pad every frame */
+static uint16_t sticky_hold[PLATFORM_MAX_PLAYERS];
 
 /* Active 'until' command */
 enum { UC_IN, UC_OUT, UC_IDLE, UC_INPUT, UC_TEXT, UC_SAID, UC_BATTLE };
@@ -562,6 +581,63 @@ static void print_surface(uint16_t sf) {
     printf(")");
 }
 
+/* The world position of party member `id`'s entity (the Leader's coordinates
+ * for the Leader), or false if it has no entity. */
+static bool member_pos(uint8_t id, int *x, int *y) {
+    for (int i = 0; i < game_state.party_count && i < TOTAL_PARTY_COUNT; i++) {
+        if (game_state.party_order[i] != id)
+            continue;
+        int e = read_u16_le(&game_state.party_entity_slots[i * 2]);
+        if (e == game_state.current_party_members) {
+            *x = game_state.leader_x_coord;
+            *y = game_state.leader_y_coord;
+            return true;
+        }
+        if (e < 0 || e >= MAX_ENTITIES || entities.script_table[e] == ENTITY_NONE)
+            return false;
+        *x = entities.abs_x[e];
+        *y = entities.abs_y[e];
+        return true;
+    }
+    return false;
+}
+
+/* PLAYERS P1:joined owns=Ness,Jeff walker=Ness pos=(X,Y) | P2:joined owns=- walker=- spectator | P3:- | P4:-
+ * owns = the Player's Heroes present in the Party (Party order); walker = coop_walker() */
+static void print_players(void) {
+    printf("PLAYERS");
+    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
+        printf("%s P%d:", p ? " |" : "", p + 1);
+        if (!coop_player_joined(p)) {
+            printf("-");
+            continue;
+        }
+        printf("joined owns=");
+        bool any = false;
+        for (int i = 0; i < game_state.party_count && i < 6; i++) {
+            uint8_t id = game_state.party_members[i];
+            if (id < 1 || id > COOP_HERO_COUNT || coop_hero_owner(id - 1) != p)
+                continue;
+            printf("%s", any ? "," : "");
+            print_eb(party_characters[id - 1].name, 5);
+            any = true;
+        }
+        if (!any)
+            printf("-");
+        uint8_t w = coop_walker(p);
+        int x, y;
+        if (!w) {
+            printf(" walker=- spectator");
+        } else {
+            printf(" walker=");
+            print_eb(party_characters[w - 1].name, 5);
+            if (member_pos(w, &x, &y))
+                printf(" pos=(%d,%d)", x, y);
+        }
+    }
+    printf("\n");
+}
+
 static void print_state(const char *label) {
     said_flush();
     printf("STATE %s frame=%u modes=[", label[0] ? label : "-", (unsigned)core.frame_counter);
@@ -597,6 +673,7 @@ static void print_state(const char *label) {
         print_afflictions(c);
     }
     printf("\n");
+    print_players();
 
     /* Followers: (dx,dy) of each party entity from the leader entity, in
      * party order. A hidden follower (spacing / no sprite) is marked. */
@@ -1262,6 +1339,44 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
     return true;
 }
 
+/* The Player (0-3) a token like "P2" names, or -1 */
+static int player_token(const char *tok) {
+    if (tok[0] == 'P' && tok[1] >= '1' && tok[1] <= '0' + PLATFORM_MAX_PLAYERS && tok[2] == '\0')
+        return tok[1] - '1';
+    return -1;
+}
+
+/* Remove the first whitespace-separated Player token (P1..P4) from `line`;
+ * return its Player, or 0 (P1) if there is none. */
+static int take_player(char *line) {
+    char *p = line;
+    while (*p) {
+        while (*p && isspace((unsigned char)*p))
+            p++;
+        char *start = p;
+        while (*p && !isspace((unsigned char)*p))
+            p++;
+        char tok[8];
+        size_t n = (size_t)(p - start);
+        if (n > 0 && n < sizeof(tok)) {
+            memcpy(tok, start, n);
+            tok[n] = '\0';
+            int player = player_token(tok);
+            if (player >= 0) {
+                memset(start, ' ', n);
+                return player;
+            }
+        }
+    }
+    return 0;
+}
+
+/* Pad commands: the ones a Player token applies to */
+static bool pad_command(const char *cmd) {
+    return isdigit((unsigned char)cmd[0]) || strcmp(cmd, "wait") == 0 || strcmp(cmd, "press") == 0 ||
+           strcmp(cmd, "until") == 0 || strcmp(cmd, "hold") == 0 || strcmp(cmd, "release") == 0;
+}
+
 /* One frame of a 'press': 2 frames down, 4 up per tap. */
 static uint16_t press_step(void) {
     uint16_t pad = press_phase < 2 ? press_pad : 0;
@@ -1272,14 +1387,16 @@ static uint16_t press_step(void) {
     return pad;
 }
 
-/* Advance the script by one frame. Returns the pad state for this frame and
- * ORs any one-frame aux pulses into *aux. */
-uint16_t input_script_next(uint16_t *aux) {
+/* Advance the script by one frame. Returns cmd_player's pad for this frame and
+ * ORs any one-frame aux pulses into *aux. Sets *paused on frames that must see
+ * no input at all (a root action or capture in flight, or a deferred command). */
+static uint16_t script_step(uint16_t *aux, bool *paused) {
     char line[256];
     uint16_t pad = 0;
     frame_was_rendered = video_frames_rendered != last_poll_render_count;
     last_poll_render_count = video_frames_rendered;
 
+    *paused = true;
     if (in_root_action || teleport_pending)
         return 0;
     if (capture_waiting) {
@@ -1299,6 +1416,7 @@ uint16_t input_script_next(uint16_t *aux) {
             memset(tt_pos, 0, sizeof(tt_pos));
         }
     }
+    *paused = false;
     if (until_active && until_step(&pad))
         return pad;
     if (press_left > 0)
@@ -1339,6 +1457,25 @@ uint16_t input_script_next(uint16_t *aux) {
         char cmd[64] = "", arg[128] = "";
         if (sscanf(line, "%63s %127s", cmd, arg) < 1)
             continue;
+        /* A Player token before the verb or after it: strip it, then parse as usual */
+        bool prefixed = player_token(cmd) >= 0;
+        int player = 0;
+        if (prefixed || pad_command(cmd)) {
+            player = take_player(line);
+            cmd[0] = arg[0] = '\0';
+            if (sscanf(line, "%63s %127s", cmd, arg) < 1)
+                continue;
+        }
+        if (prefixed && !pad_command(cmd)) {
+            script_error("a Player prefix only applies to pad commands, not '%s'", cmd);
+            continue;
+        }
+        if (strcmp(cmd, "hold") == 0 || strcmp(cmd, "release") == 0) {
+            sticky_hold[player] = cmd[0] == 'h' ? parse_buttons(arg[0] ? arg : "-") : 0;
+            continue;
+        }
+        if (pad_command(cmd))
+            cmd_player = player;
 
         if (isdigit((unsigned char)cmd[0])) {
             hold_frames = atoi(cmd);
@@ -1357,11 +1494,21 @@ uint16_t input_script_next(uint16_t *aux) {
             if (start_until(line) && until_step(&pad))
                 return pad;
         } else if (!run_command(cmd, arg, line, aux)) {
+            *paused = true;
             return 0;
         }
     }
     hold_frames--;
     return hold_pad;
+}
+
+/* One frame of script input: every Player's pad. The running command drives
+ * cmd_player's pad, the others are 0, and sticky holds OR in on top. */
+void input_script_next(uint16_t pads[PLATFORM_MAX_PLAYERS], uint16_t *aux) {
+    bool paused = false;
+    uint16_t pad = script_step(aux, &paused);
+    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
+        pads[p] = paused ? 0 : (uint16_t)((p == cmd_player ? pad : 0) | sticky_hold[p]);
 }
 
 /* Called by the main loop at the root boundary, after host_root_boundary():

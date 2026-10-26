@@ -96,6 +96,16 @@ void platform_input_shutdown(void);
 void platform_input_poll(void);                       /* sample hardware — call once per frame */
 uint16_t platform_input_get_pad(void);                /* bitmask of currently held buttons (pad.h PAD_* flags) */
 uint16_t platform_input_get_pad_new(void);            /* bitmask of buttons pressed this frame (not held last frame) */
+
+/*
+ * Co-op pads. Player 0 is P1 and PLATFORM_MAX_PLAYERS - 1 is P4. Pad 0 is the
+ * same pad as get_pad()/get_pad_new(). A port with one pad returns P1 for
+ * player 0 and 0 for the rest. Pads 1-3 only feed the co-op layer
+ * (src/coop/coop.h); the game itself reads P1.
+ */
+#define PLATFORM_MAX_PLAYERS 4
+uint16_t platform_input_get_pad_n(int player);        /* held buttons of Player `player` */
+uint16_t platform_input_get_pad_new_n(int player);    /* buttons Player `player` pressed this frame */
 uint16_t platform_input_get_aux(void);                /* bitmask of currently held aux buttons (AUX_* flags) */
 bool platform_input_quit_requested(void);             /* user wants to exit (e.g. window close, Escape) */
 void platform_request_quit(void);                     /* programmatic quit (e.g. from game menu) */

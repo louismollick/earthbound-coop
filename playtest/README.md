@@ -142,12 +142,28 @@ row, with buttons released, so a following `press` is not lost. PATTERN is
 PATTERN `advance` taps A only while a text prompt waits for it, so it never
 opens or picks from a menu: `until idle 3000 advance` reads through dialogue.
 
+Co-op Players: a pad command (`N BUTTONS`, `wait`, `press`, `until`,
+`hold`, `release`) drives P1 unless it carries a Player token `P1`..`P4`,
+before the verb or anywhere after it: `P2 10 RIGHT`, `10 P2 RIGHT`,
+`press P3 A`, `P2 press START`, `until idle 600 P2 RIGHT`. While a command
+runs, the other Players' pads are 0 except for sticky holds:
+
+| Command | Meaning |
+|---|---|
+| `hold [Pn] BUTTONS` | Player n keeps BUTTONS held across the following commands (OR'd into its pad); `hold Pn -` clears it. Instant |
+| `release [Pn]` | same as `hold Pn -` |
+
+So `hold P2 RIGHT; 30 UP; release P2` moves P1 up while P2 holds RIGHT. On
+an unjoined pad a Start press joins that Player, and holding `SELECT+START`
+for 120 frames on P2-P4 leaves (`src/coop/coop.h`). The game flag
+`--players N` (`pt.py start --players N`) joins P2..PN at startup.
+
 Instant (no frame passes):
 
 | Command | Meaning |
 |---|---|
 | `shot [--crop W H] [--zoom N] [LABEL\|PATH.png]` | write the current frame as PNG (`shots/NNNN-LABEL.png`); `--crop` keeps a WxH box centred on the leader (clamped to the screen), `--zoom` scales it up N times |
-| `state [LABEL]` / `text` | print STATE/PARTY/FOLLOW/NEAR/ENEMIES lines / WIN+MENU lines |
+| `state [LABEL]` / `text` | print STATE/PARTY/PLAYERS/FOLLOW/NEAR/ENEMIES lines / WIN+MENU lines. `PLAYERS P1:joined owns=Ness,Jeff walker=Ness pos=(X,Y) \| P2:joined owns=- walker=- spectator \| P3:- \| P4:-`: per Player, the owned Heroes present in the Party, the Walker and its position (`spectator` without one) |
 | `flag N [0\|1]` | read / set an event flag |
 | `give ITEM [CHAR]` | give item id to char 1-6 (default: first with room). Prints `GIVE item N (Name) -> char C Name`, or `FAILED` when the inventory (or every inventory) is full |
 | `status CHAR GROUP VALUE` | set an affliction: `afflictions[GROUP-1] = VALUE` (GROUP 1-7 as in PARTY `st=`, VALUE 0 clears), or GROUP 8 = `party_status` (CHAR ignored). E.g. `status 2 2 2` possesses Paula. In a battle it also sets the member's battler, which the battle copies back over the char afflictions |
@@ -216,6 +232,16 @@ uv run --no-sync python playtest/run.py NAME playtest/saves/24-Museum.srm playte
 `run.py` boots the save (file 1 -> Continue), plays the script and writes
 `playtest/out/NAME/{log.txt,sheet.png}`: the output lines and a labelled
 contact sheet of every `shot`. Script files use `.play` (`*.txt` is gitignored).
+
+## Co-op scenarios
+
+`playtest/coop/run_all.py` runs every `playtest/coop/scenarios/*.py` in
+parallel against `$EB_BIN` (absolute) and prints `PASS`/`FAIL name: reason`.
+A scenario is a `run(ctx)` that starts sessions (`ctx.session(save=...,
+players=N)`), sends commands and asserts on the parsed STATE/PARTY/PLAYERS
+lines (`playtest/coop/lib.py`). Output goes to `playtest/out/coop/NAME/`;
+`run_all.py --sheet-only OUT.png` tiles each scenario's marked shots.
+`EB_COOP_SANITIZE=1` fails a scenario on an ASan/UBSan report.
 
 ## Regression goldens in git
 
