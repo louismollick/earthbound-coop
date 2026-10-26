@@ -16,6 +16,8 @@
  */
 
 #include "game/overworld_internal.h"
+#include "coop/coop.h"
+#include "coop/coop_walk.h"
 #include "game/game_state.h"
 #include "game/battle.h"
 #include "game/audio.h"
@@ -754,7 +756,9 @@ void initiate_enemy_encounter(void) {
          * If leader_direction ~ approach_direction, player faces same direction
          * as the approach vector (enemy->player), meaning player faces AWAY.
          * Assembly labels are misleading — X=0 means "facing away". */
-        int16_t player_diff = (game_state.leader_direction - approach_dir) & 7;
+        /* Co-op: another Player's Hero is judged by its own facing */
+        uint16_t facing = coop_player_count() > 1 ? coop_contact_facing(target_offset) : game_state.leader_direction;
+        int16_t player_diff = (int16_t)((facing - approach_dir) & 7);
         if (player_diff == 0 || player_diff == 1 || player_diff == 7) {
             player_facing_toward = 0;  /* player facing away from enemy */
         } else {

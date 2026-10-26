@@ -15,6 +15,8 @@
  * Returns: value to store in tempvar (matches ROM's A register return).
  */
 #include "entity/callroutine_internal.h"
+#include "coop/coop.h"
+#include "coop/coop_walk.h"
 #include "entity/entity.h"
 #include "entity/script.h"
 #include "entity/buffer_layout.h"
@@ -1912,6 +1914,8 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
              * ENTITY_COLLIDED_OBJECTS+46 = byte offset 46 = word index 23 */
             if (slot == entities.collided_objects[23]) {
                 ert.enemy_pathfinding_target_entity = 24;
+            } else if (coop_player_count() > 1 && coop_walker_touching(slot) >= 0) {
+                ert.enemy_pathfinding_target_entity = coop_walker_touching(slot);  /* co-op: that Walker */
             } else {
                 ert.enemy_pathfinding_target_entity = entities.collided_objects[slot];
             }

@@ -109,6 +109,8 @@ class State:
     players_line: str = ""
     follow: str = ""
     near_line: str = ""
+    camera_line: str = ""
+    extra: list = field(default_factory=list)  # every other line (CONTACT, TEXT, ...)
 
     @property
     def players(self):
@@ -130,9 +132,43 @@ class State:
         return {m[0]: (int(m[1]), int(m[2])) for m in re.findall(r"(npc\d+) \(([+-]\d+),([+-]\d+)\)", self.near_line)}
 
     @property
+    def dir(self):
+        m = re.search(r" dir=(\S+)", self.state)
+        return m.group(1) if m else None
+
+    @property
+    def camera(self):
+        """CAMERA line: the view centre in world pixels (BG1 scroll + half the viewport)."""
+        m = re.search(r"CAMERA \((\d+),(\d+)\)", self.camera_line)
+        return (int(m.group(1)), int(m.group(2))) if m else None
+
+    @property
+    def view(self):
+        """CAMERA line: the viewport size (width, height) of the binary."""
+        m = re.search(r"view=(\d+)x(\d+)", self.camera_line)
+        return (int(m.group(1)), int(m.group(2))) if m else None
+
+    def on_screen(self, pos):
+        """``pos`` (world pixels) relative to the view's top-left corner."""
+        (cx, cy), (w, h) = self.camera, self.view
+        return (pos[0] - cx + w // 2, pos[1] - cy + h // 2)
+
+    @property
     def idle(self):
         m = re.search(r"idle=(\S+)", self.state)
         return m.group(1) if m else None
+
+
+def leash_margin(view):
+    """The leash keeps a Walker this far (x, y) inside the view: 1/8 of the viewport (coop_camera.h)."""
+    return (view[0] // 8, view[1] // 8)
+
+
+def expect_in_leash(st, pos, what):
+    """Fail unless world position ``pos`` is on screen at least the leash margin from every edge."""
+    sx, sy = st.on_screen(pos)
+    (mx, my), (w, h) = leash_margin(st.view), st.view
+    expect(mx <= sx <= w - mx and my <= sy <= h - my, f"{what} inside the view minus {mx},{my} px", (sx, sy))
 
 
 def split_commands(cmds):
@@ -142,7 +178,7 @@ def split_commands(cmds):
 class Session:
     """One headless game process driven over its ``--session`` FIFO."""
 
-    def __init__(self, scenario, name, save=None, players=1, timeout=120.0):
+    def __init__(self, scenario, name, save=None, players=1, timeout=120.0, binary=None):
         self.scenario = scenario
         self.dir = scenario.dir / name
         shutil.rmtree(self.dir, ignore_errors=True)
@@ -152,7 +188,7 @@ class Session:
         else:
             (self.dir / "save.srm").write_bytes(bytes(8192))  # empty SRAM: new game
         os.mkfifo(self.dir / "cmd.fifo")
-        args = [scenario.bin, "--headless", "--save", "save.srm", "--session", "cmd.fifo"]
+        args = [binary or scenario.bin, "--headless", "--save", "save.srm", "--session", "cmd.fifo"]
         if players > 1:
             args += ["--players", str(players)]
         self.timeout = timeout
@@ -215,6 +251,10 @@ class Session:
                 st.follow = ln
             elif ln.startswith("NEAR"):
                 st.near_line = ln
+            elif ln.startswith("CAMERA"):
+                st.camera_line = ln
+            else:
+                st.extra.append(ln)
         expect(st.players_line, "a PLAYERS line after 'state'", st.state or "nothing")
         return st
 
@@ -287,13 +327,26 @@ class Scenario:
         self.sessions = []
         self.important = []
 
-    def session(self, name="main", save=None, players=1):
-        """A new game session. ``save``: a story save name (``27-Kraken``) or .srm path; None = empty SRAM."""
+    @property
+    def native_bin(self):
+        """The 256x224 build (``$EB_NATIVE_BIN``, else ``port/unix/build/earthbound`` next to ``$EB_BIN``'s build)."""
+        env = os.environ.get("EB_NATIVE_BIN")
+        path = Path(env) if env else Path(self.bin).resolve().parents[1] / "build" / "earthbound"
+        if not path.exists():
+            raise ScenarioError(f"a 256x224 build at {path} (or set EB_NATIVE_BIN)")
+        return str(path)
+
+    def session(self, name="main", save=None, players=1, binary=None):
+        """Start a new game session.
+
+        ``save``: a story save name (``27-Kraken``) or .srm path; None = empty SRAM. ``binary``: another game
+        binary for this session (e.g. ``ctx.native_bin``).
+        """
         if save and not str(save).endswith(".srm"):
             save = SAVES / f"{save}.srm"
             if not save.exists():
                 raise ScenarioError(f"story save {save} (see docs/coop-setup.md)")
-        s = Session(self, name, save=save, players=players)
+        s = Session(self, name, save=save, players=players, binary=binary)
         self.sessions.append(s)
         return s
 

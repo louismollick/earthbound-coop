@@ -50,8 +50,23 @@ typedef struct {
                                     * members trailing it, 0xFF-terminated (set on unsnap) */
     uint8_t ring_index[TOTAL_PARTY_COUNT]; /* trail read index per chain[] entry,
                                     * like char_struct.position_index */
+    uint8_t shown[TOTAL_PARTY_COUNT]; /* the trail entry each chain[] member stands on
+                                    * (members past the Walker), so they can be put back
+                                    * there after refresh_party_entities moved them */
     PositionBufferEntry trail[POSITION_BUFFER_SIZE]; /* like pb.player_position_buffer */
 } CoopWalker;
+
+/*
+ * The co-op camera (coop_camera.h). It eases between the Walkers' midpoint and
+ * the Leader; `last` lets it notice when other code (a door, a teleport, a
+ * script) moved the view.
+ */
+typedef struct {
+    int16_t ease_x, ease_y;        /* view centre minus target, decaying to 0 */
+    uint16_t last_x, last_y;       /* view centre after this frame's update */
+    uint8_t midpoint;              /* 1: the target was the Walkers' midpoint, 0: the Leader */
+    uint8_t unused;                /* explicit padding (savestates hash every byte) */
+} CoopCamera;
 
 typedef struct {
     uint8_t player_count;                       /* joined Players, 1..PLATFORM_MAX_PLAYERS */
@@ -69,6 +84,7 @@ typedef struct {
     /* Non-Leader Walkers by Player. RAM: PLATFORM_MAX_PLAYERS x ~2.1 KB (the
      * 256-entry trail is 2 KB), about 8.4 KB, all of it in savestates. */
     CoopWalker walkers[PLATFORM_MAX_PLAYERS];
+    CoopCamera camera;
 } CoopState;
 
 extern CoopState coop;

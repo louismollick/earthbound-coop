@@ -7,6 +7,7 @@
 #ifdef EB_SMOOTH_CAMERA
 
 #include "core/mode_stack.h"
+#include "coop/coop.h"
 #include "game/game_state.h"
 #include "game/window.h"
 #include "include/binary.h"
@@ -21,6 +22,9 @@ uint8_t smooth_camera_draw_owner;
 
 bool smooth_camera_prepare(SmoothCameraFrame *f) {
     if (!smooth_camera_enabled)
+        return false;
+    /* Co-op: the camera follows the Walkers' midpoint, not the Leader */
+    if (coop_player_count() > 1)
         return false;
 
     /* Plain overworld walking: the root mode alone, past boot, nothing modal. */
