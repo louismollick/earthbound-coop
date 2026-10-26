@@ -243,6 +243,23 @@ lines (`playtest/coop/lib.py`). Output goes to `playtest/out/coop/NAME/`;
 `run_all.py --sheet-only OUT.png` tiles each scenario's marked shots.
 `EB_COOP_SANITIZE=1` fails a scenario on an ASan/UBSan report.
 
+Two more co-op checks (details in each file's docstring):
+
+- **Soak** (`playtest/coop/soak.py`): a seeded bot plays every story save (`-k` to pick)
+  with `--players N` for `--minutes` of game time, one game per save in parallel. It
+  reports crashes, ASan/UBSan reports (run it on a sanitizer build), harness `ERR`
+  lines, wall-clock hangs and `SUSPECT_FROZEN` (nothing on STATE/PARTY/PLAYERS/FOLLOW,
+  the windows or the screen changed for 90 s). Each failure prints a repro command;
+  `<save>/repro.play` replays the run with `--input`. Results go to
+  `playtest/out/coop/soak/` (`--out`).
+- **Savestate continuity** (`playtest/coop/continuity.py`): a stream played straight
+  through vs snapped at its middle and restored in a fresh process must end with
+  byte-identical slots (decompressed, compared section by section; also a second full
+  run, for determinism). Default: soak segments from 3 saves; `run_all.py
+  --continuity [cold|warm]` checks every scenario's sessions. `--warm` boots the save
+  before restoring (fills lazily loaded asset caches), `--locate` finds the first
+  differing frame.
+
 ## Regression goldens in git
 
 `playtest/regress/golden/main/` holds the machine-independent half of every

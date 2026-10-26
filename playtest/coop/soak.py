@@ -19,7 +19,9 @@ Failures, per save:
 - ``SANITIZER``: an ASan/UBSan report on stderr (build with ``ENABLE_ASAN``/``ENABLE_UBSAN``).
 - ``SUSPECT_FROZEN``: for ``--freeze-frames`` frames (default 5400 = 90 s) the bot kept
   pressing buttons but nothing it can see changed: STATE (minus ``frame=``), PARTY,
-  PLAYERS, FOLLOW, the open windows' text and the text printed were all identical.
+  PLAYERS, FOLLOW, the open windows' text, the text printed and the screenshot were all
+  identical. If only the screenshot changed (the coffee-break text scroll runs ~9000
+  frames), it is listed under ``stalls`` in results.json instead, not a failure.
 - ``HARNESS_ERR``: the input-script player printed an ``ERR`` line.
 - ``HANG``: a chunk took longer than ``--chunk-timeout`` wall seconds (the process is
   sampled with macOS ``sample`` into ``stack.txt``, then killed).
@@ -63,10 +65,15 @@ REPO = lib.PLAYTEST.parent
 CHUNK = 120  # frames between state reads
 LEASH_PX = 100  # a Walker farther than this from the Leader walks back toward it
 DIRS = ["UP", "UP+RIGHT", "RIGHT", "DOWN+RIGHT", "DOWN", "DOWN+LEFT", "LEFT", "UP+LEFT"]
-# More B than A, so menus get closed again and the Party keeps walking
-TAPS = ["A"] * 3 + ["B"] * 4 + ["L", "START", "SELECT"]
+# Taps depend on where the game is. Walking (idle=yes): rare, mostly A/L (talk, check,
+# the menu). Anywhere else (menus, text, battles): often, and more B than A, so menus get
+# closed again and the Party gets back to walking.
+TAPS_IDLE = ["A", "A", "L", "B", "START", "SELECT"]
+TAPS_BUSY = ["A"] * 3 + ["B"] * 4 + ["L", "START", "SELECT"]
+TAPS_HPPP = ["B", "B", "B", "A"]  # only the HP/PP window (B toggles it): mostly close it
 LONG_HOLDS = ["A", "B", "L", "START", "SELECT"] * 3 + ["SELECT+START"]  # SELECT+START: P2..P4 leave
-TAP_CHANCE = 1 / 80  # per frame, when not already tapping
+TAP_CHANCE_IDLE = 1 / 240  # per frame, when not already tapping
+TAP_CHANCE_BUSY = 1 / 40
 LONG_CHANCE = 1 / 4000  # per frame: a 1-4 s hold, about every 70 s per Player
 
 
@@ -85,6 +92,8 @@ class PlayerBot:
         self.dir, self.dir_left = None, 0
         self.tap, self.tap_left, self.cool = None, 0, 0
         self.long, self.long_left = None, 0
+        self.idle = True  # the game was walkable at the last state read
+        self.taps = TAPS_IDLE
 
     def plan(self, walker, leader):
         """Before a chunk: if this Player's Walker strays past LEASH_PX, head back toward the Leader."""
@@ -119,8 +128,8 @@ class PlayerBot:
             btn = self.tap
         elif self.cool > 0:
             self.cool -= 1
-        elif r.random() < TAP_CHANCE:
-            self.tap, self.tap_left, self.cool = r.choice(TAPS), 1, r.randint(4, 30)
+        elif r.random() < (TAP_CHANCE_IDLE if self.idle else TAP_CHANCE_BUSY):
+            self.tap, self.tap_left, self.cool = r.choice(self.taps), 1, r.randint(4, 30)
             btn = self.tap
         return pad_join(self.dir, btn)
 
@@ -143,6 +152,9 @@ class Bot:
         for p, b in self.bots.items():
             w = walkers.get(p)
             b.plan(w.pos if w else None, leader)
+            b.idle = st is None or " idle=yes " in st.state
+            hppp = st is not None and "modes=[OVERWORLD>HPPP_DISPLAY]" in st.state
+            b.taps = TAPS_IDLE if b.idle else TAPS_HPPP if hppp else TAPS_BUSY
         cmds, cur, run = [], {}, 0
         for f in range(frames):
             pads = {p: b.frame() for p, b in self.bots.items()}
@@ -240,6 +252,7 @@ def run_segment(sess, bot, res, total, args, cov):
     Returns (failure dict or None, reset?, last frame= seen).
     """
     last_fp, still_since, frame = None, res["frames"], None
+    last_screen, screen_since, stall_noted = None, res["frames"], False
     try:
         sess.do(lib.BOOT, timeout=max(300, args.chunk_timeout))
         st = parse_state(sess.do("state booted"))
@@ -254,16 +267,24 @@ def run_segment(sess, bot, res, total, args, cov):
             m = re.search(r"frame=(\d+)", st.state) if st else None
             frame = int(m.group(1)) if m else frame
             note_coverage(cov, st)
+            screen = hashlib.sha256((sess.dir / "last.png").read_bytes()).hexdigest()
+            if screen != last_screen:
+                last_screen, screen_since = screen, res["frames"]
             fp = fingerprint(out)
             if fp != last_fp:
-                last_fp, still_since = fp, res["frames"]
+                last_fp, still_since, stall_noted = fp, res["frames"], False
                 continue
             still = res["frames"] - still_since
             if still >= 600 and is_reset_wait(st):
                 return None, True, frame
-            if still >= args.freeze_frames:
+            if still < args.freeze_frames:
+                continue
+            if res["frames"] - screen_since >= still:  # the screen didn't change either
                 detail = f"nothing visible changed for {still} frames: {st.state}"
                 return {"kind": "SUSPECT_FROZEN", "detail": detail}, False, frame
+            if not stall_noted:  # e.g. the coffee-break text scroll: only the picture moves
+                res["stalls"].append({"frames": res["frames"], "state": st.state})
+                stall_noted = True
     except lib.ScenarioError as e:
         with contextlib.suppress(subprocess.TimeoutExpired):
             sess.proc.wait(timeout=2)  # an exited game may not be reaped yet
@@ -313,6 +334,7 @@ def soak_one(save, args):
         "status": "PASS",
         "frames": 0,
         "resets": [],
+        "stalls": [],
         "repro": repro_command(args, name, args.minutes),
     }
     bot = Bot(args.seed, name, args.players, drive_p1=not args.no_p1)
@@ -402,6 +424,7 @@ def main():
             line = (
                 f"{r['status']:<14} {r['save']:<14} {mins:5.1f} min {r['wall_s']:6.1f}s  modes={len(c['modes'])}"
                 f" sectors={c['sectors']} battle={c['battle_pct']}% joins={c['join_changes']} resets={len(r['resets'])}"
+                f" stalls={len(r['stalls'])}"
             )
             if r["status"] != "PASS":
                 f = r["failure"]

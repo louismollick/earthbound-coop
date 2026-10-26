@@ -60,6 +60,10 @@ STATE_LINES = ("STATE", "PARTY", "PLAYERS", "FOLLOW", "NEAR", "ENEMIES", "UNTIL"
 HEADER = struct.Struct("<IHHIIII")  # magic, version, frame, seq, crc32, payload_len, layout_id
 
 
+class SkipError(Exception):
+    """The stream can't be checked (e.g. no snap was possible past its middle)."""
+
+
 def section_names():
     """{section id: "CORE", ...} from src/core/state_dump.c, for naming a differing section."""
     src = (REPO / "src" / "core" / "state_dump.c").read_text()
@@ -236,7 +240,7 @@ def check(name, binary, save_bytes, players, source, total_frames=None, warm=Fal
     # The exact stream, for a manual rerun: [[commands of batch 0], ...] and the split
     (root / "stream.json").write_text(json.dumps({"split": split, "players": players, "warm": warm, "batches": stream}))
     if split is None:
-        return ["no successful snap mid at any batch boundary past half the frames (nothing to check)"]
+        raise SkipError("no successful snap mid at any batch boundary past half the frames")
 
     # A2: the whole stream again in a fresh process
     a2 = Run(root, "a2", binary, save_bytes, players)
@@ -351,18 +355,18 @@ def fixed_source(batches):
     return lambda _st: next(it, None)
 
 
-def check_session(label, binary, sess):
+def check_session(label, binary, sess, warm=False):
     """Continuity over a finished lib.Session (a scenario session): its batches, start save and players.
 
-    Returns None when the session has fewer than 2 batches (nothing to split).
+    Raises SkipError when the session has fewer than 2 batches (nothing to split).
     """
     batches = [b for b in sess.history if b]
     if len(batches) < 2:
-        return None
+        raise SkipError("one batch")
     # The scenario's own run printed SYNC n frame=F after each batch: that gives the length
     syncs = [int(m.group(1)) for m in re.finditer(r"^SYNC \d+ frame=(\d+)", (sess.dir / "log.txt").read_text(), re.M)]
     total = sum((b - a) % 65536 for a, b in zip(syncs, syncs[1:]))
-    return check(label, binary, sess.start_save, sess.players_arg, fixed_source(batches), total)
+    return check(label, binary, sess.start_save, sess.players_arg, fixed_source(batches), total, warm=warm)
 
 
 def main():
@@ -386,7 +390,10 @@ def main():
     def one(save):
         name = f"soak-{save.stem}"
         src = soak_source(save.stem, a.seed, a.players, a.minutes)
-        problems = check(name, binary, save.read_bytes(), a.players, src, int(a.minutes * 3600), a.warm)
+        try:
+            problems = check(name, binary, save.read_bytes(), a.players, src, int(a.minutes * 3600), a.warm)
+        except SkipError as e:
+            return name, [f"SKIP: {e}"]
         if problems and a.locate:
             problems.append(f"locate: {locate(name, binary) or 'no differing frame within 2400 frames'}")
         return name, problems
