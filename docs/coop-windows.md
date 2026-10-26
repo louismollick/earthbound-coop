@@ -39,7 +39,7 @@ port/unix/build-wide/earthbound.exe                 # local co-op
 port/unix/build-wide/earthbound.exe --players 2     # P2 already joined
 ```
 
-The save (`earthbound.srm`) and F6 savestates go in the working directory (the exe's folder when started from Explorer). A console window opens next to the game; it shows the log, and closing it closes the game.
+The save (`earthbound.srm`) and F6 savestates go in the working directory (the exe's folder when started from Explorer). A save is staged next to the live file and swapped in with one `MoveFileExW`, so a crash or a closed window mid-save leaves the old save or the new one, never neither. A console window opens next to the game; it shows the log, and closing it closes the game.
 
 Controls are those of `docs/coop-log.md` ("Play local co-op"): P1 on the arrows, X/Z, Enter and Right Shift; P2 on I/J/K/L, U/O, P and `[`; controllers join in connection order.
 
@@ -66,6 +66,6 @@ EB_MSYS2=/c/msys64 scripts/coop-gates.sh --full --framehash
 What differs from macOS/Linux:
 
 - **Vanilla gate:** upstream d32c421 doesn't build on Windows, so there is no `build-base-fix` here. Gate 3 checks the tracked text goldens (`regress.py check main --text`), and `--framehash` checks every frame against `playtest/regress/framedigest/base.json`, recorded from `build-base-fix` on Linux (`playtest/framedigest.py`). Passing both means the Windows build plays and draws exactly as vanilla on the other OSes.
-- **FIFOs:** Windows has none, so the harness uses named pipes. With a `\\.\pipe\NAME` path for `--session` or `--record-video`, the game creates the pipe and waits for the driver (`port/unix/platform/win_compat.c`). `pt.py` (sessions, `video`), `playtest/coop/lib.py`, `framehash.py` and `netrun.py` pick that automatically.
+- **FIFOs:** Windows has none, so the harness uses named pipes. With a `\\.\pipe\NAME` path for `--session` or `--record-video`, the game creates the pipe and waits for the driver (`port/unix/platform/win_compat.c`). `pt.py` (sessions, `video`), `playtest/coop/lib.py`, `framehash.py` and `netrun.py` pick that automatically. A client that closes before the game accepts it doesn't end a session (what it wrote is still read); `pt.py` waits for the pipe with `WaitNamedPipe` instead of a connect-and-close probe and holds each `do`'s connection until its `sync`.
 - **ASan+UBSan** needs clang (MinGW gcc has no ASan runtime): `build-debug` is a CLANG64 build without `-Werror` (clang 23 warns about a write-only global ported from the asm), run with `C:\msys64\clang64\bin` first on `PATH`.
 - **Not ported:** `pt.py --emu` (the snes9x libretro core in `playtest/emu/` is built with `make` against a Unix toolchain).

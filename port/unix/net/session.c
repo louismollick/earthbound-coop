@@ -353,7 +353,7 @@ enum { C_WAIT_STATE, C_LOADING, C_IN };
 static struct {
     bool active, host, shutting, ended, stopped;
     bool host_left;               /* client: the Host said goodbye (finish the frames held, then stop) */
-    int fd;
+    UdpSocket fd;
     int delay;
     int me;                       /* this machine's first Player (0 = P1) */
     int nlocal;                   /* its local Players */
@@ -388,7 +388,7 @@ static struct {
     Peer peer[PLATFORM_MAX_PLAYERS];
     bool hold;                    /* confirm nothing past hold_frame (a join in flight) */
     uint32_t hold_frame;
-} n = { .fd = -1 };
+} n = { .fd = UDP_NO_SOCKET };
 
 static struct {
     int phase, peer;              /* the joining machine (n.peer index), -1 = none / gone */
@@ -1492,7 +1492,7 @@ bool net_start(const NetConfig *cfg) {
 
     if (cfg->host_port > 0) {
         n.fd = udp_open(cfg->host_port);
-        if (n.fd < 0) {
+        if (n.fd == UDP_NO_SOCKET) {
             fprintf(stderr, "netplay: can't listen on UDP port %d (in use?)\n", cfg->host_port);
             return false;
         }
@@ -1526,7 +1526,7 @@ bool net_start(const NetConfig *cfg) {
         return false;
     }
     n.fd = udp_open(0);
-    if (n.fd < 0) {
+    if (n.fd == UDP_NO_SOCKET) {
         fprintf(stderr, "netplay: can't open a UDP socket\n");
         return false;
     }
@@ -1651,5 +1651,5 @@ void net_shutdown(void) {
         remove(tmp);
     }
     udp_close(n.fd);
-    n.fd = -1;
+    n.fd = UDP_NO_SOCKET;
 }

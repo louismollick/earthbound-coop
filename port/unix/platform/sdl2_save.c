@@ -7,7 +7,8 @@
  * Writes are crash-safe: platform_save_write() reads the current file,
  * applies the requested change to an in-memory copy, writes the full
  * result to a temp file next to it, flushes it to stable storage, and
- * only then renames it over the live file. A crash or power loss at any
+ * only then renames it over the live file (MoveFileExW with
+ * MOVEFILE_REPLACE_EXISTING on Windows). A crash or power loss at any
  * point leaves either the old file or the new one intact, never a
  * half-written one -- the same approach sdl2_savestate.c already uses
  * for its ping-pong slots.
@@ -18,6 +19,7 @@
 #include <string.h>
 #ifdef _WIN32
 #include <io.h>        /* _commit, _fileno */
+#include <windows.h>   /* MoveFileExW, MultiByteToWideChar */
 #else
 #include <unistd.h>    /* fsync, fileno, close */
 #include <fcntl.h>     /* open, O_RDONLY */
@@ -55,7 +57,19 @@ static bool make_tmp_path(char *out, size_t out_size) {
     return n > 0 && (size_t)n < out_size;
 }
 
-#ifndef _WIN32
+#ifdef _WIN32
+/* Replace `to` with `from` in one step (the CRT's rename() refuses an existing
+ * destination). The paths are converted with the ANSI code page because that
+ * is what fopen() and argv use here (no UTF-8 manifest); CP_UTF8 would name a
+ * different file for a non-ASCII path. On failure both files are left alone. */
+static bool replace_file(const char *from, const char *to) {
+    wchar_t wfrom[1024], wto[1024];
+    if (!MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, from, -1, wfrom, 1024) ||
+        !MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, to, -1, wto, 1024))
+        return false;
+    return MoveFileExW(wfrom, wto, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+}
+#else
 /* Best-effort: fsync the directory holding save_file_path so the rename
  * itself is durable, not just the file contents. A failure here doesn't
  * undo the write -- the rename already landed on disk by this point,
@@ -143,21 +157,15 @@ bool platform_save_write(const void *src, size_t offset, size_t size) {
     }
 
 #ifdef _WIN32
-    /* POSIX rename() atomically replaces an existing destination; the
-     * MSVC/mingw C runtime's rename() does not, so the old file has to be
-     * removed first. A crash between remove() and rename() would lose the
-     * previous save on Windows specifically -- still strictly better than
-     * the old in-place write, which could tear mid-write on every
-     * platform (Windows included), corrupting the live save outright
-     * rather than, in the worst case, losing one generation of it. */
-    remove(save_file_path);
-#endif
+    /* The staged copy is kept on failure: the live file is untouched and the
+     * next write stages a fresh one over it. */
+    if (!replace_file(tmp_path, save_file_path))
+        return false;
+#else
     if (rename(tmp_path, save_file_path) != 0) {
         remove(tmp_path);
         return false;
     }
-
-#ifndef _WIN32
     fsync_containing_dir();
 #endif
     return true;

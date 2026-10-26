@@ -8,6 +8,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 typedef int socklen_t;
+_Static_assert(sizeof(SOCKET) == sizeof(UdpSocket) && INVALID_SOCKET == UDP_NO_SOCKET, "UdpSocket is SOCKET");
 #else
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -27,10 +28,10 @@ bool udp_init(void) {
 #endif
 }
 
-int udp_open(int port) {
-    int fd = (int)socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd < 0)
-        return -1;
+UdpSocket udp_open(int port) {
+    UdpSocket fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd == UDP_NO_SOCKET)
+        return UDP_NO_SOCKET;
     struct sockaddr_in sa;
     memset(&sa, 0, sizeof sa);
     sa.sin_family = AF_INET;
@@ -42,7 +43,7 @@ int udp_open(int port) {
     setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (const char *)&buf, sizeof buf);
     if (bind(fd, (struct sockaddr *)&sa, sizeof sa) != 0) {
         udp_close(fd);
-        return -1;
+        return UDP_NO_SOCKET;
     }
 #ifdef _WIN32
     u_long nb = 1;
@@ -53,8 +54,8 @@ int udp_open(int port) {
     return fd;
 }
 
-void udp_close(int fd) {
-    if (fd < 0)
+void udp_close(UdpSocket fd) {
+    if (fd == UDP_NO_SOCKET)
         return;
 #ifdef _WIN32
     closesocket(fd);
@@ -76,7 +77,7 @@ bool udp_resolve(const char *host, int port, UdpAddr *out) {
     return true;
 }
 
-bool udp_send(int fd, const UdpAddr *to, const void *buf, size_t n) {
+bool udp_send(UdpSocket fd, const UdpAddr *to, const void *buf, size_t n) {
     struct sockaddr_in sa;
     memset(&sa, 0, sizeof sa);
     sa.sin_family = AF_INET;
@@ -85,7 +86,7 @@ bool udp_send(int fd, const UdpAddr *to, const void *buf, size_t n) {
     return sendto(fd, (const char *)buf, (int)n, 0, (struct sockaddr *)&sa, sizeof sa) == (int)n;
 }
 
-int udp_recv(int fd, UdpAddr *from, void *buf, size_t cap) {
+int udp_recv(UdpSocket fd, UdpAddr *from, void *buf, size_t cap) {
     struct sockaddr_in sa;
     socklen_t len = sizeof sa;
     int n = (int)recvfrom(fd, (char *)buf, (int)cap, 0, (struct sockaddr *)&sa, &len);
@@ -104,12 +105,16 @@ void udp_sleep(int ms) {
 #endif
 }
 
-void udp_wait(int fd, int ms) {
+void udp_wait(UdpSocket fd, int ms) {
     fd_set set;
     FD_ZERO(&set);
     FD_SET(fd, &set);
     struct timeval tv = { ms / 1000, (ms % 1000) * 1000 };
+#ifdef _WIN32
+    select(0, &set, NULL, NULL, &tv); /* Winsock ignores nfds */
+#else
     select(fd + 1, &set, NULL, NULL, &tv);
+#endif
 }
 
 bool udp_addr_equal(const UdpAddr *a, const UdpAddr *b) {

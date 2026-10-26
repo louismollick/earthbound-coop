@@ -6,31 +6,63 @@
 #
 # The revision is the git commit (12 hex digits), plus "+dirty.<8 hex>" when the
 # code that builds into the game (src/, port/unix/, cmake/) has local changes: a
-# hash of those changes, so two dirty trees match only with the same edits. A
-# clean checkout of one commit gives the same string on every OS. Game data
-# isn't covered here: session.c hashes the embedded assets themselves.
+# hash over each changed or untracked path and git's object id of its contents
+# (`git hash-object`, which normalizes line endings as a commit would), so two
+# dirty trees match only with the same edits, whatever the OS or git config
+# (color, diff drivers, prefixes). A clean checkout of one commit gives the same
+# string on every OS. "+unknown" (with a warning) when git fails after HEAD
+# resolved, so a failure never passes for a clean tree. Game data isn't covered
+# here: session.c hashes the embedded assets themselves.
 set(rev "unknown")
 # ENCODING UTF-8: on Windows CMake would otherwise decode git's output with the
-# console code page, and a non-ASCII line in the diff would hash differently.
-execute_process(COMMAND git -C "${ROOT}" rev-parse --short=12 HEAD
+# console code page, so a non-ASCII path would come out differently.
+set(git git -C "${ROOT}" -c core.quotepath=off -c color.ui=never)
+execute_process(COMMAND ${git} rev-parse --short=12 HEAD
     OUTPUT_VARIABLE head RESULT_VARIABLE rc OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET ENCODING UTF-8)
-if(rc EQUAL 0 AND head)
+if(NOT rc EQUAL 0 OR NOT head)
+    message(WARNING "build_id: git rev-parse failed; the netplay revision is \"unknown\"")
+else()
     set(rev "${head}")
     set(paths src port/unix cmake)
-    execute_process(COMMAND git -C "${ROOT}" diff HEAD --ignore-submodules=all -- ${paths}
-        OUTPUT_VARIABLE changes ERROR_QUIET ENCODING UTF-8)
-    execute_process(COMMAND git -C "${ROOT}" ls-files --others --exclude-standard -- ${paths}
-        OUTPUT_VARIABLE untracked OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET ENCODING UTF-8)
-    if(untracked)
-        string(REPLACE "\n" ";" untracked "${untracked}")
-        foreach(f IN LISTS untracked)
-            if(EXISTS "${ROOT}/${f}" AND NOT IS_DIRECTORY "${ROOT}/${f}")
-                file(SHA1 "${ROOT}/${f}" fh)
-                string(APPEND changes "${f} ${fh}\n")
+    execute_process(COMMAND ${git} diff --name-only --no-renames --no-relative --no-ext-diff --no-color
+            --ignore-submodules=all HEAD -- ${paths}
+        OUTPUT_VARIABLE changed RESULT_VARIABLE rc1 OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET ENCODING UTF-8)
+    execute_process(COMMAND ${git} ls-files --others --exclude-standard -- ${paths}
+        OUTPUT_VARIABLE untracked RESULT_VARIABLE rc2 OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET ENCODING UTF-8)
+    string(REPLACE "\n" ";" files "${changed}\n${untracked}")
+    list(REMOVE_ITEM files "")
+    list(REMOVE_DUPLICATES files)
+    list(SORT files)
+    # One hash-object call for every file still on disk; a deleted one is listed as such
+    set(present "")
+    foreach(f IN LISTS files)
+        if(EXISTS "${ROOT}/${f}" AND NOT IS_DIRECTORY "${ROOT}/${f}")
+            list(APPEND present "${f}")
+        endif()
+    endforeach()
+    set(ids "")
+    set(rc3 0)
+    if(present)
+        execute_process(COMMAND ${git} hash-object -- ${present}
+            OUTPUT_VARIABLE ids RESULT_VARIABLE rc3 OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET ENCODING UTF-8)
+        string(REPLACE "\n" ";" ids "${ids}")
+    endif()
+    list(LENGTH present npresent)
+    list(LENGTH ids nids)
+    if(NOT rc1 EQUAL 0 OR NOT rc2 EQUAL 0 OR NOT rc3 EQUAL 0 OR NOT npresent EQUAL nids)
+        message(WARNING "build_id: git failed listing or hashing local changes; the netplay revision is \"${head}+unknown\"")
+        set(rev "${head}+unknown")
+    elseif(files)
+        set(changes "")
+        foreach(f IN LISTS files)
+            list(FIND present "${f}" i)
+            if(i LESS 0)
+                string(APPEND changes "${f} deleted\n")
+            else()
+                list(GET ids ${i} id)
+                string(APPEND changes "${f} ${id}\n")
             endif()
         endforeach()
-    endif()
-    if(NOT changes STREQUAL "")
         string(SHA1 dh "${changes}")
         string(SUBSTRING "${dh}" 0 8 dh)
         set(rev "${rev}+dirty.${dh}")

@@ -3,13 +3,24 @@
 
 /*
  * A thin non-blocking IPv4 UDP socket wrapper for netplay (session.c). Plain BSD
- * sockets; a Winsock port only needs the #ifdef _WIN32 branches in udp.c
- * (WSAStartup in udp_init, closesocket, ioctlsocket).
+ * sockets; Winsock differs only in the #ifdef _WIN32 branches in udp.c
+ * (WSAStartup in udp_init, closesocket, ioctlsocket) and in the handle type.
  */
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+/* A socket handle: a Winsock SOCKET (an unsigned pointer-sized handle, not an
+ * fd; udp.c checks the match without pulling <winsock2.h> in here) or a file
+ * descriptor. UDP_NO_SOCKET is INVALID_SOCKET / -1. */
+#ifdef _WIN32
+typedef uintptr_t UdpSocket;
+#define UDP_NO_SOCKET (~(UdpSocket)0)
+#else
+typedef int UdpSocket;
+#define UDP_NO_SOCKET (-1)
+#endif
 
 typedef struct {
     uint32_t ip;    /* network byte order */
@@ -17,18 +28,18 @@ typedef struct {
 } UdpAddr;
 
 bool udp_init(void);
-/* Open a socket bound to `port` on every interface (0 = any free port). -1 on error. */
-int udp_open(int port);
-void udp_close(int fd);
+/* Open a socket bound to `port` on every interface (0 = any free port). UDP_NO_SOCKET on error. */
+UdpSocket udp_open(int port);
+void udp_close(UdpSocket s);
 /* Resolve "host" + port (DNS name or dotted quad). */
 bool udp_resolve(const char *host, int port, UdpAddr *out);
-bool udp_send(int fd, const UdpAddr *to, const void *buf, size_t n);
+bool udp_send(UdpSocket s, const UdpAddr *to, const void *buf, size_t n);
 /* One datagram into buf, or -1 if none is waiting. */
-int udp_recv(int fd, UdpAddr *from, void *buf, size_t cap);
+int udp_recv(UdpSocket s, UdpAddr *from, void *buf, size_t cap);
 /* Sleep `ms` milliseconds. */
 void udp_sleep(int ms);
 /* Wait up to `ms` milliseconds for a datagram to arrive. */
-void udp_wait(int fd, int ms);
+void udp_wait(UdpSocket s, int ms);
 bool udp_addr_equal(const UdpAddr *a, const UdpAddr *b);
 /* "a.b.c.d:port" in a static buffer. */
 const char *udp_addr_str(const UdpAddr *a);

@@ -41,7 +41,12 @@ OUT = HERE / "out" / "regress" / "framedigest"
 
 
 def run_case(case, binary, outdir):
-    """Play one case on ``binary``; return (name, {"frames", "sha256"} or None, status)."""
+    """Play one case on ``binary``; return (name, {"frames", "sha256"} or None, status).
+
+    A run counts only if the game reached the end of its script (the case's ``end_marker``, the
+    final ``sync``) and exited cleanly: a game that stops early (``--frames``, a crash, an early
+    quit) fails rather than recording or matching a truncated digest.
+    """
     tmp = Path(tempfile.mkdtemp(prefix=f"eb-framedigest-{case['name']}-"))
     run = framehash.GameRun(binary, tmp / "run", case["save"], case["script"], case.get("args", ()))
     deadline = time.monotonic() + case["timeout"]
@@ -54,6 +59,9 @@ def run_case(case, binary, outdir):
             while run.next_frame(deadline) is not None:
                 pass
             status = run.finish(grace=max(1.0, deadline - time.monotonic()))
+        marker = case.get("end_marker")
+        if status == "done" and marker and marker not in run.log.read_text(errors="replace"):
+            status = "ended before the end of the script"
     except framehash.CaseTimeoutError:
         status = f"TIMEOUT after {case['timeout']:.0f}s"
     finally:
@@ -87,6 +95,40 @@ def run_all(binary, patterns, jobs, outdir):
     return results, failed
 
 
+def compare(want, results, failed, patterns):
+    """Check a run against the digest ``want``; return (failures, cases, report lines).
+
+    ``results``: case name -> {"frames", "sha256", "size"} of the cases that finished; ``failed``:
+    case name -> status of those that didn't. Every recorded case that ``patterns`` (``-k``) selects
+    must have run and match; a case run but not recorded fails too, and so does an empty selection.
+    """
+    selected = {n for n in want["cases"] if not patterns or any(p in n for p in patterns)}
+    names = selected | set(results) | set(failed)
+    if not names:
+        return 1, 0, [f"no cases selected (-k {' '.join(patterns)})" if patterns else "no cases"]
+    lines = [f"CASE {name}: {status}" for name, status in sorted(failed.items())]
+    bad = len(failed)
+    for name, res in sorted(results.items()):
+        size = "x".join(map(str, res["size"]))
+        exp = want["cases"].get(name)
+        if exp is None:
+            bad += 1
+            lines.append(f"CASE {name}: no digest recorded")
+        elif size != want["viewport"]:
+            bad += 1
+            lines.append(f"CASE {name}: viewport {size}, the digest is {want['viewport']}")
+        elif (res["frames"], res["sha256"]) != (exp["frames"], exp["sha256"]):
+            bad += 1
+            lines.append(f"CASE {name}: DIFF frames {res['frames']} (digest {exp['frames']})")
+        else:
+            lines.append(f"CASE {name}: same ({res['frames']} frames)")
+    missing = sorted(selected - set(results) - set(failed))
+    if missing:
+        bad += len(missing)
+        lines.append(f"recorded but not run: {', '.join(missing)}")
+    return bad, len(names), lines
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["record", "check"])
@@ -101,9 +143,11 @@ def main():
         raise SystemExit(f"no digest {path}")
     t0 = time.time()
     results, failed = run_all(binary, a.k, a.j or os.cpu_count() or 4, OUT / a.name)
-    for name, status in sorted(failed.items()):
-        print(f"CASE {name}: {status}")
     if a.cmd == "record":
+        for name, status in sorted(failed.items()):
+            print(f"CASE {name}: {status}")
+        if not results and not failed:
+            raise SystemExit("no cases selected")
         if failed:
             raise SystemExit(f"not recorded: {len(failed)} cases did not finish")
         sizes = {tuple(r.pop("size")) for r in results.values()}
@@ -118,25 +162,10 @@ def main():
         print(f"recorded {len(results)} cases to {path} ({time.time() - t0:.0f}s)")
         return
     want = json.loads(path.read_text())
-    bad = len(failed)
-    for name, res in sorted(results.items()):
-        size = "x".join(map(str, res.pop("size")))
-        exp = want["cases"].get(name)
-        if exp is None:
-            print(f"CASE {name}: not in {path.name}")
-        elif size != want["viewport"]:
-            print(f"CASE {name}: viewport {size}, the digest is {want['viewport']}")
-            bad += 1
-        elif res != exp:
-            bad += 1
-            print(f"CASE {name}: DIFF frames {res['frames']} (digest {exp['frames']})")
-        else:
-            print(f"CASE {name}: same ({res['frames']} frames)")
-    missing = sorted(set(want["cases"]) - set(results) - set(failed))
-    if missing and not a.k:
-        print(f"not run: {', '.join(missing)}")
+    bad, total, lines = compare(want, results, failed, a.k)
+    print("\n".join(lines))
     print(
-        f"\n{bad} of {len(results) + len(failed)} cases differ from {path.name} "
+        f"\n{bad} of {total} cases differ from {path.name} "
         f"(recorded on {want.get('recorded_on', '?')}, {time.time() - t0:.0f}s); hashes in {OUT / a.name}"
     )
     sys.exit(1 if bad else 0)

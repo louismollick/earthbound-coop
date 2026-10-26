@@ -49,6 +49,8 @@ ROOT = HERE.parent
 SESSIONS = HERE / "out" / "sessions"
 # Windows has no FIFOs: the game serves a named pipe instead (port/unix/platform/win_compat.c)
 WINDOWS = os.name == "nt"
+if WINDOWS:
+    import _winapi  # WaitNamedPipe
 BIN = os.environ.get("EB_BIN", str(ROOT / ("port/unix/build/earthbound" + (".exe" if WINDOWS else ""))))
 FFMPEG = os.environ.get("FFMPEG") or shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
 
@@ -155,12 +157,15 @@ def cmd_channel(d):
 
 
 def send_windows(d, text):
-    """Windows: each send is one client of the game's pipe; it is busy while the game finishes the last."""
+    """Windows: each send is one client of the game's pipe; it is busy while the game finishes the last.
+
+    Returns the open client: the caller closes it once the game acknowledged the commands (their
+    ``sync``), so the game never sees a client that left before it was accepted.
+    """
     deadline = time.time() + 60
     while True:
         try:
-            with open(cmd_channel(d), "wb", buffering=0) as f:  # noqa: PTH123
-                f.write(text.encode())
+            f = open(cmd_channel(d), "wb", buffering=0)  # noqa: PTH123, SIM115
         except FileNotFoundError:
             sys.exit(f"session {d.name} is not running")
         except OSError:
@@ -169,15 +174,22 @@ def send_windows(d, text):
             if time.time() > deadline:
                 sys.exit(f"session {d.name} did not take the command (still busy)")
             time.sleep(0.01)
-        else:
-            return
+            continue
+        try:
+            f.write(text.encode())
+        except OSError:
+            f.close()
+            raise
+        return f
 
 
 def send(d, text):
-    """Write command text to the session FIFO (the game holds it open)."""
+    """Write command text to the session FIFO (the game holds it open).
+
+    On Windows returns the pipe client to close after the game's ack (send_windows); else None.
+    """
     if WINDOWS:
-        send_windows(d, text)
-        return
+        return send_windows(d, text)
     try:
         fd = os.open(d / "cmd.fifo", os.O_WRONLY | os.O_NONBLOCK)
     except OSError as e:
@@ -194,6 +206,7 @@ def send(d, text):
                 time.sleep(0.01)
     finally:
         os.close(fd)
+    return None
 
 
 def split_commands(cmds):
@@ -269,24 +282,28 @@ def do(name, cmds, shot=True, sheet=False, scale=1, timeout=300.0, quiet=False, 
 
     log = d / "log.txt"
     start = log.stat().st_size
-    send(d, "\n".join(lines) + "\n")
+    client = send(d, "\n".join(lines) + "\n")
 
     marker = f"SYNC {seq} "
     deadline = time.time() + timeout
     buf = ""
-    while True:
-        with log.open("rb") as f:
-            f.seek(start)
-            buf = f.read().decode(errors="replace")
-        if marker in buf:
-            break
-        if read_pid(d) is None:
-            print(buf[-3000:])
-            sys.exit(f"session {name}: game exited")
-        if time.time() > deadline:
-            print(buf[-3000:])
-            sys.exit(f"session {name}: timed out after {timeout:.0f}s waiting for sync {seq}")
-        time.sleep(0.02)
+    try:
+        while True:
+            with log.open("rb") as f:
+                f.seek(start)
+                buf = f.read().decode(errors="replace")
+            if marker in buf:
+                break
+            if read_pid(d) is None:
+                print(buf[-3000:])
+                sys.exit(f"session {name}: game exited")
+            if time.time() > deadline:
+                print(buf[-3000:])
+                sys.exit(f"session {name}: timed out after {timeout:.0f}s waiting for sync {seq}")
+            time.sleep(0.02)
+    finally:
+        if client is not None:
+            client.close()
 
     shots = []
     for ln in buf.splitlines():
@@ -344,11 +361,12 @@ def start(name, save, boot=True, scale=1, history=None, emu=False, num_players=1
                 if i == len(detach) - 1:
                     raise
     (d / "pid").write_text(str(p.pid))
-    # Wait until the game has opened the FIFO
+    # Wait until the game has opened the FIFO (Windows: created the pipe; waiting for an instance
+    # doesn't connect, so the game never sees a client that closes at once)
     for _ in range(500):
         try:
             if WINDOWS:
-                open(cmd_channel(d), "wb").close()  # noqa: PTH123, SIM115
+                _winapi.WaitNamedPipe(str(cmd_channel(d)), 100)
             else:
                 os.close(os.open(d / "cmd.fifo", os.O_WRONLY | os.O_NONBLOCK))
             break
@@ -551,13 +569,15 @@ def stop(name):
     if pid is None:
         print(f"session {name} is not running")
         return
-    send(d, "quit\n")
+    client = send(d, "quit\n")
     for _ in range(200):
         if read_pid(d) is None:
             break
         time.sleep(0.02)
     else:
         os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))  # SIGTERM = TerminateProcess on Windows
+    if client is not None:
+        client.close()
     print(f"stopped {name}")
 
 

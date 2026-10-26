@@ -11,9 +11,22 @@ bool win_pipe_path(const char *path) {
     return strncmp(path, "\\\\.\\pipe\\", 9) == 0;
 }
 
-/* Block until a client connects; one that connected before we waited counts */
-static bool wait_client(HANDLE h) {
-    return ConnectNamedPipe(h, NULL) || GetLastError() == ERROR_PIPE_CONNECTED;
+/* Block until a client connects; one that connected before we waited counts.
+ * ERROR_NO_DATA: a client connected and already closed (pt.py's startup probe,
+ * or a `do` that wrote its commands and left). Inbound, that counts as
+ * connected: the reads drain whatever it wrote, then see EOF, and the session
+ * reconnects (win_pipe_reconnect). Disconnecting here would drop those
+ * commands. Outbound there is no one to write to, so drop it and wait again. */
+static bool wait_client(HANDLE h, bool read) {
+    for (;;) {
+        if (ConnectNamedPipe(h, NULL))
+            return true;
+        DWORD err = GetLastError();
+        if (err == ERROR_PIPE_CONNECTED || (err == ERROR_NO_DATA && read))
+            return true;
+        if (err != ERROR_NO_DATA || !DisconnectNamedPipe(h))
+            return false;
+    }
 }
 
 void *win_pipe_create(const char *path, bool read) {
@@ -26,7 +39,7 @@ FILE *win_pipe_accept(void *pipe, bool read) {
     HANDLE h = pipe;
     if (!h)
         return NULL;
-    if (!wait_client(h)) {
+    if (!wait_client(h, read)) {
         CloseHandle(h);
         return NULL;
     }
@@ -50,7 +63,7 @@ bool win_pipe_reconnect(FILE *f) {
     if (h == INVALID_HANDLE_VALUE)
         return false;
     DisconnectNamedPipe(h);
-    if (!wait_client(h))
+    if (!wait_client(h, true))
         return false;
     clearerr(f);
     return true;
