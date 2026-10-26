@@ -24,6 +24,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "game_main.h"
+#include "coop/coop_input.h"
 #include "data/text_refs.h"
 #include "core/mode_stack.h"
 
@@ -859,7 +860,7 @@ StepResult mode_step_text_input(ModeState *st) {
     } else if (!s->primed) {
         rand_ticks = 1; /* @RENDER_CURSOR on entry */
     } else {
-        uint16_t pressed = platform_input_get_pad_new();
+        uint16_t pressed = coop_pad_new();
         uint16_t held = core.pad1_autorepeat; /* PAD_HELD */
 
         /* Directions: the asm tests PAD_PRESS UP, LEFT, DOWN, RIGHT, then
@@ -1144,7 +1145,7 @@ StepResult mode_step_naming_prompt(ModeState *st) {
     }
 
     if (s->primed) {
-        if (platform_input_get_pad_new() & PAD_ANY_BUTTON)
+        if (coop_pad_new() & PAD_ANY_BUTTON)
             return STEP_RESULT_POP(0);
     }
 

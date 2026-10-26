@@ -23,6 +23,7 @@
 #include "core/log.h"
 #include "core/mode_stack.h"
 #include "game_main.h"
+#include "coop/coop_input.h"
 
 /* Window configuration table: position/size for each window ID.
    Matches WINDOW_CONFIGURATION_TABLE from asm/data/text/window_configuration_table.asm (USA path).
@@ -1727,7 +1728,7 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
     /* --- Directional input (pressed and held) ---
        Assembly checks PAD_PRESS first (with MOVE_CURSOR for wrap-around),
        then PAD_HELD (with FIND_NEXT_MENU_OPTION directly, no wrap). */
-    uint16_t pressed = platform_input_get_pad_new();
+    uint16_t pressed = coop_pad_new();
     int16_t move_result = -1;
     int16_t text_x = (w->current_option < w->menu_count)
                      ? window_menu_item(w, w->current_option)->text_x : 0;

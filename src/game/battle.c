@@ -39,6 +39,8 @@
 #include "data/text_refs.h"
 #include "game/display_text_internal.h"  /* dt_make_child_init (battle text pushes) */
 #include "core/log.h"
+#include "coop/coop.h"
+#include "coop/coop_input.h"
 #include <string.h>
 
 /* EarthBound character encoding constants (from include/macros.asm EBTEXT) */
@@ -629,6 +631,8 @@ void char_select_make_init(ModeState *init, uint16_t mode, uint16_t allow_cancel
         current_index = 0;
     else
         current_index = (uint16_t)win.battle_menu_current_character_id;
+    if (coop_player_count() > 1)  /* co-op: the cursor starts on the focused Player's Walker */
+        current_index = coop_char_select_index(current_index, mode, check_valid_id);
 
     memset(init, 0, sizeof(*init));
     init->char_select.phase                 = CSP_INIT;

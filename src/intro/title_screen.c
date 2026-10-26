@@ -39,6 +39,7 @@
 
 /* Forward declarations from main.c */
 #include "game_main.h"
+#include "coop/coop_input.h"
 
 
 /*
@@ -187,7 +188,7 @@ StepResult mode_step_title_screen(ModeState *st) {
             return title_fadeout_step(s);
         }
         /* @INPUT_LOOP: any button exits to file select (result 1). */
-        if (platform_input_get_pad_new() & PAD_ANY_BUTTON) {
+        if (coop_pad_new() & PAD_ANY_BUTTON) {
             s->result = 1;
             s->phase = TS_FADEOUT;
             s->fade_b = 0x0F;
