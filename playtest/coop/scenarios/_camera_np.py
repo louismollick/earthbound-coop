@@ -24,9 +24,17 @@ def spread_out(ctx, players, holds):
         expect_in_leash(st, q, name)
     ctx.shot(s, f"{players} Players spread to the leash")
 
-    # The Leader is leashed too: walking away from the right-most Walker is stopped
-    s.do("60 LEFT")
+    # The Leader is leashed too: walking away from the right-most Walker, Ness reaches the limit
+    # (the spread is the cap again) and further frames don't move him at all
+    s.do("200 LEFT")
     st2 = s.state()
-    expect(st2.pos[0] >= max(xs) - (w - 2 * mx), "Ness can't stretch the Party past the leash", st2.pos)
+    limit = max(xs) - (w - 2 * mx)
+    # (within one step of it: a step that would overshoot is reverted whole)
+    expect(limit <= st2.pos[0] < limit + 2, f"Ness walked left to the leash limit x={limit}", st2.pos)
+    s.do("30 LEFT")
+    st3 = s.state()
+    expect(st3.pos == st2.pos, f"Ness held at {st2.pos} while LEFT stays held", st3.pos)
     for n in holds:
-        expect_in_leash(st2, st2.players[n].pos, st2.players[n].walker)
+        expect(st3.players[n].pos == st.players[n].pos, f"P{n}'s Walker didn't move", st3.players[n])
+        expect_in_leash(st3, st3.players[n].pos, st3.players[n].walker)
+    expect_in_leash(st3, st3.pos, "Ness")

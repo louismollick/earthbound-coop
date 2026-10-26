@@ -11,13 +11,19 @@
 CoopState coop = { .player_count = 1, .joined = { 1 } };
 
 /* Deal Hero h to the (h mod N)-th joined Player. Called whenever the join order
- * changes. Every chain snaps (coop_walk.h); the new chains unsnap from where
- * their members stand on the next free frame. */
+ * changes. Every chain snaps and, if one was walking, the Party regroups behind
+ * the Leader on the next frame outside a battle (coop.regroup); the new chains
+ * unsnap from there on the next free frame. That also runs after the last
+ * other Player left, so solo play goes on from vanilla formation with the
+ * camera back on the Leader (coop_overworld_active). */
 static void deal_heroes(void) {
     for (int h = 0; h < COOP_HERO_COUNT; h++)
         coop.hero_owner[h] = coop.join_order[h % coop.player_count];
-    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
+    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
+        if (coop.walkers[p].active)
+            coop.regroup = 1;
         coop.walkers[p].active = 0;
+    }
 }
 
 static bool valid_player(int player) {
@@ -76,6 +82,11 @@ void coop_unwind_frame(void) {
 
 int coop_player_count(void) {
     return coop.player_count;
+}
+
+bool coop_overworld_active(void) {
+    return coop.player_count > 1 || coop.regroup || coop.camera.midpoint || coop.camera.ease_x ||
+           coop.camera.ease_y;
 }
 
 bool coop_player_joined(int player) {

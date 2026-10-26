@@ -65,6 +65,7 @@ void coop_camera_update(void) {
          * centring on an entity) owns the view: leave it to it, as vanilla */
         c->ease_x = c->ease_y = 0;
     }
+    bool switched = midpoint != c->midpoint;
     c->midpoint = midpoint;
 
     bool easing = c->ease_x || c->ease_y;
@@ -72,8 +73,8 @@ void coop_camera_update(void) {
     c->ease_y = decay(c->ease_y);
     uint16_t want_x = (uint16_t)(tx + c->ease_x), want_y = (uint16_t)(ty + c->ease_y);
     /* Following the Leader, the view moves when the Leader does, as vanilla
-     * (update_leader_movement), or while it eases there */
-    bool apply = midpoint ? (want_x != cur_x || want_y != cur_y) : (game_state.leader_moved || easing);
+     * (update_leader_movement), while it eases there, or on the switch (a cut) */
+    bool apply = midpoint ? (want_x != cur_x || want_y != cur_y) : (game_state.leader_moved || easing || switched);
     if (apply)
         center_screen(want_x, want_y);
     c->last_x = view_x();

@@ -337,6 +337,37 @@ static int leash(int mover, int leader_x, int leader_y, int from_x, int from_y, 
            (widens_past(lo_y, hi_y, from_y, to_y, COOP_LEASH_SPREAD_Y) ? 2 : 0);
 }
 
+/* The step's collision checks (walls, then NPCs) cleared the position it moved
+ * to; after the leash reverted one axis the Walker ends up somewhere else, so
+ * check that position too, with the same two routines and the remaining
+ * axis's direction. `slot` is the stepping entity (its hitbox). Side-effect
+ * free: the scratch state the checks write is put back. */
+static bool leashed_position_clear(int16_t from_x, int16_t from_y, int16_t x, int16_t y, uint16_t slot) {
+    if (x == from_x && y == from_y)
+        return true; /* where it stood */
+    int16_t dir = x != from_x ? (x > from_x ? 2 : 6) : (y > from_y ? 4 : 0);
+    int16_t final_dir = ow.final_movement_direction;
+    uint8_t not_same_dir = ow.not_moving_in_same_direction_faced;
+    uint16_t check_x = ow.checked_collision_left_x, check_y = ow.checked_collision_top_y;
+    int16_t ladder_x = ow.ladder_stairs_tile_x, ladder_y = ow.ladder_stairs_tile_y;
+    int16_t collided = entities.collided_objects[INIT_ENTITY_SLOT];
+
+    uint16_t flags = check_directional_collision(x, y, dir);
+    /* A wall, or a corner the game would nudge around */
+    bool clear = !(flags & 0x00C0) && ow.final_movement_direction == dir;
+    if (clear)
+        clear = npc_collision_check(x, y, (int16_t)slot) == -1;
+
+    ow.final_movement_direction = final_dir;
+    ow.not_moving_in_same_direction_faced = not_same_dir;
+    ow.checked_collision_left_x = check_x;
+    ow.checked_collision_top_y = check_y;
+    ow.ladder_stairs_tile_x = ladder_x;
+    ow.ladder_stairs_tile_y = ladder_y;
+    entities.collided_objects[INIT_ENTITY_SLOT] = collided;
+    return clear;
+}
+
 void coop_leader_step(void) {
     uint16_t x = game_state.leader_x_coord, x_frac = game_state.leader_x_frac;
     uint16_t y = game_state.leader_y_coord, y_frac = game_state.leader_y_frac;
@@ -349,6 +380,14 @@ void coop_leader_step(void) {
         game_state.leader_x_frac = x_frac;
     }
     if (revert & 2) {
+        game_state.leader_y_coord = y;
+        game_state.leader_y_frac = y_frac;
+    }
+    /* Sliding along the leash only where that position is free; else no step */
+    if (revert && !leashed_position_clear((int16_t)x, (int16_t)y, (int16_t)game_state.leader_x_coord,
+                                          (int16_t)game_state.leader_y_coord, game_state.current_party_members)) {
+        game_state.leader_x_coord = x;
+        game_state.leader_x_frac = x_frac;
         game_state.leader_y_coord = y;
         game_state.leader_y_frac = y_frac;
     }
@@ -415,6 +454,13 @@ static void walker_step(int p, CoopWalker *w) {
         y = w->y;
         y_frac = w->y_frac;
     }
+    /* Sliding along the leash only where that position is free; else no step */
+    if (revert && !leashed_position_clear((int16_t)w->x, (int16_t)w->y, (int16_t)x, (int16_t)y, (uint16_t)slot)) {
+        x = w->x;
+        x_frac = w->x_frac;
+        y = w->y;
+        y_frac = w->y_frac;
+    }
     bool moved = game_state.leader_moved &&
                  (x != w->x || x_frac != w->x_frac || y != w->y || y_frac != w->y_frac);
     w->x = x;
@@ -469,6 +515,17 @@ static void walker_step(int p, CoopWalker *w) {
 
 void coop_walk_leader_tick(void) {
     WalkControl control = walk_control();
+    if (coop.regroup && control != WALK_BATTLE) {
+        /* Ownership changed (a join or leave): everyone back in formation */
+        coop_walk_regroup();
+        coop.regroup = 0;
+    }
+    if (coop_player_count() <= 1) {
+        /* The last other Player left: only the camera eases back to the Leader */
+        if (control != WALK_BATTLE)
+            coop_camera_update();
+        return;
+    }
     bool snapped = false;
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
         CoopWalker *w = &coop.walkers[p];

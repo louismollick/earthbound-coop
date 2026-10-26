@@ -150,6 +150,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - "Who?" cursors (Goods, PSI if the Hero can use PSI, Equip, Status, and the text-script party select such as a shop's "Which of you will carry this?") start on the focused Walker. "Whom?" target selects keep vanilla's start. (M3)
 - Whoever starts an interaction drives all of it, saving at a phone included, though CONTEXT.md lists saving as a Leader action: the lock is simpler than a per-action rule, and the save is party-wide anyway. (M3)
 - Battle focus is ALL for the whole battle until M2 moves it per Hero with `coop_set_focus()`. (M3)
+- A join or leave while a chain walks regroups the whole Party behind the Leader on the next frame outside a battle, then the new chains unsnap. After the last other Player leaves, co-op keeps the camera until it has eased back to the Leader; a session that never had co-op never runs any of it. A leashed step slides along the leash only if the position left is clear of walls and NPCs, else it is rejected whole. (M1 review)
 
 ## Blocked
 

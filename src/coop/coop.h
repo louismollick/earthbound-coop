@@ -75,6 +75,9 @@ typedef struct {
     uint8_t joined[PLATFORM_MAX_PLAYERS];       /* 1 if Player p is joined */
     uint8_t leave_hold[PLATFORM_MAX_PLAYERS];   /* consecutive frames Player p has held Select+Start */
     uint8_t hero_owner[COOP_HERO_COUNT];        /* Owner (Player) of Hero h; derived from join_order */
+    uint8_t regroup;                            /* ownership changed while a chain walked: on the next
+                                                 * frame outside a battle every chain snaps and the
+                                                 * Party regroups behind the Leader (coop_walk.h) */
     uint16_t prev_held[PLATFORM_MAX_PLAYERS];   /* each pad as coop_tick last saw it: join edges are
                                                  * computed from this serialized history, not the
                                                  * platform's, so a savestate load can't fake or eat one */
@@ -110,6 +113,13 @@ void coop_join(int player);
 void coop_leave(int player);
 
 int coop_player_count(void);
+
+/* Co-op runs the overworld's Walkers and camera this frame: more than one
+ * Player, or the last other Player has just left and the Party isn't back in
+ * vanilla formation with the camera on the Leader yet (a few frames). Always
+ * false in a session that never had co-op. The overworld hooks for walking and
+ * the camera use this instead of coop_player_count() > 1. */
+bool coop_overworld_active(void);
 bool coop_player_joined(int player);
 
 /* The Owner of Hero h (0 = Ness .. 3 = Poo). */
