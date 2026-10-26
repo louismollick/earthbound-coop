@@ -53,16 +53,16 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
   - Every Walker moves with the leader's own movement and collision code, covering walls, NPCs, surfaces (water, ladders, stairs) and diagonals.
   - Each Walker has its own position trail, and that Player's other owned members follow it.
   - Members nobody owns follow the Leader, as in vanilla.
-- [ ] Camera.
+- [x] Camera.
   - It follows the midpoint of all Walkers, clamped to the map.
   - A Walker can't move past the visible screen edge minus a small margin (the leash).
   - Use the 320x240 wide view for slack, and make the leash scale with viewport size so 256x224 works too.
-- [ ] Enemy contact: any Walker touching an overworld enemy starts the battle for the whole Party. First strike is judged against the Walker that was touched.
+- [x] Enemy contact: any Walker touching an overworld enemy starts the battle for the whole Party. First strike is judged against the Walker that was touched.
 - [x] Interaction: any Player can press A to talk to or check whatever their Walker faces. The world pauses for everyone while a text box is open, as in vanilla.
-- [ ] Regrouping.
+- [x] Regrouping.
   - Doors, stairs and screen transitions: when any Walker triggers one, everyone regroups behind the Leader and goes through together.
   - Scripted cutscenes and forced movement do the same. Non-Leader Walkers snap into the Leader's trail while the game controls movement, and get independence back when control returns.
-- [ ] Scenarios:
+- [x] Scenarios:
   - P2 (Paula) walks away from Ness and is stopped by a wall.
   - The leash stops P2 at the screen edge.
   - P2 touches an enemy and the battle starts.
@@ -136,9 +136,12 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - Design memos for input focus (M2/M3) and Walkers (M1) are in `docs/coop-design/`. (M0)
 - A Walker must be able to walk: unconscious and diamondized Heroes are skipped, as vanilla's party sort does. (M1)
 - core.pad1 follows the Leader's Owner during overworld play only (P1 on title, file select, boot and in battle until M2), with `memory_rebase_joypad` on every switch. Menus opened by that Player still read P1's platform pad directly (window.c etc.): M3. (M1)
-- Two levels of "not free": a window, text box or interaction only pauses non-Leader Walkers (they hold their spot, no snap); the game moving the party (camera_mode, stairs, escalator, bicycle, door, teleport, demo, swirl/battle, a frozen or scripted Leader or chain member) snaps them. (M1)
+- Levels of "not free": a window, text box or interaction pauses non-Leader Walkers (they hold their spot); so do an enemy touch, the swirl and the battle (chains stay independent, so everyone is back where they stood afterwards). When the game controls movement (camera_mode, stairs, escalator, bicycle, door, teleport, demo, a frozen or scripted Leader) chains hold until the game actually moves the Leader, then snap and regroup into vanilla formation on the Leader's trail; a screen transition's fade-out regroups everyone (entities are frozen by then). So a door's text or a scripted pause doesn't pull anyone onto the Leader. (M1)
 - Trails: the memo's shadow `position_index` is kept (every independent chain member's index equals its Party predecessor's), so snapping is just "stop overriding". Unsnapping lays the chain's trail as straight segments through the members' current positions at vanilla spacing instead of copying the Leader's ring, so it is seamless wherever the members stand. Any chain change (join, leave, KO, revive, party change) snaps and unsnaps. (M1)
-- Until the leash: a temporary clamp keeps non-Leader Walkers within viewport/2 - 16 px of the Leader per axis (`TEMP_CLAMP_*` in `coop_walk.c`). (M1)
+- Camera = centre of the Walkers' bounding box (the Leader plus independent Walkers), not their mean: the box centre keeps everyone within half the spread, so one spread cap is exactly the on-screen guarantee at any Player count. No map clamp: vanilla's CENTER_SCREEN has none, and the midpoint never shows further past an edge than vanilla would with either Walker leading. (M1)
+- Leash: a step (the Leader's too) that would widen the Walkers' spread past viewport - 2 x viewport/8 on an axis is reverted on that axis, so every Walker stays viewport/8 inside the view (40/30 px at 320x240, 32/28 at 256x224). (M1)
+- Camera transitions ease (offset decays by a quarter plus a pixel per frame, ~12 frames from a screen away; a jump bigger than a screen cuts) between the midpoint and vanilla Leader-following, and from a view another routine set (the reload after a battle) back to the midpoint. While following the Leader, a view set by a door, teleport or script is left alone, as vanilla. (M1)
+- First strike: a Hero of another Player than the Leader's Owner (their Walker or its chain) is judged by its own facing; during the 12-frame touch shake each independent chain turns with its own Player's pad. (M1)
 - Input focus (`src/coop/coop_input.{h,c}`) replaces M1's pad feed: P1 outside overworld play, the Leader's Owner on the overworld, the lock holder while locked, ALL in battle. Only a Player with a Walker can take the lock (a Spectator has nobody to talk from). (M3)
 - Capture-eligible = the harness idle predicate plus no window open, no queued interaction or demo, and the Leader not on the bicycle. So the bicycle dismount (A/L) and anything else that only works while riding stay with the Leader's Owner; nothing else special-cases Leader-only presses. (M3)
 - While someone else has the focus, the Leader's step reads only its Owner's held pad (no presses). Without it, the locker's d-pad turned and moved Ness for 1 frame on the frame the menu closed. (M3)

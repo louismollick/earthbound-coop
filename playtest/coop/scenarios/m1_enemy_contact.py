@@ -45,6 +45,7 @@ def run(ctx):
     s.do("P2 20 DOWN")
     st2 = s.state()
     expect(st2.players[2].pos[1] > paula[1] + 10, "Paula walks after the battle", st2.players[2].pos)
+    s.do("120 -")  # past the post-battle blink, so the shot shows the Party
     ctx.shot(s, "after the battle, P2 walks")
 
     # First strike is judged by the touched Walker: Ness faces UP (away from the enemy that comes from below),
