@@ -633,12 +633,17 @@ static bool display_text_load_dialogue_blob(void) {
     return dialogue_blob != NULL;
 }
 
+static void bind_status_window_text(void);
+
 bool display_text_init(void) {
     /* All text data lives in the dialogue blob + inline string table.
-     * Load both at startup. */
+     * Load both at startup, with the status window and menu text tables
+     * (game_init runs this, so no read depends on which menu opened first). */
     bool ok = true;
     if (!display_text_load_inline_strings()) ok = false;
     if (!display_text_load_dialogue_blob()) ok = false;
+    bind_status_window_text();
+    display_text_menus_bind_asset_tables();
     return ok;
 }
 
@@ -825,18 +830,18 @@ void toggle_hppp_flipout_mode(uint16_t enable) {
  * (TextSource helpers reference them); assigned lazily in display_status_window(). */
 static const uint8_t *status_equip_text_data;
 
+/* Bound by display_text_init: a text reader saved mid status-window text is
+ * restored by source tag, so text_source_base needs the base in a fresh process. */
+static void bind_status_window_text(void) {
+    status_window_text_size = ASSET_SIZE(ASSET_DATA_STATUS_WINDOW_TEXT_BIN);
+    status_window_text_data = ASSET_DATA(ASSET_DATA_STATUS_WINDOW_TEXT_BIN);
+    status_equip_text_data = ASSET_DATA(ASSET_DATA_STATUS_EQUIP_TEXT_BIN);
+}
+
 void display_status_window(uint16_t char_id) {
     uint16_t char_index = char_id - 1;
     if (char_index >= TOTAL_PARTY_COUNT) return;
     CharStruct *c = &party_characters[char_index];
-
-    /* Lazy-load text assets */
-    if (!status_window_text_data) {
-        status_window_text_size = ASSET_SIZE(ASSET_DATA_STATUS_WINDOW_TEXT_BIN);
-        status_window_text_data = ASSET_DATA(ASSET_DATA_STATUS_WINDOW_TEXT_BIN);
-    }
-    if (!status_equip_text_data)
-        status_equip_text_data = ASSET_DATA(ASSET_DATA_STATUS_EQUIP_TEXT_BIN);
 
     /* Assembly line 13: SET_INSTANT_PRINTING */
     set_instant_printing();

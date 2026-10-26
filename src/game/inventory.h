@@ -71,6 +71,8 @@ ASSERT_STRUCT_SIZE(ItemConfig, 39);
 
 /* Ensure item configuration table is loaded. Returns true if available. */
 bool ensure_item_config(void);
+/* Bind the item, transformation, EXP, stat-growth and PSI tables (game_init). */
+void inventory_bind_asset_tables(void);
 
 /* Get a pointer to the item config entry.
  * item_id is used directly as a table index (1-based in inventory, 0 = unused entry).

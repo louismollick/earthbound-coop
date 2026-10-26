@@ -29,7 +29,7 @@
 #include "core/mode_stack.h"
 
 /* Whether each save slot has data */
-static uint8_t save_files_present[SAVE_COUNT];
+uint8_t save_files_present[SAVE_COUNT];  /* serialized (SECTION_SAVE_FILES_PRESENT) */
 
 /* current_save_slot is now a global in game_state.c (port of CURRENT_SAVE_SLOT BSS) */
 

@@ -237,10 +237,6 @@ void load_enemy_spawn_data(void) {
     map_enemy_placement_data = ASSET_DATA(ASSET_DATA_MAP_ENEMY_PLACEMENT_BIN);
     enemy_placement_groups_ptr_table = ASSET_DATA(ASSET_DATA_ENEMY_PLACEMENT_GROUPS_PTR_TABLE_BIN);
     enemy_placement_groups_data = ASSET_DATA(ASSET_DATA_ENEMY_PLACEMENT_GROUPS_BIN);
-    if (!enemy_config_table)
-        enemy_config_table = (const EnemyData *)ASSET_DATA(ASSET_DATA_ENEMY_CONFIGURATION_TABLE_BIN);
-    if (!battle_action_table)
-        battle_action_table = (const BattleAction *)ASSET_DATA(ASSET_DATA_BATTLE_ACTION_TABLE_BIN);
     enemy_spawn_data_loaded = true;
 }
 

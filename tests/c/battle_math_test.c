@@ -444,10 +444,9 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    load_enemy_spawn_data(); /* enemy_config_table + battle_action_table */
-    /* Battle start loads the sprite size table (SETUP_BATTLE_ENEMY_SPRITES);
-     * the bombs' splash range reads it through GET_BATTLE_SPRITE_WIDTH. */
-    battle_sprites_pointers_data = ASSET_DATA(ASSET_DATA_BATTLE_SPRITES_POINTERS_BIN);
+    /* enemy_config_table, battle_action_table and the sprite size table the bombs'
+     * splash range reads through GET_BATTLE_SPRITE_WIDTH (game_init binds them). */
+    battle_bind_asset_tables();
 
     static Case c;
     static char line[LINE_MAX_LEN];

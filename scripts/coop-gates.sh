@@ -3,7 +3,9 @@
 #   scripts/coop-gates.sh             gates 1-4: -Werror builds at 320x240 and 256x224, ruff, pytest,
 #                                     regress compare vs build-base, co-op scenario suite
 #   scripts/coop-gates.sh --framehash also run regress framehash vs build-base (renderer/camera changes)
-#   scripts/coop-gates.sh --full      also gates 5-6: co-op suite under ASan+UBSan (build-debug)
+#   scripts/coop-gates.sh --full      also gates 5-6: co-op suite under ASan+UBSan (build-debug),
+#                                     the mutable-globals audit test on that build, savestate
+#                                     continuity (every scenario restored in a fresh process, ~40 s)
 #                                     and a contact sheet of scenario screenshots to read
 # Logs go to playtest/out/gates/. Run scripts/coop-setup.sh once first.
 set -uo pipefail
@@ -43,6 +45,8 @@ gate coop env EB_BIN="$WIDE" python playtest/coop/run_all.py
 if [ "$FULL" = 1 ]; then
   gate build-debug build port/unix/build-debug -DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON -DENABLE_UBSAN=ON -DEB_VIEWPORT_WIDTH=320 -DEB_VIEWPORT_HEIGHT=240
   gate coop-asan env EB_BIN="$ROOT/port/unix/build-debug/earthbound" EB_COOP_SANITIZE=1 python playtest/coop/run_all.py
+  gate globals python -m pytest tests/test_mutable_globals.py -q
+  gate continuity env EB_BIN="$WIDE" python playtest/coop/run_all.py --continuity cold
   gate sheet python playtest/coop/run_all.py --sheet-only "$OUT/contact.png"
   [ -f "$OUT/contact.png" ] && echo "contact sheet: $OUT/contact.png (read it: gate 6 is a human/agent check)"
 fi

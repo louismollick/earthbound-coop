@@ -929,6 +929,11 @@ extern void btlact_pray_rending_sound(void);
 #define BATTLE_SPRITES_COUNT 110
 extern const uint8_t *battle_sprites_pointers_data;
 
+/* Bind battle_action_table, enemy_config_table, battle_sprites_pointers_data, the
+ * BTL_ENTRY tables, npc_ai_table, consolation_item_table and the PSI table
+ * (game_init; idempotent). */
+void battle_bind_asset_tables(void);
+
 
 /* FIND_BATTLE_SPRITE_FOR_ENEMY: Search for enemy in sprite slots, return index or 0. */
 uint16_t find_battle_sprite_for_enemy(uint16_t enemy_id);

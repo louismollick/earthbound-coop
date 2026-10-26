@@ -121,6 +121,7 @@ StepResult mode_step_attract_mode(ModeState *st) {
      * location, spawns entities with movement scripts, and pauses for the scene
      * duration. On its POP we resume at AT_MAIN to run the post-script frames. */
     s->phase = AT_MAIN;
+    load_attract_mode_text_offsets(); /* idempotent; a fresh-process restore skips prepare */
     if (dt_make_child_init(&g_mode_push_init, attract_mode_text_addrs[s->scene_index])) {
       return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
     }

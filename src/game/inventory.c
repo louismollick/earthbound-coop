@@ -1475,6 +1475,17 @@ static bool ensure_psi_table_inv(void) {
     return psi_table_data_inv != NULL;
 }
 
+/* Bind every inventory ROM table (game_init; idempotent). Readers still call their
+ * ensure_*, but a level-up or item transformation resumed from a savestate in a
+ * fresh process no longer depends on it. */
+void inventory_bind_asset_tables(void) {
+    ensure_item_config();
+    ensure_transform_table();
+    ensure_exp_table();
+    ensure_stats_growth();
+    ensure_psi_table_inv();
+}
+
 /* Event flag for Ness PP boost (Ness won the "Star Master" title).
  * From include/constants/event_flags.asm: FLG_WIN_OSCAR = 74. */
 #define FLG_WIN_OSCAR 74

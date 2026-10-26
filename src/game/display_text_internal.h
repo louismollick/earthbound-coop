@@ -24,6 +24,8 @@ void resolve_text_jump(ScriptReader *r, uint32_t addr);
 
 /* ---- Data helpers (display_text.c) ---- */
 void toggle_hppp_flipout_mode(uint16_t enable);
+/* Bind the store, telephone and menu-title text tables (display_text_init). */
+void display_text_menus_bind_asset_tables(void);
 uint16_t is_escargo_express_full(void);
 uint16_t get_item_subtype_2(uint16_t item_id);
 void check_text_word_wrap(ScriptReader *reader);

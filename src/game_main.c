@@ -1675,36 +1675,30 @@ void game_init(void) {
     game_state_init();
     floating_sprite_table_load();
 
-    /* Bind the compile-time ROM-asset pointers that gameplay reads on EVERY boot
-     * path. These are NOT serialized state — they are file-static caches of pointers
-     * into compiled-in ROM data. Normally they are bound lazily during boot
-     * (overworld_boot_step / initialize_overworld_state / boot_begin), but the
-     * cold-boot savestate-resume path applies the snapshot at the first root boundary
-     * and replaces the mode stack BEFORE any of those run — leaving the pointers NULL
-     * for the whole resumed session. Binding them here covers every path; each is
-     * idempotent (re-binds the same pointers), so the normal new-game boot's repeat
-     * calls and guards no-op. Any serialized side effects (load_sprite_data() clears
-     * sprite_vram_table + overworld_spritemaps; text_system_init() sets
-     * dt.enable_word_wrap) happen BEFORE the load and are overwritten by the restored
-     * sections. Symptoms each one fixes on cold-boot resume:
-     *   - load_sprite_data:        sprite_grouping_* / sprite_banks[] → frozen entity
-     *                              sprites; broken door/new-map entity spawns
-     *   - load_event_script_data:  event_script_pointer_table / script_banks[] → NPC,
-     *                              door, and cutscene action scripts can't execute
-     *   - display_text_init:       dialogue_blob / inline_string_table → broken
-     *                              dialogue, signs, and menu text
-     *   - text_system_init:        fonts[] glyph data → blank/garbled rendered text
- *   - load_enemy_spawn_data:   battle_action_table / enemy_config_table → items used
- *                              from Goods skip their description (found by a netplay
- *                              join desync: the joiner loads into a fresh process)
-     * (The map tileset arrangement scratch is rebuilt separately by
-     * map_loader_savestate_rebind() in read_slot, since it must run AFTER the snapshot
-     * restores ml.loaded_tileset_combo. ensure_item_config() already self-heals lazily.) */
-    load_sprite_data();
-    load_event_script_data();
-    display_text_init();
-    text_system_init();
-    load_enemy_spawn_data();
+    /* Bind the compile-time ROM-asset pointers. These are NOT serialized state: they
+     * are caches of pointers into compiled-in ROM data, and none may depend on the
+     * path that first used it: bind it here (or re-ensure it at every read).
+     * Gameplay binds many lazily (boot, btl_begin, a menu's first open), but a
+     * savestate restored in a fresh process (F7 after a restart, a netplay join)
+     * resumes the restored mode stack without running those paths, and a NULL table then silently changes behaviour: an enemy row laid
+     * out with sprite height 0 (battle_sprites_pointers_data), Goods skipping item
+     * descriptions (battle_action_table), a text reader with no base. Each binder is
+     * idempotent and touches no serialized state except as noted (load_sprite_data()
+     * clears sprite_vram_table + overworld_spritemaps; text_system_init() sets
+     * dt.enable_word_wrap), and those writes happen BEFORE a load, which overwrites
+     * them. The map tileset arrangement scratch is rebuilt separately by
+     * map_loader_savestate_rebind() in read_slot, since it depends on the restored
+     * ml.loaded_tileset_combo. A new lazily bound table goes here too; see
+     * docs/coop-design/serialization-audit.md and tests/test_mutable_globals.py. */
+    load_sprite_data();          /* sprite groupings, sprite banks */
+    load_event_script_data();    /* event script pointers, script banks */
+    display_text_init();         /* dialogue, inline strings, status/menu text */
+    text_system_init();          /* fonts, flavour palettes, equip text */
+    load_enemy_spawn_data();     /* enemy placement tables */
+    map_loader_init();           /* tileset, collision, NPC, sector, music tables */
+    battle_bind_asset_tables();  /* battle actions, enemies, sprites, BTL_ENTRY, NPC AI, PSI */
+    window_bind_asset_tables();  /* border animation, status tiles */
+    inventory_bind_asset_tables(); /* items, transformations, EXP, stat growth */
 
     /* Push the permanent GAME_MODE_OVERWORLD root (g_mode_stack[0]) so the first
      * game_loop_step() dispatches its OWP_BOOT_SETUP phase (boot_begin -> intro).

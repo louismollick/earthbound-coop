@@ -2,8 +2,12 @@
 #define INTRO_FILE_SELECT_H
 
 #include "core/types.h"
+#include "include/constants.h"
 
 typedef union ModeState ModeState;
+
+/* Which save slots hold a game (built with the file-select menu; savestated). */
+extern uint8_t save_files_present[SAVE_COUNT];
 
 /* One-shot setup for the file menu (the yield-free front half of FILE_MENU_LOOP,
  * asm/intro/file_select_menu_loop.asm): loads the file-select asset data, runs

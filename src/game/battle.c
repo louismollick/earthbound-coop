@@ -88,6 +88,21 @@ extern const uint8_t *btl_entry_bg_table;
 extern const uint8_t *consolation_item_table;
 /* npc_ai_table declared in battle_internal.h */
 
+/* Bind the battle's read-only ROM tables. game_init calls this once, so no read
+ * depends on which battle path ran first in the process (a savestate restored
+ * mid-battle in a fresh process skips btl_begin and setup_battle_enemy_sprites).
+ * Idempotent. */
+void battle_bind_asset_tables(void) {
+    battle_action_table = (const BattleAction *)ASSET_DATA(ASSET_DATA_BATTLE_ACTION_TABLE_BIN);
+    enemy_config_table = (const EnemyData *)ASSET_DATA(ASSET_DATA_ENEMY_CONFIGURATION_TABLE_BIN);
+    battle_sprites_pointers_data = ASSET_DATA(ASSET_DATA_BATTLE_SPRITES_POINTERS_BIN);
+    btl_entry_ptr_table = ASSET_DATA(ASSET_DATA_BTL_ENTRY_PTR_TABLE_BIN);
+    btl_entry_bg_table = ASSET_DATA(ASSET_DATA_BTL_ENTRY_BG_TABLE_BIN);
+    npc_ai_table = ASSET_DATA(ASSET_DATA_NPC_AI_TABLE_BIN);
+    consolation_item_table = ASSET_DATA(ASSET_DATA_CONSOLATION_ITEM_TABLE_BIN);
+    ensure_battle_psi_table();
+}
+
 /* clear_hppp_window_header() is implemented in window.c */
 
 /* DISPLAY_IN_BATTLE_TEXT (asm/text/display_in_battle_text.asm): the blocking
@@ -3729,7 +3744,7 @@ close_and_return:
  * victory, 1 = party defeated, 2 = special defeat code.
  * ====================================================================== */
 
-/* Asset table references loaded from ROM */
+/* Asset table references loaded from ROM (bound by battle_bind_asset_tables) */
 const uint8_t *btl_entry_ptr_table;
 const uint8_t *btl_entry_bg_table;
 const uint8_t *npc_ai_table;
@@ -3770,16 +3785,6 @@ bool battle_push_text(ModeState *child, uint32_t addr) {
 static void btl_begin(BattleRoutineState *st) {
     st->debug_party_flags = 1;
     st->debug_enemy_level = 1;
-
-    /* Load asset tables if not yet loaded */
-    if (!btl_entry_ptr_table)
-        btl_entry_ptr_table = ASSET_DATA(ASSET_DATA_BTL_ENTRY_PTR_TABLE_BIN);
-    if (!btl_entry_bg_table)
-        btl_entry_bg_table = ASSET_DATA(ASSET_DATA_BTL_ENTRY_BG_TABLE_BIN);
-    if (!npc_ai_table)
-        npc_ai_table = ASSET_DATA(ASSET_DATA_NPC_AI_TABLE_BIN);
-    if (!consolation_item_table)
-        consolation_item_table = ASSET_DATA(ASSET_DATA_CONSOLATION_ITEM_TABLE_BIN);
 
     /* ================================================================
      * Phase 1: Initial setup (lines 26-133)
