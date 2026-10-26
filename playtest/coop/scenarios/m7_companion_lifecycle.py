@@ -5,6 +5,9 @@
 - 17-GoldMine, 4 Players (P4 the Companion): Ness walks into an enemy; Mr. Saturn hides from the touch
   through the battle and is back next to Ness after the win.
 - A snap/restore in the same process and a restore in a fresh process bring it back where it stood.
+- Then a stationary scripted freeze (``freeze on``: DISABLE_CHARACTER_MOVEMENT 0xFF, a text script's
+  set_player_lock, which also stops the Leader's tick) hides it with Ness not moving; ``freeze off``
+  brings it back next to Ness.
 """
 
 import shutil
@@ -27,12 +30,12 @@ def run(ctx):
     expect(before and dist(before, st.pos) > 30, "Mr. Saturn away from Ness", st.players_line)
 
     # A door: hidden for the transition, next to the Leader after
-    s.do(f"teleport {DOOR[0]} {DOOR[1]} 6; wait 2; until in:DOOR_TRANSITION 60 LEFT")
+    s.do(f"teleport {DOOR[0]} {DOOR[1]} 6; wait 2; until in:DOOR_TRANSITION 60 LEFT", met=True)
     st = s.state()
     expect("DOOR_TRANSITION" in st.state, "Ness took the door", st.state)
     expect(st.players[2].companion and st.players[2].hidden, "Mr. Saturn hidden during the transition", st.players_line)
     ctx.shot(s, "door transition: no Mr. Saturn")
-    s.do("until idle 600")
+    s.do("until idle 600", met=True)
     st = s.state()
     sat = st.players[2]
     expect(abs(st.pos[1] - DOOR[1]) > 500, "the side room", st.pos)
@@ -64,18 +67,34 @@ def run(ctx):
     expect(t.state().players[2].pos[0] > saved[0] + 10, "and P2 walks it", t.state().players_line)
     ctx.shot(t, "cold restore: Mr. Saturn walks")
 
+    # A scripted freeze with nobody moving: hidden at once, back next to the Leader when it ends
+    lead = t.state().pos
+    t.do("freeze on; wait 2")
+    st = t.state()
+    expect(st.pos == lead and st.players[2].hidden, "Mr. Saturn hidden by a stationary freeze", st.players_line)
+    t.do("P2 20 LEFT; wait 30")
+    expect(t.state().players[2].hidden, "and it stays hidden while the Party is frozen", t.state().players_line)
+    ctx.shot(t, "frozen Party: no Mr. Saturn")
+    t.do("freeze off; wait 2")
+    st = t.state()
+    sat = st.players[2]
+    expect(not sat.hidden and dist(sat.pos, st.pos) <= 24, f"back next to Ness {st.pos} after the freeze", sat)
+
     # A battle: hidden from the touch to the end, back next to the Leader after
     g = ctx.session("goldmine", save="17-GoldMine", players=4)
     g.boot()
-    g.do("teleport 3424 9312; wait 1; P4 10 RIGHT; until battle 600 LEFT; wait 2")
+    g.do("teleport 3424 9312; wait 1; P4 10 RIGHT; until battle 600 LEFT; wait 2", met=True)
     st = g.state()
     expect(st.idle == "battle", "an enemy touched the Party", st.state)
     expect(st.players[4].hidden, "Mr. Saturn hidden from the touch", st.players_line)
-    g.do("until in:BATTLE 600")
+    g.do("until in:BATTLE 600", met=True)
     st = g.state()
     expect("BATTLE" in st.state and st.players[4].hidden, "hidden in the battle", st.state + st.players_line)
-    # P1 claims a command menu (menus are claimed), whose debug SELECT+START wins
-    g.do("until in:BATTLE_MENU 3000; press A; until input 300; debug on; press SELECT+START; until idle 3000 advance")
+    # The turn waits for a claim (choose=P1,P2,P3); P1 claims a command menu, whose debug SELECT+START wins
+    g.do("until choose 3000 advance", met=True)
+    expect(g.state().choose == [1, 2, 3], "the turn waiting for P1-P3 to claim", g.state().players_line)
+    g.do("press A; until in:BATTLE_MENU 300; until input 300", met=True)
+    g.do("debug on; press SELECT+START; until idle 3000 advance", met=True)
     st = g.state()
     sat = st.players[4]
     expect(st.idle == "yes" and not sat.hidden, "the battle is over and Mr. Saturn is back", st.players_line)

@@ -574,6 +574,15 @@ int16_t entity_init(uint16_t script_id, int16_t x, int16_t y);
 int16_t create_entity(uint16_t sprite, uint16_t script, int16_t index,
                       int16_t x, int16_t y);
 
+/* create_entity without the co-op hook that makes room by removing Companions
+ * (coop/coop_companion.h): for the Companion's own spawn. */
+int16_t create_entity_raw(uint16_t sprite, uint16_t script, int16_t index,
+                          int16_t x, int16_t y);
+
+/* entity_init would get an entity slot in [min_slot, max_slot) and a script
+ * slot now (the checks of ALLOCATE_ENTITY_SLOT and ALLOCATE_ENTITY_SCRIPT_SLOT). */
+bool entity_slot_available(uint16_t min_slot, uint16_t max_slot);
+
 /* Deactivate an entity and free its scripts */
 void deactivate_entity(int16_t entity_offset);
 

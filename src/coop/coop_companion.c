@@ -37,8 +37,8 @@ static bool owns_entity(int p, const CoopCompanion *c) {
            entities.sprite_ids[e] == COMPANION_SPRITE && entities.var[0][e] == COMPANION_MARK + p;
 }
 
-/* Put the entity where the state says: position, surface, facing, walking
- * frame (re-rendered only when facing or frame changed) and visibility. */
+/* Put the entity where the state says: position, surface, facing and walking
+ * frame (re-rendered only when facing or frame changed). */
 static void present(CoopCompanion *c) {
     int16_t e = c->entity;
     entities.abs_x[e] = (int16_t)c->x;
@@ -53,14 +53,15 @@ static void present(CoopCompanion *c) {
         entities.use_8dir_sprites[e] = 0;
         render_entity_sprite(e);
     }
-    if (c->shown)
-        entities.spritemap_ptr_hi[e] &= (uint16_t)~0x8000;
-    else
-        entities.spritemap_ptr_hi[e] |= 0x8000;
+    entities.spritemap_ptr_hi[e] &= (uint16_t)~0x8000;
 }
 
-static void hide(CoopCompanion *c) {
-    c->shown = 0;
+/* Hidden = no entity: remove it (if a map load hasn't already), so a hidden
+ * Companion holds no entity slot, script slot, sprite VRAM or spritemaps. */
+static void hide(int p, CoopCompanion *c) {
+    if (owns_entity(p, c))
+        remove_entity(c->entity);
+    c->spawned = 0;
     c->moved = 0;
 }
 
@@ -73,7 +74,7 @@ static bool spot_clear(int16_t x, int16_t y, uint16_t size) {
 static bool taken(const CoopCompanion *self, int16_t x, int16_t y) {
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
         const CoopCompanion *o = &coop.companions[p];
-        if (o != self && o->spawned && o->shown && abs((int16_t)o->x - x) < 12 && abs((int16_t)o->y - y) < 12)
+        if (o != self && o->spawned && abs((int16_t)o->x - x) < 12 && abs((int16_t)o->y - y) < 12)
             return true;
     }
     return false;
@@ -106,12 +107,12 @@ static void park(CoopCompanion *c) {
     c->surface = lookup_surface_flags((int16_t)c->x, (int16_t)c->y, size);
     c->moved = 0;
     c->anim = 0;
-    c->shown = 1;
 }
 
-/* Spawn Player p's Mr. Saturn in the highest free NPC slot, so a script that
- * finds entities by sprite (find_entity_by_sprite_id scans up from slot 0)
- * gets a real Mr. Saturn first. False if there's no room yet. */
+/* Spawn Player p's Mr. Saturn in the highest free NPC slot, leaving the low
+ * ones to the game. False if there's no room yet. The game's own entities
+ * always win: create_entity removes Companions when it runs out of room
+ * (coop_companion_reclaim), and this spawns only into what is free. */
 static bool spawn(int p, CoopCompanion *c) {
     if (c->retry) {
         c->retry--;
@@ -119,11 +120,11 @@ static bool spawn(int p, CoopCompanion *c) {
     }
     int16_t slot = -1;
     for (int16_t s = LAST_NPC_SLOT; s >= 0 && slot < 0; s--)
-        if (entities.script_table[s] == ENTITY_NONE)
+        if (entity_slot_available((uint16_t)s, (uint16_t)(s + 1)))
             slot = s;
     int16_t e = slot < 0 ? -1
-                         : create_entity(COMPANION_SPRITE, COMPANION_SCRIPT, slot, (int16_t)game_state.leader_x_coord,
-                                         (int16_t)game_state.leader_y_coord);
+                         : create_entity_raw(COMPANION_SPRITE, COMPANION_SCRIPT, slot,
+                                             (int16_t)game_state.leader_x_coord, (int16_t)game_state.leader_y_coord);
     if (e < 0) {
         c->retry = RETRY_FRAMES;
         return false;
@@ -133,16 +134,8 @@ static bool spawn(int p, CoopCompanion *c) {
     entities.use_8dir_sprites[e] = 0;
     c->entity = e;
     c->spawned = 1;
-    c->shown = 0;
+    park(c);
     return true;
-}
-
-static void despawn(CoopCompanion *c, int p) {
-    if (owns_entity(p, c))
-        remove_entity(c->entity);
-    c->spawned = 0;
-    c->shown = 0;
-    c->moved = 0;
 }
 
 /* How far `v` lies outside [lo, hi]. */
@@ -210,23 +203,15 @@ static void step(int p, CoopCompanion *c) {
 void coop_companion_tick(WalkControl control) {
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
         CoopCompanion *c = &coop.companions[p];
-        if (c->spawned && !owns_entity(p, c)) {
-            /* Wiped by a map load: respawn next to the Leader */
-            c->spawned = 0;
-            hide(c);
-        }
-        if (!coop_companion(p)) {
-            if (c->spawned)
-                despawn(c, p);
+        if (c->spawned && !owns_entity(p, c))
+            hide(p, c); /* wiped by a map load or reclaimed: respawn next to the Leader */
+        if (!coop_companion(p) || control == WALK_BATTLE || control == WALK_CONTROLLED) {
+            hide(p, c);
             continue;
         }
-        if (control == WALK_BATTLE || (control == WALK_CONTROLLED && coop_game_moves_party()))
-            hide(c);
-        else if (control != WALK_FREE)
-            c->moved = 0; /* paused, or the game holds the Party: stand still */
-        else if (c->spawned || spawn(p, c)) {
-            if (!c->shown)
-                park(c);
+        if (control != WALK_FREE) {
+            c->moved = 0; /* paused: stand still */
+        } else if (c->spawned || spawn(p, c)) {
             step(p, c);
             if (off_screen(c))
                 park(c);
@@ -237,33 +222,53 @@ void coop_companion_tick(WalkControl control) {
 }
 
 void coop_companion_watch(void) {
-    /* An enemy touch freezes every entity tick, the init entity's too, so
-     * coop_companion_tick doesn't run from the touch to the end of the battle */
-    if (!ow.enemy_has_been_touched && !ow.battle_swirl_countdown && !ow.battle_mode)
+    /* From an enemy touch to the end of the battle, and in a cutscene that
+     * freezes the Party (or the init entity), the Leader's tick and so
+     * coop_companion_tick don't run: hide here, once per frame. Hidden also
+     * whenever else the game controls movement, stationary or not. */
+    if (!coop_companion_spawned())
         return;
-    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
-        CoopCompanion *c = &coop.companions[p];
-        if (c->shown && owns_entity(p, c)) {
-            hide(c);
-            present(c);
-        }
-    }
+    WalkControl control = coop_walk_control();
+    if (control == WALK_BATTLE || control == WALK_CONTROLLED)
+        coop_companion_hide_all();
 }
 
 void coop_companion_hide_all(void) {
+    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
+        hide(p, &coop.companions[p]);
+}
+
+bool coop_companion_spawned(void) {
+    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
+        if (coop.companions[p].spawned)
+            return true;
+    return false;
+}
+
+bool coop_companion_reclaim(void) {
+    bool any = false;
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
         CoopCompanion *c = &coop.companions[p];
-        hide(c);
-        if (owns_entity(p, c))
-            present(c);
+        any |= owns_entity(p, c);
+        hide(p, c);
     }
+    return any;
+}
+
+bool coop_companion_slot(int16_t e) {
+    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
+        const CoopCompanion *c = &coop.companions[p];
+        if (c->entity == e && owns_entity(p, c))
+            return true;
+    }
+    return false;
 }
 
 int16_t coop_companion_entity(int player) {
     if (player < 0 || player >= PLATFORM_MAX_PLAYERS)
         return -1;
     const CoopCompanion *c = &coop.companions[player];
-    return c->shown && owns_entity(player, c) ? c->entity : -1;
+    return owns_entity(player, c) ? c->entity : -1;
 }
 
 uint32_t coop_companion_interact(int player, uint32_t (*fn)(void)) {
@@ -283,14 +288,17 @@ uint32_t coop_companion_interact(int player, uint32_t (*fn)(void)) {
     entities.hitbox_enabled[e] = 1;
     entities.collided_objects[e] = ENTITY_COLLISION_DISABLED;
     uint32_t text = fn();
-    entities.hitbox_enabled[e] = 0;
-    entities.collided_objects[e] = collided;
     /* The search turns the "Leader" to face what it found: that was Mr. Saturn */
-    c->direction = cardinal(game_state.leader_direction);
+    uint16_t found_dir = game_state.leader_direction;
     game_state.leader_x_coord = lx;
     game_state.leader_y_coord = ly;
     game_state.leader_direction = ldir;
     game_state.current_party_members = lslot;
-    present(c);
+    if (owns_entity(player, c)) { /* not reclaimed meanwhile */
+        entities.hitbox_enabled[e] = 0;
+        entities.collided_objects[e] = collided;
+        c->direction = cardinal(found_dir);
+        present(c);
+    }
     return text;
 }

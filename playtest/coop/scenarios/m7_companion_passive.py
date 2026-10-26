@@ -36,7 +36,7 @@ def run(ctx):
     expect("modes=[OVERWORLD]" in st.state and st.pos == lead, f"no door transition, Ness still at {lead}", st.state)
     expect(sat.pos[1] == DOOR[1] and DOOR[0] - 30 < sat.pos[0] < DOOR[0], "Mr. Saturn stopped at the door", sat)
     ctx.shot(s, "Mr. Saturn stopped by the door")
-    s.do(f"teleport {DOOR[0]} {DOOR[1]} 6; wait 2; 40 LEFT; until idle 300")
+    s.do(f"teleport {DOOR[0]} {DOOR[1]} 6; wait 2; 40 LEFT; until idle 300", met=True)
     st = s.state()
     expect(abs(st.pos[1] - lead[1]) > 500, "the same walk takes Ness through the door", st.pos)
 
