@@ -15,7 +15,12 @@ uncapped, so the frame rate is bounded by the round trip: D frames of input dela
 buy about D frames per round trip. Everything is killed at ``timeout`` seconds of
 wall time, or when the run ends; no process is left behind.
 
+Protocol tests can hook the run: a :class:`Trigger` calls its action once a Host
+line matches, with the proxy and each client's link port (see ``net_rejoin``).
+
 Command line (a quick look): ``python playtest/net/netrun.py --players 2 --frames 3000``.
+It exits non-zero unless every machine ran to the end and they agreed on (nearly)
+every hash point.
 """
 
 import argparse
@@ -44,6 +49,17 @@ BOOT = "300 -\n1 START\n200 -\n1 A\n120 -\n1 A\n120 -\n1 A\nuntil idle 900\n"
 SANITIZER = re.compile(r"runtime error:|ERROR: AddressSanitizer|ERROR: LeakSanitizer")
 SYNC = re.compile(r"NETSYNC f=(\d+) hash=([0-9a-f]+) (PLAYERS .*)")
 DIRS = ["UP", "DOWN", "LEFT", "RIGHT", "UP+LEFT", "UP+RIGHT", "DOWN+LEFT", "DOWN+RIGHT"]
+
+
+# Wire format bits the protocol tests need (port/unix/net/session.c): every datagram
+# starts 'E' 'N' version type, then the u32 connection nonce (epoch).
+MSG_HELLO, MSG_BYE = 1, 9
+HEADER = 8
+
+
+def bye_like(pkt):
+    """A BYE from the connection that sent ``pkt`` (its header, retyped)."""
+    return pkt[:3] + bytes([MSG_BYE]) + pkt[4:HEADER]
 
 
 class NetError(Exception):
@@ -119,6 +135,28 @@ class Peer:
     kill_after: int | None = None  # SIGKILL it (no goodbye) once it has hashed this frame
     env: dict = field(default_factory=dict)
     local_players: int = 1  # Players at this machine (--local-players)
+    start_after_exit: str | None = None  # ... or once this earlier peer's process is gone
+    link: str | None = None  # reuse this earlier peer's proxy link: the Host sees the same endpoint
+    binary: str | None = None  # another game binary for this machine (default: the run's)
+
+
+@dataclass
+class Trigger:
+    """Call ``action(ctx)`` once, when a line the Host prints matches ``on`` (regex).
+
+    ``ctx`` is a :class:`RunCtx`. Links record every datagram when a run has triggers.
+    """
+
+    on: str
+    action: object
+    nth: int = 1  # fire on the nth matching line
+
+
+@dataclass
+class RunCtx:
+    proxy: Proxy
+    ports: dict  # peer name -> its proxy link's local port
+    machines: dict  # name -> Machine (so far)
 
 
 @dataclass
@@ -157,6 +195,7 @@ class Result:
     wall: float
     proxy_stats: dict
     timed_out: bool
+    expected: list = field(default_factory=list)  # every machine the run asked for, in order
 
     def by_name(self, name):
         return next(m for m in self.machines if m.name == name)
@@ -184,6 +223,9 @@ class Result:
 
     def check_clean(self, end_frame):
         """No desync, no sanitizer report, and every machine not killed ran to ``end_frame`` and exited 0."""
+        missing = [n for n in self.expected if n not in {m.name for m in self.machines}]
+        if missing:
+            raise NetError(f"never started: {', '.join(missing)} ({self.summary()})")
         if self.timed_out:
             raise NetError(f"timed out after {self.wall:.0f}s; frames reached {self.summary()}")
         if self.desyncs:
@@ -203,7 +245,7 @@ class Result:
 
 def _reader(proc, name, q, log):
     for ln in proc.stdout:
-        log.write(ln)
+        log.write(f"{time.time():.3f} {ln}")  # <dir>/out.txt: every line, with its wall time
         q.put((name, ln.rstrip("\n")))
     q.put((name, None))
 
@@ -221,6 +263,7 @@ def run(
     host_env=None,
     wait_players=0,
     host_local_players=1,
+    triggers=(),
 ):
     """Run one Session. ``save``: story save name or .srm path for the Host. Returns a :class:`Result`."""
     net = net or Net()
@@ -232,13 +275,19 @@ def run(
         raise NetError(f"no save {save} (see docs/coop-setup.md)")
     port = free_udp_port()
     proxy = Proxy(seed=net.seed)
-    links = [proxy.add_link(port, net.latency, net.jitter, net.loss) for _ in clients]
+    ports = {}
+    for c in clients:
+        ports[c.name] = ports[c.link] if c.link else proxy.add_link(port, net.latency, net.jitter, net.loss)
+    for lp in set(ports.values()):
+        proxy.link(lp).record = bool(triggers)
+    links = [ports[c.name] for c in clients]
     proxy.start()
+    fired, hits = set(), {}
 
     q = queue.Queue()
     procs, machines, logs = {}, {}, []
 
-    def launch(name, args, script, env):
+    def launch(name, args, script, env, exe=None):
         d = out_dir / name
         d.mkdir()
         (d / "in.play").write_text(script)
@@ -246,7 +295,7 @@ def run(
         err = (d / "stderr.txt").open("w")
         logs.extend([log, err])
         p = subprocess.Popen(  # noqa: S603
-            [binary, "--headless", "--input", "in.play", *args],
+            [exe or binary, "--headless", "--input", "in.play", *args],
             cwd=d,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -284,13 +333,16 @@ def run(
                     continue
                 if c.start_on and not any(re.search(c.start_on, e) for e in host.events):
                     continue
+                if c.start_after_exit and (c.start_after_exit not in procs or procs[c.start_after_exit].poll() is None):
+                    continue
                 if procs["host"].poll() is not None:
                     pending.remove((c, lk))  # the host is gone: never start it
                     continue
                 pending.remove((c, lk))
                 if c.name in machines:  # a rejoin under the same name: keep the old one's output
                     raise NetError(f"duplicate peer name {c.name}")
-                launch(c.name, ["--join", f"127.0.0.1:{lk}", "--local-players", str(c.local_players)], c.script, c.env)
+                args = ["--join", f"127.0.0.1:{lk}", "--local-players", str(c.local_players)]
+                launch(c.name, args, c.script, c.env, c.binary)
                 open_streams += 1
             try:
                 name, ln = q.get(timeout=0.05)
@@ -300,6 +352,13 @@ def run(
             if ln is None:
                 open_streams -= 1
                 continue
+            if name == "host":
+                for i, tr in enumerate(triggers):
+                    if i not in fired and re.search(tr.on, ln):
+                        hits[i] = hits.get(i, 0) + 1
+                        if hits[i] >= tr.nth:
+                            fired.add(i)
+                            tr.action(RunCtx(proxy, ports, machines))
             s = SYNC.match(ln)
             if s:
                 m.syncs[int(s.group(1))] = (s.group(2), s.group(3))
@@ -337,7 +396,7 @@ def run(
     for m in machines.values():
         m.stderr = (m.dir / "stderr.txt").read_text(errors="replace")
     ms = [machines[n] for n in order if n in machines]
-    return Result(ms, time.time() - t0, proxy.stats(), timed_out)
+    return Result(ms, time.time() - t0, proxy.stats(), timed_out, order)
 
 
 def main():
@@ -373,7 +432,18 @@ def main():
         common, bad = r.agreement(r.machines[0], m)
         print(f"{m.name}: {len(common)} shared hash points, {len(bad)} differ")
     print(f"desyncs={r.desyncs} wall={r.wall:.1f}s {r.summary()} proxy={r.proxy_stats}")
-    return 0 if not r.desyncs and not r.timed_out else 1
+    # Success means every machine ran to the end and they agreed on (nearly) every
+    # hash point: the clients start once the Host has its Players, so a few early
+    # points are the Host's alone.
+    interval = int(os.environ.get("EB_NET_HASH_INTERVAL", "60"))
+    try:
+        r.check_clean(a.frames)
+        r.check_agreement(min_common=max(1, a.frames // interval - 5))
+    except NetError as e:
+        print(f"FAIL: {e}")
+        return 1
+    print("PASS")
+    return 0
 
 
 if __name__ == "__main__":

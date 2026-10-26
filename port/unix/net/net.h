@@ -31,7 +31,7 @@ typedef struct {
     int local_players;      /* Players at this machine (1-4): the Host is P1..PN, a client
                              * gets the next N free Players */
     uint32_t end_frame;     /* Host, tests: every machine quits after running this frame (0 = never) */
-    int wait_players;       /* Host: the game waits until this many Players are in (0/1 = don't) */
+    int wait_players;       /* Host, tests: the game waits while fewer Players are in (0/1 = don't) */
 } NetConfig;
 
 /* Hooks net_frame needs from the input layer. */
