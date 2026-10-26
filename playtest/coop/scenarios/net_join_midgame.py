@@ -38,7 +38,10 @@ def run(ctx):
     expect(p2.event(rf"^NET LOADED P2 f={j}$"), f"the joiner loaded the game at frame {j}", p2.events)
     common, bad = r.agreement(host, p2)
     expect(not bad, "the joiner to agree with the Host on every shared frame", bad[:3])
-    after = [f for f in common if f >= j]
+    # A hash point on the JOIN frame itself is taken before the event applies, so "after" is
+    # strictly later frames (the join frame depends on wall-clock timing: it can land on a
+    # multiple of the hash interval).
+    after = [f for f in common if f > j]
     expect(after and after[-1] - after[0] >= 1000, "1000+ frames of agreement after the join", after[-1:])
     before = [f for f in host.syncs if f < j]
     expect(all("P2:-" in host.syncs[f][1] for f in before), "P2 not joined before the join", before[-1:])

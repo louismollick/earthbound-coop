@@ -70,3 +70,8 @@ or re-ensure it at every read.
 ## (d) Unclear or not fixed
 
 - `title_script_bank*` `title_spritemap_data` `title_script_pointers` `title_spritemap_offsets` `script_bank_buf` `script_ptrs_buf` `spritemap_buf`: title-screen script bank, registered and freed by `load_title_screen_script_data`/`free_title_screen_script_data`; a savestate taken on the title screen restores without it (title sprites missing). Not fixed: binding it at init would change the script bank registry
+
+## Added after the Companion merge
+
+- `step_kind` (coop_walk.c): (b) set and cleared around one walker-step call in the same frame; never live across frames.
+- `sfx_trace_hook` (audio.c): (b) harness test hook (prints SFX lines), set by the host, never game state.
