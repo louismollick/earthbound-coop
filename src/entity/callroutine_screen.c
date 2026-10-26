@@ -3,6 +3,7 @@
  * Extracted from callroutine.c.
  */
 #include "entity/callroutine_internal.h"
+#include "coop/coop_camera.h"
 #include "entity/buffer_layout.h"
 #include "entity/entity.h"
 #include "entity/script.h"
@@ -852,10 +853,11 @@ int16_t cr_is_entity_near_leader(int16_t entity_offset, int16_t script_offset,
     if (ow.psi_teleport_speed_int >= 4)
         return -1;
     int16_t ent_off = ENT(ert.current_entity_slot);
+    /* Co-op measures from the view centre (coop_near_x/y), solo from the Leader */
     int16_t rel_x = entities.abs_x[ent_off] -
-                     ((int16_t)game_state.leader_x_coord - EB_VIEWPORT_CENTER_X);
+                     ((int16_t)coop_near_x() - EB_VIEWPORT_CENTER_X);
     int16_t rel_y = entities.abs_y[ent_off] -
-                     ((int16_t)game_state.leader_y_coord - EB_VIEWPORT_CENTER_Y);
+                     ((int16_t)coop_near_y() - EB_VIEWPORT_CENTER_Y);
     if (rel_x >= -64 && rel_x < (EB_VIEWPORT_WIDTH + 64) && rel_y >= -64 && rel_y < (EB_VIEWPORT_HEIGHT + 96))
         return -1;  /* on screen */
     return 0;       /* off screen */

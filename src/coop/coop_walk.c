@@ -7,6 +7,7 @@
 #include "coop/coop_walk.h"
 
 #include "coop/coop.h"
+#include "coop/coop_camera.h"
 #include "core/memory.h"
 #include "core/mode_stack.h"
 #include "data/assets.h"
@@ -27,17 +28,16 @@
 #define CHARACTER_SIZES_COUNT 17      /* CHARACTER_SIZES entries, as in position_buffer.c */
 #define VAR7_SPACING_FLAG (1 << 12)   /* entity var7 bit 12, set while a follower catches up */
 
-/* TEMPORARY safety clamp, until the leash (M1 camera item) replaces it: the
- * camera still follows the Leader and the collision grid is only 64x64 tiles
- * around the camera, so a non-Leader Walker stays within this many px of the
- * Leader on each axis (on screen, 16 px from the edge). */
-#define TEMP_CLAMP_X (EB_VIEWPORT_WIDTH / 2 - 16)
-#define TEMP_CLAMP_Y (EB_VIEWPORT_HEIGHT / 2 - 16)
-
 typedef enum {
     WALK_FREE,        /* plain overworld control: Walkers step */
     WALK_PAUSED,      /* a window, text box or interaction: Walkers hold still */
-    WALK_CONTROLLED,  /* the game moves the party: chains snap */
+    WALK_BATTLE,      /* an enemy touched the party, the swirl or a battle: Walkers hold
+                       * still and stay independent, so they are back where they stood
+                       * after the battle (the touch disables every entity's tick, which
+                       * would otherwise read as "scripted") */
+    WALK_CONTROLLED,  /* the game controls movement: Walkers hold still; once the game
+                       * actually moves the party (game_moves_party), chains snap and
+                       * regroup */
 } WalkControl;
 
 static bool in_walker_step;
@@ -84,16 +84,23 @@ static int chain_length(const uint8_t chain[TOTAL_PARTY_COUNT]) {
     return n;
 }
 
-/* A chain member that no longer runs the follower tick (a script owns it, it's
- * frozen, or it's gone): the game controls that chain. */
+/* A party entity whose tick is the follower tick (frozen or not). */
+static bool runs_follower_tick(int16_t e) {
+    uint32_t addr = ((uint32_t)(entities.tick_callback_hi[e] & 0xFF) << 16) | entities.tick_callback_lo[e];
+    return entities.script_table[e] != ENTITY_NONE && addr == FOLLOWER_TICK_ADDR;
+}
+
+/* A party entity that no longer runs the follower tick: a script owns it, it's
+ * frozen, or it's gone. */
+static bool member_scripted(int16_t e) {
+    return !runs_follower_tick(e) || (entities.tick_callback_hi[e] & OBJECT_TICK_DISABLED);
+}
+
+/* A chain member is scripted: the game controls that chain. */
 static bool chain_scripted(const uint8_t chain[TOTAL_PARTY_COUNT]) {
-    for (int k = 0; k < TOTAL_PARTY_COUNT && chain[k] != NO_MEMBER; k++) {
-        int16_t e = member_entity(chain[k]);
-        uint32_t addr = ((uint32_t)(entities.tick_callback_hi[e] & 0xFF) << 16) | entities.tick_callback_lo[e];
-        if (entities.script_table[e] == ENTITY_NONE || (entities.tick_callback_hi[e] & OBJECT_TICK_DISABLED) ||
-            addr != FOLLOWER_TICK_ADDR)
+    for (int k = 0; k < TOTAL_PARTY_COUNT && chain[k] != NO_MEMBER; k++)
+        if (member_scripted(member_entity(chain[k])))
             return true;
-    }
     return false;
 }
 
@@ -127,7 +134,7 @@ static void chain_graphics(const CoopWalker *w, int16_t ent, uint16_t walking_st
 
 static WalkControl walk_control(void) {
     if (ow.battle_mode || ow.battle_swirl_countdown || ow.enemy_has_been_touched)
-        return WALK_CONTROLLED;
+        return WALK_BATTLE;
     if (game_state.camera_mode || ow.player_movement_flags)
         return WALK_CONTROLLED;
     if (game_state.walking_style == WALKING_STYLE_ESCALATOR || game_state.walking_style == WALKING_STYLE_STAIRS ||
@@ -148,8 +155,18 @@ static WalkControl walk_control(void) {
     return WALK_FREE;
 }
 
+/* Under WALK_CONTROLLED: the game is moving the party now (the Leader moved).
+ * Until then the chains hold where they stand, so a door's text, an NPC
+ * freezing the party for a line or a scripted pause doesn't pull everyone onto
+ * the Leader. A door or screen transition regroups at its fade instead
+ * (coop_walk_regroup), as every entity is frozen by then. */
+static bool game_moves_party(void) {
+    return game_state.leader_moved != 0;
+}
+
 bool coop_game_controls_movement(void) {
-    return walk_control() == WALK_CONTROLLED;
+    WalkControl c = walk_control();
+    return c == WALK_CONTROLLED || c == WALK_BATTLE;
 }
 
 /* ---- Snap / unsnap ---- */
@@ -158,6 +175,38 @@ static void snap(CoopWalker *w) {
     w->active = 0;
     w->moved = 0;
     w->touched = -1;
+}
+
+static int chain_of_entity(int16_t ent, int *k);
+
+/* Snap's visible half: every follower takes its vanilla place on the Leader's
+ * trail at once, `spacing` entries behind its Party predecessor, so a snapped
+ * chain regroups behind the Leader (before a door's fade, a cutscene, the
+ * stairs) instead of standing where it was until the Leader moves. Members of
+ * chains still independent keep their shadow index and their place; members a
+ * script owns keep their place (frozen ones are placed). */
+static void regroup(void) {
+    uint8_t lead = party_pos_pidx(0);
+    if (lead == NO_MEMBER)
+        return;
+    uint8_t idx = (uint8_t)party_characters[lead].position_index;
+    for (int i = 1; i < game_state.party_count && i < TOTAL_PARTY_COUNT; i++) {
+        uint8_t pidx = party_pos_pidx(i);
+        if (pidx == NO_MEMBER)
+            continue;
+        int16_t e = member_entity(pidx);
+        int k;
+        if (chain_of_entity(e, &k) < 0)
+            idx = (uint8_t)(idx - follower_spacing(entities.var[0][e], game_state.walking_style));
+        party_characters[pidx].position_index = idx;
+        if (chain_of_entity(e, &k) >= 0 || !runs_follower_tick(e))
+            continue;
+        const PositionBufferEntry *en = &pb.player_position_buffer[idx];
+        entities.abs_x[e] = en->x_coord;
+        entities.abs_y[e] = en->y_coord;
+        entities.directions[e] = (int16_t)en->direction;
+        entities.surface_flags[e] = en->tile_flags;
+    }
 }
 
 static PositionBufferEntry entity_entry(int16_t e) {
@@ -214,10 +263,18 @@ static void unsnap(CoopWalker *w, const uint8_t chain[TOTAL_PARTY_COUNT]) {
         }
         shown = (uint8_t)(shown - segment);
         w->ring_index[k] = (uint8_t)(shown + 1);
+        w->shown[k] = shown;
     }
+    w->shown[0] = 0;
     for (int k = n; k < TOTAL_PARTY_COUNT; k++)
-        w->ring_index[k] = 0;
+        w->ring_index[k] = w->shown[k] = 0;
     w->active = 1;
+}
+
+void coop_walk_regroup(void) {
+    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
+        snap(&coop.walkers[p]);
+    regroup();
 }
 
 void coop_walk_on_trail_reset(void) {
@@ -236,6 +293,69 @@ uint16_t coop_walker_door(uint16_t x_tile, uint16_t y_tile) {
     if (type == DOOR_TYPE_3 || type == DOOR_TYPE_4)
         return 0;
     return process_door_at_tile(x_tile, y_tile);
+}
+
+/* ---- The leash ---- */
+
+/* A step from `from` to `to` on one axis widens the Walkers' spread past `cap`,
+ * given the other Walkers' range [lo, hi] on that axis. A step that narrows an
+ * already too wide spread is fine. */
+static bool widens_past(int lo, int hi, int from, int to, int cap) {
+    int before = (hi > from ? hi : from) - (lo < from ? lo : from);
+    int after = (hi > to ? hi : to) - (lo < to ? lo : to);
+    return after > cap && after > before;
+}
+
+/* The axes of a step the leash reverts (1 = x, 2 = y). `mover` is the Player
+ * whose Walker steps, or -1 for the Leader; (leader_x, leader_y) is the
+ * Leader's position, used when another Walker steps. */
+static int leash(int mover, int leader_x, int leader_y, int from_x, int from_y, int to_x, int to_y) {
+    int lo_x = 0, hi_x = 0, lo_y = 0, hi_y = 0;
+    bool any = false;
+    for (int p = -1; p < PLATFORM_MAX_PLAYERS; p++) {
+        int x, y;
+        if (p == mover)
+            continue;
+        if (p < 0) {
+            x = leader_x;
+            y = leader_y;
+        } else if (coop.walkers[p].active) {
+            x = coop.walkers[p].x;
+            y = coop.walkers[p].y;
+        } else {
+            continue;
+        }
+        if (!any || x < lo_x) lo_x = x;
+        if (!any || x > hi_x) hi_x = x;
+        if (!any || y < lo_y) lo_y = y;
+        if (!any || y > hi_y) hi_y = y;
+        any = true;
+    }
+    if (!any)
+        return 0;
+    return (widens_past(lo_x, hi_x, from_x, to_x, COOP_LEASH_SPREAD_X) ? 1 : 0) |
+           (widens_past(lo_y, hi_y, from_y, to_y, COOP_LEASH_SPREAD_Y) ? 2 : 0);
+}
+
+void coop_leader_step(void) {
+    uint16_t x = game_state.leader_x_coord, x_frac = game_state.leader_x_frac;
+    uint16_t y = game_state.leader_y_coord, y_frac = game_state.leader_y_frac;
+    update_overworld_player_input();
+    if (walk_control() != WALK_FREE)
+        return;
+    int revert = leash(-1, 0, 0, x, y, game_state.leader_x_coord, game_state.leader_y_coord);
+    if (revert & 1) {
+        game_state.leader_x_coord = x;
+        game_state.leader_x_frac = x_frac;
+    }
+    if (revert & 2) {
+        game_state.leader_y_coord = y;
+        game_state.leader_y_frac = y_frac;
+    }
+    /* Held in place on both axes: a stop, as at a wall */
+    if (revert && game_state.leader_x_coord == x && game_state.leader_x_frac == x_frac &&
+        game_state.leader_y_coord == y && game_state.leader_y_frac == y_frac)
+        game_state.leader_moved = 0;
 }
 
 /* One frame of Player p's Walker: the Leader's own movement step with the
@@ -286,12 +406,12 @@ static void walker_step(int p, CoopWalker *w) {
 
     uint16_t x_frac = game_state.leader_x_frac, x = game_state.leader_x_coord;
     uint16_t y_frac = game_state.leader_y_frac, y = game_state.leader_y_coord;
-    /* TEMPORARY clamp (see TEMP_CLAMP_X): revert an axis that strays too far */
-    if ((int16_t)(x - lx) > TEMP_CLAMP_X || (int16_t)(x - lx) < -TEMP_CLAMP_X) {
+    int revert = leash(p, lx, ly, w->x, w->y, x, y);
+    if (revert & 1) {
         x = w->x;
         x_frac = w->x_frac;
     }
-    if ((int16_t)(y - ly) > TEMP_CLAMP_Y || (int16_t)(y - ly) < -TEMP_CLAMP_Y) {
+    if (revert & 2) {
         y = w->y;
         y_frac = w->y_frac;
     }
@@ -349,14 +469,22 @@ static void walker_step(int p, CoopWalker *w) {
 
 void coop_walk_leader_tick(void) {
     WalkControl control = walk_control();
+    bool snapped = false;
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
         CoopWalker *w = &coop.walkers[p];
+        if (control == WALK_BATTLE) {
+            w->moved = 0;
+            w->touched = -1;
+            continue;
+        }
         uint8_t chain[TOTAL_PARTY_COUNT];
         int n = current_chain(p, chain);
         bool scripted = n && chain_scripted(chain);
-        if (w->active && (control == WALK_CONTROLLED || scripted ||
-                          memcmp(chain, w->chain, TOTAL_PARTY_COUNT) != 0))
+        if (w->active && ((control == WALK_CONTROLLED && game_moves_party()) || scripted ||
+                          memcmp(chain, w->chain, TOTAL_PARTY_COUNT) != 0)) {
             snap(w);
+            snapped = true;
+        }
         if (!w->active) {
             if (control == WALK_FREE && n && !scripted)
                 unsnap(w, chain);
@@ -369,6 +497,9 @@ void coop_walk_leader_tick(void) {
             w->touched = -1;
         }
     }
+    if (snapped)
+        regroup();
+    coop_camera_update();
 }
 
 /* ---- Chain members' ticks ---- */
@@ -422,8 +553,10 @@ bool coop_walk_follower_tick(int16_t ent) {
     WalkControl control = walk_control();
     uint8_t chain[TOTAL_PARTY_COUNT];
     current_chain(p, chain);
-    if (control == WALK_CONTROLLED || memcmp(chain, w->chain, TOTAL_PARTY_COUNT) != 0 || chain_scripted(chain)) {
+    if ((control == WALK_CONTROLLED && game_moves_party()) || memcmp(chain, w->chain, TOTAL_PARTY_COUNT) != 0 ||
+        chain_scripted(chain)) {
         snap(w);
+        regroup();
         return false;
     }
     if (control != WALK_FREE)
@@ -451,10 +584,14 @@ bool coop_walk_follower_tick(int16_t ent) {
     entities.directions[ent] = (int16_t)en->direction;
     entities.surface_flags[ent] = en->tile_flags;
     chain_graphics(w, ent, en->walking_style);
+    if (w->moved)
+        w->shown[k] = idx;
+    /* Placed every frame, not only when the Walker moves: after a battle
+     * refresh_party_entities has put the chain on the Leader's trail */
+    entities.abs_x[ent] = w->trail[w->shown[k]].x_coord;
+    entities.abs_y[ent] = w->trail[w->shown[k]].y_coord;
     if (!w->moved)
         return true;
-    entities.abs_x[ent] = en->x_coord;
-    entities.abs_y[ent] = en->y_coord;
     party_characters[pidx].buffer_walking_style = en->walking_style;
     uint16_t spacing = follower_spacing(entities.var[0][ent], en->walking_style);
     uint8_t prev = k == 1 ? w->head : w->ring_index[k - 1];
@@ -468,6 +605,46 @@ bool coop_walk_follower_tick(int16_t ent) {
     }
     w->ring_index[k] = idx;
     return true;
+}
+
+/* ---- Enemy contact ---- */
+
+int16_t coop_walker_touching(int16_t slot) {
+    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
+        const CoopWalker *w = &coop.walkers[p];
+        if (w->active && w->touched == slot)
+            return member_entity(w->chain[0]);
+    }
+    return -1;
+}
+
+uint16_t coop_contact_facing(int16_t target) {
+    if (target >= PARTY_LEADER_ENTITY_INDEX && target < MAX_ENTITIES && target != (int16_t)game_state.current_party_members) {
+        int16_t char_id = entities.var[0][target];
+        if (char_id >= 0 && char_id < COOP_HERO_COUNT && coop_hero_owner(char_id) != coop_leader_owner())
+            return (uint16_t)(entities.directions[target] & 7);
+    }
+    return game_state.leader_direction;
+}
+
+void coop_contact_turn(void) {
+    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
+        CoopWalker *w = &coop.walkers[p];
+        if (!w->active || w->walking_style == WALKING_STYLE_LADDER || w->walking_style == WALKING_STYLE_ROPE)
+            continue;
+        uint16_t held = core.pad1_held;
+        core.pad1_held = coop.walk_pad[p] & 0xFFF0;
+        int16_t dir = map_input_to_direction(w->walking_style);
+        core.pad1_held = held;
+        if (dir < 0)
+            continue;
+        w->direction = (uint16_t)dir;
+        for (int k = 0; k < TOTAL_PARTY_COUNT && w->chain[k] != NO_MEMBER; k++) {
+            int16_t e = member_entity(w->chain[k]);
+            if (entities.script_table[e] != ENTITY_NONE)
+                entities.directions[e] = dir;
+        }
+    }
 }
 
 /* ---- Queries ---- */

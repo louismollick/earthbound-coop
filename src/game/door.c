@@ -17,6 +17,8 @@
  */
 
 #include "game/door.h"
+#include "coop/coop.h"
+#include "coop/coop_walk.h"
 
 #include "core/math.h"
 #include "include/binary.h"
@@ -937,6 +939,8 @@ static bool screen_transition_prepare(uint8_t transition_type, uint8_t mode,
 
     if (mode == 1) {
         /* ====== EXIT TRANSITION (fade out) ====== */
+        if (coop_player_count() > 1)  /* co-op: the Party regroups behind the Leader */
+            coop_walk_regroup();
 
         /* Assembly line 50: disable all entities, wait 2 frames. The
          * disable_all_entities() + 2-frame settle now run as the caller's

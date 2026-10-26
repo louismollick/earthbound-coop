@@ -53,7 +53,7 @@
  *                    write the current frame as a PNG (PATH if it ends in
  *                    .png, else shots/NNNN[-LABEL].png). Prints SHOT path.
  *                    --crop: a WxH box centred on the leader; --zoom: scale up
- *   state [LABEL]    print STATE/PARTY/PLAYERS/FOLLOW(/NEAR/ENEMIES) lines
+ *   state [LABEL]    print STATE/PARTY/PLAYERS/CAMERA/FOLLOW(/NEAR/ENEMIES) lines
  *   text             print the text in every open window (WIN) and the
  *                    active menu (MENU)
  *   sync ID          print "SYNC ID" (the session driver waits for it)
@@ -666,6 +666,14 @@ static void print_state(const char *label) {
     }
     printf("\n");
     print_players();
+    /* The view centre in world pixels (BG1 scroll + half the viewport) and the viewport size */
+    printf("CAMERA (%u,%u) view=%dx%d\n", (uint16_t)(ppu.bg_hofs[0] + EB_VIEWPORT_CENTER_X),
+           (uint16_t)(ppu.bg_vofs[0] + EB_VIEWPORT_CENTER_Y), EB_VIEWPORT_WIDTH, EB_VIEWPORT_HEIGHT);
+    /* Enemy contact, from the touch until the battle: the touched enemy's slot, the party entity
+     * it targets, and the initiative (set when the swirl starts: 0 normal, 1 party first, 2 enemies first) */
+    if (ow.enemy_has_been_touched || ow.battle_swirl_countdown)
+        printf("CONTACT enemy=%d target=%d initiative=%u\n", bt.touched_enemy, ert.enemy_pathfinding_target_entity,
+               (unsigned)bt.battle_initiative);
 
     /* Followers: (dx,dy) of each party entity from the leader entity, in
      * party order. A hidden follower (spacing / no sprite) is marked. */

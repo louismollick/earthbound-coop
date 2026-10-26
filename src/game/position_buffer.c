@@ -662,6 +662,10 @@ static void update_camera_mode_3(void) {
         return;
     }
 
+    /* Co-op: each independent Walker chain turns with its own Player's pad */
+    if (coop_player_count() > 1)
+        coop_contact_turn();
+
     /* Get player input direction (assembly lines 12-18) */
     int16_t input_dir = map_input_to_direction(game_state.walking_style);
     if (input_dir == -1) return;
@@ -672,6 +676,7 @@ static void update_camera_mode_3(void) {
 
         /* Skip if entity has no active script (assembly lines 26-28) */
         if (entities.script_table[ent_off] == -1) continue;
+        if (coop_player_count() > 1 && coop_walk_entity_independent(ent_off)) continue;  /* co-op: turned above */
 
         /* Skip if already facing the input direction (assembly lines 37-38) */
         if (entities.directions[ent_off] == input_dir) continue;
@@ -1603,6 +1608,8 @@ void update_leader_movement(int16_t entity_offset) {
             (void)prev_leader_moved;
         } else if (game_state.walking_style == WALKING_STYLE_BICYCLE) {
             update_bicycle_movement(prev_leader_moved);
+        } else if (coop_player_count() > 1) {
+            coop_leader_step();  /* co-op: the same step, leashed to the other Walkers */
         } else {
             update_overworld_player_input();
             (void)prev_leader_moved;
@@ -1638,7 +1645,8 @@ void update_leader_movement(int16_t entity_offset) {
      * Assembly: JSL CENTER_SCREEN → JSR REFRESH_MAP_AT_POSITION.
      * center_screen() calls map_refresh_tilemaps() which updates scroll
      * registers AND incrementally streams new map tile rows/columns. */
-    if (game_state.leader_moved) {
+    /* Co-op: coop_walk_leader_tick moves the camera instead (coop/coop_camera.h) */
+    if (game_state.leader_moved && coop_player_count() <= 1) {
         center_screen(game_state.leader_x_coord, game_state.leader_y_coord);
     }
 
