@@ -63,6 +63,10 @@ log "baseline build (upstream $BASE_COMMIT)"
 if [ ! -x port/unix/build-base/earthbound ]; then
   WT="$ROOT/../ebsrc-base"
   [ -d "$WT" ] || git worktree add --detach "$WT" "$BASE_COMMIT"
+  # A reused checkout must still be at the baseline, or the vanilla gate compares against co-op code
+  if [ "$(git -C "$WT" rev-parse HEAD)" != "$BASE_COMMIT" ] || [ -n "$(git -C "$WT" status --porcelain --untracked-files=no)" ]; then
+    echo "ERROR: $WT is not a clean checkout of $BASE_COMMIT; fix or remove it"; exit 1
+  fi
   for p in asm/bin src/assets src/vendor/tamp; do
     [ -e "$WT/$p" ] && [ ! -L "$WT/$p" ] && rm -rf "${WT:?}/$p"
     [ -e "$WT/$p" ] || ln -s "$ROOT/$p" "$WT/$p"

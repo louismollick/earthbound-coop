@@ -485,14 +485,13 @@ void host_process_frame(void) {
     }
     memory_update_joypad(current_pad);
 
-    /* Co-op join/leave (coop/coop.h). Like P1's pad above, an unwind sees no input. */
-    {
-        uint16_t held[PLATFORM_MAX_PLAYERS], pressed[PLATFORM_MAX_PLAYERS];
-        for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
-            held[p] = capture_unwinding ? 0 : platform_input_get_pad_n(p);
-            pressed[p] = capture_unwinding ? 0 : platform_input_get_pad_new_n(p);
-        }
-        coop_tick(held, pressed);
+    /* Co-op join/leave (coop/coop.h). An unwind frame is skipped entirely: its
+     * pads are not real input, so it must neither release a hold nor count one. */
+    if (!capture_unwinding) {
+        uint16_t held[PLATFORM_MAX_PLAYERS];
+        for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
+            held[p] = platform_input_get_pad_n(p);
+        coop_tick(held);
     }
 
 #ifdef EB_ENABLE_VERIFY

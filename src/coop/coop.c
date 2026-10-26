@@ -44,7 +44,12 @@ void coop_leave(int player) {
     deal_heroes();
 }
 
-void coop_tick(const uint16_t held[PLATFORM_MAX_PLAYERS], const uint16_t pressed[PLATFORM_MAX_PLAYERS]) {
+void coop_tick(const uint16_t held[PLATFORM_MAX_PLAYERS]) {
+    uint16_t pressed[PLATFORM_MAX_PLAYERS];
+    for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
+        pressed[p] = held[p] & ~coop.prev_held[p];
+        coop.prev_held[p] = held[p];
+    }
     for (int p = 1; p < PLATFORM_MAX_PLAYERS; p++) {
         if (!coop.joined[p]) {
             if (pressed[p] & PAD_START)

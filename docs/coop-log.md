@@ -20,3 +20,10 @@ One entry per PLAN.md item: what changed, gate results, decisions and deviations
 - `playtest/coop/run_all.py` + 6 scenarios (bedroom join, `--players`, leave, savestate across processes, prefix forms at 4P, full-Party ownership on 27-Kraken).
 - Gates: PASS. regress 0/32 differ, framehash 0 changed frames over 31 cases, pytest 1827 passed / 5 skipped, co-op 6/6, ASan+UBSan 6/6 clean. Contact sheet read: shots match state.
 - Untested: the IJKL layout and real controllers (need a windowed session), the arm builds (no toolchain here). The external gw firmware repo will need `src/coop/coop.c` and the `_n` functions.
+
+### M0 adversarial review (GPT 6.1 Sol, one pass) and fixes
+- Bug: join edges came from the platform's unserialized `pad_prev`. Fixed: `CoopState.prev_held[4]` (serialized; struct now 26 bytes) and `coop_tick(held)` computes edges itself.
+- Bug: capture-unwind frames reset leave counters and could fake a fresh Start (rejoin). Fixed: `coop_tick` is skipped on unwind frames, and paused script frames keep sticky holds. New scenario `p2_capture_holds` (failed before, passes after).
+- Risk: out-of-order ownership was only checked with Ness present (a by-Player-number deal passed). Fixed: `ownership_full_party` now joins P3, P4, P2 with all four Heroes, has a middle Player leave and rejoin, and asserts every owner.
+- Risk: setup could reuse a moved `../ebsrc-base`. Fixed: setup checks it's a clean checkout of d32c421.
+- Gates `--full --framehash`: PASS (regress 0 differ, framehash 0 changed frames, co-op 7/7, ASan+UBSan clean).

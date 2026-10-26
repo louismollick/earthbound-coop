@@ -33,14 +33,18 @@ typedef struct {
     uint8_t joined[PLATFORM_MAX_PLAYERS];       /* 1 if Player p is joined */
     uint8_t leave_hold[PLATFORM_MAX_PLAYERS];   /* consecutive frames Player p has held Select+Start */
     uint8_t hero_owner[COOP_HERO_COUNT];        /* Owner (Player) of Hero h; derived from join_order */
+    uint16_t prev_held[PLATFORM_MAX_PLAYERS];   /* each pad as coop_tick last saw it: join edges are
+                                                 * computed from this serialized history, not the
+                                                 * platform's, so a savestate load can't fake or eat one */
 } CoopState;
 
 extern CoopState coop;
 
 /* Once per game frame, where the pad is sampled (host_process_frame): join and
- * leave from each Player's held / newly pressed buttons. Frames that must see no
- * input (a capture unwind) pass zeros. */
-void coop_tick(const uint16_t held[PLATFORM_MAX_PLAYERS], const uint16_t pressed[PLATFORM_MAX_PLAYERS]);
+ * leave from each Player's held buttons (edges against coop.prev_held). Not
+ * called on capture-unwind frames, so an unwind neither releases a hold nor
+ * resets a leave counter. */
+void coop_tick(const uint16_t held[PLATFORM_MAX_PLAYERS]);
 
 /* Join / leave Player p (0 = P1; P1 can't leave). No-op if already in that state. */
 void coop_join(int player);

@@ -33,3 +33,21 @@ def run(ctx):
     s.do("P2 130 SELECT+START")
     want = {1: (["Ness", "Jeff"], "Ness"), 3: (["Paula", "Poo"], "Paula")}
     expect(owners(s.players()) == want, f"after P2 left: {want}", owners(s.players()))
+
+    # Out-of-order joins with all four Heroes present: the deal follows join order,
+    # not Player number. Join order P1, P3, P4, P2: Ness P1, Paula P3, Jeff P4, Poo P2.
+    s = ctx.session(save="27-Kraken", name="order")
+    s.boot()
+    s.do("P3 press START; P4 press START; P2 press START")
+    want = {1: (["Ness"], "Ness"), 2: (["Poo"], "Poo"), 3: (["Paula"], "Paula"), 4: (["Jeff"], "Jeff")}
+    expect(owners(s.players()) == want, f"joins P3, P4, P2: {want}", owners(s.players()))
+
+    # A middle Player leaves (order P1, P3, P2): Ness P1, Paula P3, Jeff P2, Poo P1
+    s.do("P4 130 SELECT+START; 5 -")
+    want = {1: (["Ness", "Poo"], "Ness"), 2: (["Jeff"], "Jeff"), 3: (["Paula"], "Paula")}
+    expect(owners(s.players()) == want, f"after P4 left: {want}", owners(s.players()))
+
+    # ...and rejoins at the end (order P1, P3, P2, P4): Ness P1, Paula P3, Jeff P2, Poo P4
+    s.do("P4 press START")
+    want = {1: (["Ness"], "Ness"), 2: (["Jeff"], "Jeff"), 3: (["Paula"], "Paula"), 4: (["Poo"], "Poo")}
+    expect(owners(s.players()) == want, f"after P4 rejoined: {want}", owners(s.players()))

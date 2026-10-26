@@ -129,6 +129,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - Joins persist across new games and file loads within a process; a savestate load replaces them with the savestate's. (M0)
 - Ownership is dealt by join order, not by Player number. Walkers are derived (not stored) from ownership plus the Party. (M0)
 - Savestate format stays v16; the new SECTION_COOP changes `layout_id`, which already rejects old slots. (M0)
+- Co-op join edges use co-op's own serialized pad history; capture-unwind frames are invisible to co-op. (M0 review)
 - Design memos for input focus (M2/M3) and Walkers (M1) are in `docs/coop-design/`. (M0)
 
 ## Blocked

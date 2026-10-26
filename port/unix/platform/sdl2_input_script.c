@@ -1503,12 +1503,14 @@ static uint16_t script_step(uint16_t *aux, bool *paused) {
 }
 
 /* One frame of script input: every Player's pad. The running command drives
- * cmd_player's pad, the others are 0, and sticky holds OR in on top. */
+ * cmd_player's pad, the others are 0, and sticky holds OR in on top. A paused
+ * frame (a capture or other command in progress) drives no command but keeps
+ * the sticky holds: a hold means the button stays down until released. */
 void input_script_next(uint16_t pads[PLATFORM_MAX_PLAYERS], uint16_t *aux) {
     bool paused = false;
     uint16_t pad = script_step(aux, &paused);
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
-        pads[p] = paused ? 0 : (uint16_t)((p == cmd_player ? pad : 0) | sticky_hold[p]);
+        pads[p] = (uint16_t)((!paused && p == cmd_player ? pad : 0) | sticky_hold[p]);
 }
 
 /* Called by the main loop at the root boundary, after host_root_boundary():
