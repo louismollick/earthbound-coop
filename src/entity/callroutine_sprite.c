@@ -3,6 +3,7 @@
  * Extracted from callroutine.c.
  */
 #include "entity/callroutine_internal.h"
+#include "coop/coop_camera.h"
 #include "entity/entity.h"
 #include "entity/sprite.h"
 #include "data/event_script_data.h"
@@ -269,8 +270,9 @@ int16_t cr_reset_entity_animation(int16_t ent, int16_t scr,
     /* During fast teleportation, always treat entities as on-screen */
     if (ow.psi_teleport_speed_int >= 4)
         return -1;
-    int16_t leader_sx = (int16_t)game_state.leader_x_coord - EB_VIEWPORT_CENTER_X;
-    int16_t leader_sy = (int16_t)game_state.leader_y_coord - EB_VIEWPORT_CENTER_Y;
+    /* Co-op measures from the view centre (coop_near_x/y), solo from the Leader */
+    int16_t leader_sx = (int16_t)coop_near_x() - EB_VIEWPORT_CENTER_X;
+    int16_t leader_sy = (int16_t)coop_near_y() - EB_VIEWPORT_CENTER_Y;
 
     int16_t rel_x = entities.abs_x[ent] - leader_sx;
     int16_t rel_y = entities.abs_y[ent] - leader_sy;

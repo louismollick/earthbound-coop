@@ -53,7 +53,7 @@
  *                    write the current frame as a PNG (PATH if it ends in
  *                    .png, else shots/NNNN[-LABEL].png). Prints SHOT path.
  *                    --crop: a WxH box centred on the leader; --zoom: scale up
- *   state [LABEL]    print STATE/PARTY/PLAYERS/FOLLOW(/NEAR/ENEMIES) lines
+ *   state [LABEL]    print STATE/PARTY/PLAYERS/CAMERA/FOLLOW(/NEAR/ENEMIES) lines
  *   text             print the text in every open window (WIN) and the
  *                    active menu (MENU)
  *   sync ID          print "SYNC ID" (the session driver waits for it)
@@ -102,6 +102,7 @@
 #include "core/mode_stack.h"
 #include "coop/coop.h"
 #include "coop/coop_walk.h"
+#include "coop/coop_input.h"
 #include "entity/entity.h"
 #include "game/battle.h"
 #include "game/display_text.h"
@@ -582,9 +583,10 @@ static void print_surface(uint16_t sf) {
     printf(")");
 }
 
-/* PLAYERS P1:joined owns=Ness,Jeff walker=Ness pos=(X,Y) dir=UP walk=0 | P2:joined owns=- walker=- spectator | P3:- | P4:-
+/* PLAYERS P1:joined owns=Ness,Jeff walker=Ness pos=(X,Y) dir=UP walk=0 | P2:joined owns=- walker=- spectator | P3:- | P4:- | focus=P1
  * owns = the Player's Heroes present in the Party (Party order); walker = coop_walker_info()
- * (pos/dir/walk: the Leader's globals, an independent Walker's state, else its entity) */
+ * (pos/dir/walk: the Leader's globals, an independent Walker's state, else its entity);
+ * focus = the input focus, P1-P4 (" locked": holding the overworld lock) or ALL */
 static void print_players(void) {
     printf("PLAYERS");
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
@@ -615,7 +617,12 @@ static void print_players(void) {
                    w.walking_style);
         }
     }
-    printf("\n");
+    /* The input focus (coop/coop_input.h): whose pad feeds the game */
+    int f = coop_focus();
+    if (f < PLATFORM_MAX_PLAYERS)
+        printf(" | focus=P%d%s\n", f + 1, coop_focus_locked() ? " locked" : "");
+    else
+        printf(" | focus=ALL\n");
 }
 
 static void print_state(const char *label) {
@@ -654,6 +661,14 @@ static void print_state(const char *label) {
     }
     printf("\n");
     print_players();
+    /* The view centre in world pixels (BG1 scroll + half the viewport) and the viewport size */
+    printf("CAMERA (%u,%u) view=%dx%d\n", (uint16_t)(ppu.bg_hofs[0] + EB_VIEWPORT_CENTER_X),
+           (uint16_t)(ppu.bg_vofs[0] + EB_VIEWPORT_CENTER_Y), EB_VIEWPORT_WIDTH, EB_VIEWPORT_HEIGHT);
+    /* Enemy contact, from the touch until the battle: the touched enemy's slot, the party entity
+     * it targets, and the initiative (set when the swirl starts: 0 normal, 1 party first, 2 enemies first) */
+    if (ow.enemy_has_been_touched || ow.battle_swirl_countdown)
+        printf("CONTACT enemy=%d target=%d initiative=%u\n", bt.touched_enemy, ert.enemy_pathfinding_target_entity,
+               (unsigned)bt.battle_initiative);
 
     /* Followers: (dx,dy) of each party entity from the leader entity, in
      * party order. A hidden follower (spacing / no sprite) is marked. */

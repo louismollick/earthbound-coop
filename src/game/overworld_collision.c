@@ -18,6 +18,8 @@
  */
 
 #include "game/overworld_internal.h"
+#include "coop/coop.h"
+#include "coop/coop_walk.h"
 #include "game/game_state.h"
 #include "game/map_loader.h"
 #include "game/door.h"
@@ -75,6 +77,9 @@ int16_t check_entity_enemy_collision(void) {
      * Slot 23 is the invisible "init entity" that runs the overworld tick and
      * performs NPC collision detection — NOT the party leader (slot 24). */
     if (entities.collided_objects[ENT(INIT_ENTITY_SLOT)] == ert.current_entity_slot)
+        return -1;
+    /* Co-op: or another Player's Walker ran into it */
+    if (coop_player_count() > 1 && coop_walker_touching(ert.current_entity_slot) >= 0)
         return -1;
 
     /* Check current entity's collision object */

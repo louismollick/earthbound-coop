@@ -50,8 +50,23 @@ typedef struct {
                                     * members trailing it, 0xFF-terminated (set on unsnap) */
     uint8_t ring_index[TOTAL_PARTY_COUNT]; /* trail read index per chain[] entry,
                                     * like char_struct.position_index */
+    uint8_t shown[TOTAL_PARTY_COUNT]; /* the trail entry each chain[] member stands on
+                                    * (members past the Walker), so they can be put back
+                                    * there after refresh_party_entities moved them */
     PositionBufferEntry trail[POSITION_BUFFER_SIZE]; /* like pb.player_position_buffer */
 } CoopWalker;
+
+/*
+ * The co-op camera (coop_camera.h). It eases between the Walkers' midpoint and
+ * the Leader; `last` lets it notice when other code (a door, a teleport, a
+ * script) moved the view.
+ */
+typedef struct {
+    int16_t ease_x, ease_y;        /* view centre minus target, decaying to 0 */
+    uint16_t last_x, last_y;       /* view centre after this frame's update */
+    uint8_t midpoint;              /* 1: the target was the Walkers' midpoint, 0: the Leader */
+    uint8_t unused;                /* explicit padding (savestates hash every byte) */
+} CoopCamera;
 
 typedef struct {
     uint8_t player_count;                       /* joined Players, 1..PLATFORM_MAX_PLAYERS */
@@ -65,10 +80,18 @@ typedef struct {
                                                  * platform's, so a savestate load can't fake or eat one */
     uint16_t walk_pad[PLATFORM_MAX_PLAYERS];    /* each pad's held buttons for this game frame's
                                                  * Walker steps (0 on capture-unwind frames) */
-    uint8_t pad1_player;                        /* the Player whose pad feeds core.pad1 */
+    /* Input focus (coop_input.h) */
+    uint8_t focus;                              /* the Player (0-3) or COOP_FOCUS_ALL whose pad
+                                                 * feeds core.pad1 now */
+    uint8_t focus_request;                      /* battle: coop_set_focus's request */
+    uint8_t focus_locked;                       /* overworld: `focus` holds the lock */
+    uint8_t focus_in_battle;                    /* the last feed was in a battle (entry edge) */
+    uint16_t focus_new;                         /* this frame's new presses of the focused pad(s),
+                                                 * from prev_held: coop_pad_new() */
     /* Non-Leader Walkers by Player. RAM: PLATFORM_MAX_PLAYERS x ~2.1 KB (the
      * 256-entry trail is 2 KB), about 8.4 KB, all of it in savestates. */
     CoopWalker walkers[PLATFORM_MAX_PLAYERS];
+    CoopCamera camera;
 } CoopState;
 
 extern CoopState coop;

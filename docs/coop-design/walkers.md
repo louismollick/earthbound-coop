@@ -2,7 +2,7 @@
 
 Research memo, 2026-10-26. Line numbers are against d32c421 and drift.
 
-**As built (M1 ownership + independent walking):** `src/coop/coop_walk.{h,c}`. It follows the recommended design below, with three differences: a window or text box only pauses Walkers (no snap); unsnap lays each chain's trail through its members' current positions instead of copying the Leader's ring; and the Leader's Owner's pad feeds `core.pad1` (`coop_pad1_feed`). The camera, leash, contact, interaction and regroup sections are still to do.
+**As built (M1 ownership + independent walking):** `src/coop/coop_walk.{h,c}`. It follows the recommended design below, with three differences: a window or text box only pauses Walkers (no snap); unsnap lays each chain's trail through its members' current positions instead of copying the Leader's ring; and the Leader's Owner's pad feeds `core.pad1` (`coop_pad1_feed`). Interaction is built in `src/coop/coop_input.c` (`coop_interact`, see input-focus.md). **As built (camera, leash, contact, regroup):** `src/coop/coop_camera.{h,c}` and `coop_walk.c`. The camera is the Walkers' bounding-box centre, with an eased switch to and from Leader-following. The leash reverts the widening axis of any step, the Leader's included. Contact and first strike target the touched Walker. An enemy touch and the battle only hold the chains. Under game control the chains hold until the Leader moves, then regroup into vanilla formation, and a screen transition's fade regroups everyone.
 
 ## How the Leader moves
 - **Pad.** `memory_update_joypad` (`memory.c:38-69`) is fed by `host_process_frame`. Demo playback can override it (`overworld.c:2280-2300`).

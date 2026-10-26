@@ -34,6 +34,7 @@
 
 /* Forward declarations from main.c */
 #include "game_main.h"
+#include "coop/coop_input.h"
 
 
 /* MAP_PALETTE_BACKUP — saves battle BG palette during palette fade.
@@ -207,7 +208,7 @@ StepResult mode_step_gas_station(ModeState *st) {
     switch ((GasStationPhase)s->phase) {
     case GS_PH1:
         /* 236-frame red-static intro with the NMI brightness fade-in. */
-        if (platform_input_get_pad_new())
+        if (coop_pad_new())
             return STEP_RESULT_POP(1);
         battle_bg_update();
         if (s->brightness_fading) {
@@ -234,7 +235,7 @@ StepResult mode_step_gas_station(ModeState *st) {
         /* 480-frame palette interpolation + battle BG animation. The group-2
          * save/restore keeps UPDATE_MAP_PALETTE_ANIMATION from disturbing the
          * battle BG's own palette cycling. */
-        if (platform_input_get_pad_new())
+        if (coop_pad_new())
             return STEP_RESULT_POP(1);
         memcpy(map_palette_backup, &ert.palettes[32], sizeof(map_palette_backup));
         update_map_palette_animation();
@@ -262,7 +263,7 @@ StepResult mode_step_gas_station(ModeState *st) {
 
     case GS_PH3:
         /* 120-frame hold at full brightness (no per-frame work). */
-        if (platform_input_get_pad_new())
+        if (coop_pad_new())
             return STEP_RESULT_POP(1);
         if (--s->remaining == 0) {
             /* Music change + EVENT_860 flash entity (yield-free). */
@@ -275,7 +276,7 @@ StepResult mode_step_gas_station(ModeState *st) {
     case GS_PH4:
         /* Run EVENT_860 until its script clears. A button skip deactivates the
          * entity first (the blocking post-yield check). */
-        if (platform_input_get_pad_new()) {
+        if (coop_pad_new()) {
             deactivate_entity(s->entity_offset);
             return STEP_RESULT_POP(1);
         }
@@ -312,7 +313,7 @@ StepResult mode_step_gas_station(ModeState *st) {
     case GS_PH5:
         /* 330-frame fade to white. Plain sync (not gas_station_sync_palettes)
          * so the backdrop cgram[0] whitens along with the gutters. */
-        if (platform_input_get_pad_new())
+        if (coop_pad_new())
             return STEP_RESULT_POP(1);
         update_map_palette_animation();
         sync_palettes_to_cgram();

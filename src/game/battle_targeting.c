@@ -27,6 +27,7 @@
 #include "platform/platform.h"
 #include "core/mode_stack.h"
 #include "game_main.h"
+#include "coop/coop_input.h"
 
 /*
  * CHECK_BATTLE_ACTION_TARGETABLE (asm/battle/ui/check_battle_action_targetable.asm)
@@ -387,7 +388,7 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
 
     case ET_INPUT:
     default: {
-        uint16_t pressed = platform_input_get_pad_new();
+        uint16_t pressed = coop_pad_new();
         uint16_t sfx = 2;  /* SFX::CURSOR2 default (LEFT/RIGHT same-row move) */
 
         /* A/L: confirm selection */
@@ -589,7 +590,7 @@ StepResult mode_step_battle_row_select(ModeState *ms) {
 
     case BR_INPUT:
     default: {
-        uint16_t pressed = platform_input_get_pad_new();
+        uint16_t pressed = coop_pad_new();
         uint16_t target_row = 0xFFFF;
         uint16_t sfx = 3;  /* SFX::CURSOR3 */
 

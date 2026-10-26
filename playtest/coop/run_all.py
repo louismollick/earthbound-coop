@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lib  # noqa: E402
 
 SCENARIOS = Path(__file__).resolve().parent / "scenarios"
+sys.path.insert(0, str(SCENARIOS))  # shared scenario bodies: scenarios/_*.py (not run themselves)
 
 
 def scenario_files(names):
