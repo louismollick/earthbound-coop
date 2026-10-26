@@ -6,7 +6,7 @@
  * CONTEXT.md, design in docs/coop-design/walkers.md.
  *
  * The Leader is vanilla's (party_order[0]) and walks on the vanilla code path,
- * fed by its Owner's pad (coop_pad1_feed). Every other Player with a Walker has
+ * fed by its Owner's pad (the input focus, coop_input.h). Every other Player with a Walker has
  * a chain: the Walker plus that Player's other conscious owned Heroes. While the
  * chain is independent ("active"), its Walker takes the Leader's own movement
  * step each frame with its state swapped into the Leader globals
@@ -37,14 +37,6 @@
 
 #include "core/types.h"
 #include "platform/platform.h"
-
-/* Host, once per frame before memory_update_joypad: the pad that feeds core.pad1.
- * In co-op that is the Leader's Owner's during overworld play (P1 in battle until
- * M2, and on the title, file select and boot),
- * so no other Player's d-pad moves the Leader. Switching source rebases the pad
- * state (memory_rebase_joypad), so a switch never makes a phantom press. M3
- * replaces this with the input-focus model (docs/coop-design/input-focus.md). */
-uint16_t coop_pad1_feed(uint16_t p1_pad);
 
 /* Hook, end of update_leader_movement: snap / unsnap chains, run each
  * independent Walker's step, then move the camera (coop_camera_update). */
@@ -110,6 +102,7 @@ typedef struct {
     uint16_t x, y;         /* world position */
     uint16_t direction;    /* 0 = UP, clockwise */
     uint16_t walking_style;
+    int16_t entity;        /* the Walker's entity slot */
     int16_t touched;       /* the slot this frame's step ran into (-1 none); for the
                             * Leader, entities.collided_objects[23] */
 } CoopWalkerInfo;

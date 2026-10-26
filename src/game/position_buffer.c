@@ -32,6 +32,7 @@
 #include "data/assets.h"
 #include "coop/coop.h"
 #include "coop/coop_walk.h"
+#include "coop/coop_input.h"
 #include <string.h>
 
 PositionBufferState pb;
@@ -1593,6 +1594,8 @@ void update_leader_movement(int16_t entity_offset) {
     /* 4. Dispatch movement (assembly lines 40-59).
      * If camera_mode != 0, use UPDATE_SPECIAL_CAMERA_MODE instead of
      * the normal walking_style dispatch. */
+    if (coop_player_count() > 1)  /* co-op: the Leader walks on its Owner's pad only */
+        coop_leader_pad_enter();
     if (game_state.camera_mode != 0) {
         update_special_camera_mode();
     } else {
@@ -1612,6 +1615,8 @@ void update_leader_movement(int16_t entity_offset) {
             (void)prev_leader_moved;
         }
     }
+    if (coop_player_count() > 1)
+        coop_leader_pad_leave();
 
     /* 5. Tile collision check (assembly lines 61-82).
      * Assembly calls CHECK_PLAYER_COLLISION_AT_POSITION which reads the

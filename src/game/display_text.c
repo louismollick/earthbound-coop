@@ -11,6 +11,8 @@
  */
 
 #include "game/display_text.h"
+#include "coop/coop.h"
+#include "coop/coop_input.h"
 #include "game/display_text_internal.h"
 #include "game/game_state.h"
 #include "game/inventory.h"
@@ -1108,6 +1110,8 @@ void party_selector_battle_prepare(uint32_t *script_ptrs, uint16_t mode,
     } else {
         current_index = (uint16_t)win.battle_menu_current_character_id;
     }
+    if (coop_player_count() > 1)  /* co-op: start on the focused Player's Walker */
+        current_index = coop_char_select_index(current_index, 0, CS_CHECKVALID_NONE);
 
     /* Lines 141-160 (initial per-member script + pagination reset) run in the mode's
      * CSP_INIT phase, so the initial script is a STEP_PUSH, not a C-stack pump. */

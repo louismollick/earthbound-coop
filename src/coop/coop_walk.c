@@ -607,26 +607,6 @@ bool coop_walk_follower_tick(int16_t ent) {
     return true;
 }
 
-/* ---- Pad source ---- */
-
-/* Overworld play: the root overworld mode past its boot stages (not the title,
- * file select or a game-over reboot, which P1 drives) and not in battle. */
-static bool overworld_play(void) {
-    if (g_mode_stack.depth < 1 || g_mode_stack.mode[0] != GAME_MODE_OVERWORLD || ow.battle_mode)
-        return false;
-    uint8_t phase = g_mode_stack.state[0].overworld.phase;
-    return phase != OWP_BOOT_SETUP && phase != OWP_BOOT_AWAIT && phase != OWP_BOOT_FLUSH;
-}
-
-uint16_t coop_pad1_feed(uint16_t p1_pad) {
-    int want = coop_player_count() > 1 && overworld_play() ? coop_leader_owner() : 0;
-    if (want != coop.pad1_player) {
-        memory_rebase_joypad(coop.prev_held[want]);
-        coop.pad1_player = (uint8_t)want;
-    }
-    return want ? platform_input_get_pad_n(want) : p1_pad;
-}
-
 /* ---- Enemy contact ---- */
 
 int16_t coop_walker_touching(int16_t slot) {
@@ -678,6 +658,7 @@ bool coop_walker_info(int player, CoopWalkerInfo *out) {
     out->touched = -1;
     if (game_state.party_order[0] == id) {
         out->leader = true;
+        out->entity = (int16_t)game_state.current_party_members;
         out->x = game_state.leader_x_coord;
         out->y = game_state.leader_y_coord;
         out->direction = game_state.leader_direction;
@@ -688,6 +669,7 @@ bool coop_walker_info(int player, CoopWalkerInfo *out) {
     const CoopWalker *w = &coop.walkers[player];
     if (w->active && coop_player_count() > 1) {
         out->independent = true;
+        out->entity = member_entity(w->chain[0]);
         out->x = w->x;
         out->y = w->y;
         out->direction = w->direction;
@@ -702,6 +684,7 @@ bool coop_walker_info(int player, CoopWalkerInfo *out) {
         if (pidx == NO_MEMBER)
             return false;
         int16_t e = member_entity(pidx);
+        out->entity = e;
         out->x = (uint16_t)entities.abs_x[e];
         out->y = (uint16_t)entities.abs_y[e];
         out->direction = (uint16_t)entities.directions[e];

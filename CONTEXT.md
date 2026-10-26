@@ -30,7 +30,17 @@ _Avoid_: avatar, active character
 A Player whose Hero is not in the Party, temporarily controlling a Guest.
 
 **Spectator**:
-A Player whose Hero is not in the Party and who has no Guest to stand in for. They watch.
+A Player whose Hero is not in the Party and who has no Guest to stand in for. During a Solo Chapter they walk the Companion and take Battle rotation turns.
+
+**Companion**:
+Mr. Saturn, walked on the overworld by a Spectator during a Solo Chapter. Overworld only: sits out battles, has no stats, and is never part of the Party.
+_Avoid_: cat, pet, co-op character
+
+**Look-only interaction**:
+A Talk to / Check whose text script, followed through its jumps and calls, only prints text, waits and reads flags (no flag writes, items, money, battles, Party changes or events). The Companion may trigger only these; anything else gets a Mr. Saturn sound and no text.
+
+**Battle rotation**:
+In a Solo Chapter battle, the solo Hero's command is picked by its Owner, then each Spectator in join order, one turn each, round and round.
 
 ### World
 
@@ -48,6 +58,15 @@ _Avoid_: split screen, open co-op
 **Solo Chapter**:
 A story stretch where the game replaces the Party with a single Hero (Jeff in Winters, Poo's Mu training, Magicant, Paula's kidnapping). That Hero's Owner plays; everyone else is a Spectator or Stand-in.
 
+### Input
+
+**Focus**:
+Whose pad the game reads right now: one Player, or ALL (every joined Player's pad combined). On the overworld it is the Leader's Owner unless someone holds the Lock.
+_Avoid_: active player, controller
+
+**Lock**:
+On the overworld, the Player who opened a menu, text box or interaction holds the Focus until the Party is idle again.
+
 ### Online
 
 **Host**:
@@ -61,4 +80,4 @@ Any frame where two machines in a Session disagree about game state.
 
 ## Flagged ambiguities
 
-- "Co-op character" was used for both Guests and a possible future co-op-only character (a cat for Solo Chapters). Guests are story characters; the future one is unnamed until it's designed.
+- "Co-op character" was used for both Guests and the co-op-only Solo Chapter character. Guests are story characters; the co-op-only one is the Companion (Mr. Saturn, formerly planned as a cat).

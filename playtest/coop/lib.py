@@ -117,6 +117,22 @@ class State:
         return parse_players(self.players_line)
 
     @property
+    def focus(self):
+        """The PLAYERS line's input focus: ``"P2 locked"``, ``"P1"`` or ``"ALL"``."""
+        m = re.search(r"\| focus=(\S+( locked)?)", self.players_line)
+        return m.group(1) if m else None
+
+    def hp(self, member):
+        """Party member ``member``'s (1-4) current HP from the PARTY line, or None."""
+        m = re.search(rf"(?:^PARTY|\|) {member}:\S+ L\d+ HP (\d+)/", self.party)
+        return int(m.group(1)) if m else None
+
+    @property
+    def money(self):
+        m = re.search(r"money=(\d+)", self.state)
+        return int(m.group(1)) if m else None
+
+    @property
     def pos(self):
         m = re.search(r"pos=\((\d+),(\d+)\)", self.state)
         return (int(m.group(1)), int(m.group(2))) if m else None
@@ -260,6 +276,19 @@ class Session:
 
     def players(self):
         return self.state().players
+
+    def said(self, cmds, timeout=None):
+        """Run ``cmds``; return the game text they printed (the TEXT lines, joined)."""
+        return " ".join(ln[5:] for ln in self.do(cmds, timeout) if ln.startswith("TEXT "))
+
+    def menu(self):
+        """The menu being driven now: (options, cursor index), or None (``text``'s MENU line)."""
+        for ln in self.do("text"):
+            if ln.startswith("MENU "):
+                opts = re.findall(r" (>?)\[([^\]]*)\]", ln)
+                sel = next((i for i, (m, _) in enumerate(opts) if m), None)
+                return [o for _, o in opts], sel
+        return None
 
     def boot(self):
         """Boot the save's file 1 (Continue) until the Leader can walk."""

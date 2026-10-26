@@ -13,6 +13,7 @@
 
 /* Forward declarations from main.c */
 #include "game_main.h"
+#include "coop/coop_input.h"
 
 /* Graphics and arrangements decompress directly to ppu.vram, matching the
  * ROM's BUFFER → VRAM DMA flow without needing an intermediate buffer.
@@ -189,7 +190,7 @@ StepResult mode_step_intro_logo(ModeState *st) {
         /* APE/HAL (idx > 0) skip on any button (post-yield read), exactly like
          * the former wait_frames_or_until_pressed(); Nintendo (idx 0) is a plain
          * 180-frame hold with no button check. */
-        if (s->logo_idx > 0 && platform_input_get_pad_new()) {
+        if (s->logo_idx > 0 && coop_pad_new()) {
             s->skipping = 1;
             s->phase = LG_DONE_FADE;
             return intro_logo_push_fade(MF_OUT, 2, 1); /* fast skip fade-out */

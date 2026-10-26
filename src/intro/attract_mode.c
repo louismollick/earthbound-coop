@@ -32,6 +32,7 @@
 
 /* Forward declarations */
 #include "game_main.h"
+#include "coop/coop_input.h"
 
 static uint16_t current_scene_index;
 
@@ -137,7 +138,7 @@ StepResult mode_step_attract_mode(ModeState *st) {
       return STEP_RESULT_CONTINUE();
     }
     update_swirl_effect();
-    if (platform_input_get_pad_new() & PAD_ANY_BUTTON) {
+    if (coop_pad_new() & PAD_ANY_BUTTON) {
       s->button_pressed = 1;
       close_oval_window();
       s->phase = AT_OVAL_CLOSE;
