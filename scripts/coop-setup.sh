@@ -27,7 +27,7 @@ log "venv"
 [ -x .venv/bin/python ] || uv venv --seed --python 3.12 .venv
 # shellcheck disable=SC1091
 source .venv/bin/activate
-uv pip install -q -e . pytest numpy
+uv pip install -q -e . pytest numpy "ruff==0.15.4"
 
 log "story saves"
 SAVES=(01-Start 02-Sharks 03-GiantStep 04-Police 05-Twoson 06-ToHappy 07-InHappy 08-Carpainter

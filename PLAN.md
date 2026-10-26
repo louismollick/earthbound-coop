@@ -36,15 +36,15 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 
 ## M0 Foundation
 
-- [ ] `scripts/coop-setup.sh`: idempotent. It creates the venv, installs deps, fetches the 36 story saves if missing (see `docs/coop-setup.md`), and builds base, wide, native and debug. It expects `earthbound.sfc` in the repo root.
-- [ ] `scripts/coop-gates.sh`: runs gates 1 to 4 and prints a one-line verdict, with `--full` adding gates 5 and 6. It exits non-zero on failure.
-- [ ] Platform supports four pads.
+- [x] `scripts/coop-setup.sh`: idempotent. It creates the venv, installs deps, fetches the 36 story saves if missing (see `docs/coop-setup.md`), and builds base, wide, native and debug. It expects `earthbound.sfc` in the repo root.
+- [x] `scripts/coop-gates.sh`: runs gates 1 to 4 and prints a one-line verdict, with `--full` adding gates 5 and 6. It exits non-zero on failure.
+- [x] Platform supports four pads.
   - `platform_input_get_pad_n(p)` and `platform_input_get_pad_new_n(p)` for P1 to P4, with the P1 functions unchanged.
   - SDL GameControllers are assigned to Players in connection order.
   - The keyboard stays P1. Add a second keyboard layout for P2 (IJKL movement, U/O for A/B, P for Start, `[` for Select) so co-op can be tested on one Mac with no controllers.
-- [ ] Input scripts take a per-Player prefix (`P2 10 RIGHT`, `press P3 A`, `until ... P2 ...`). Plain commands still mean P1. Headless STATE prints a `PLAYERS` line with join state, owned Heroes, Walker and position.
-- [ ] Join model: pressing Start on an unjoined pad joins that Player, and holding Select+Start for 2 seconds leaves. Player count, ownership and Walkers are serialized in savestates. `--players N` is a test flag that auto-joins.
-- [ ] `playtest/coop/` scenario runner and a first scenario: P2 joins in Ness's bedroom, and the PLAYERS line shows P2 joined with no Heroes owned. While only Ness is in the Party, P2 is a Spectator.
+- [x] Input scripts take a per-Player prefix (`P2 10 RIGHT`, `press P3 A`, `until ... P2 ...`). Plain commands still mean P1. Headless STATE prints a `PLAYERS` line with join state, owned Heroes, Walker and position.
+- [x] Join model: pressing Start on an unjoined pad joins that Player, and holding Select+Start for 2 seconds leaves. Player count, ownership and Walkers are serialized in savestates. `--players N` is a test flag that auto-joins.
+- [x] `playtest/coop/` scenario runner and a first scenario: P2 joins in Ness's bedroom, and the PLAYERS line shows P2 joined with no Heroes owned. While only Ness is in the Party, P2 is a Spectator.
 
 ## M1 Overworld
 
@@ -125,7 +125,11 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 
 ## Decisions made during the build
 
-(append here)
+- Controllers are assigned to the first free Player slot in connection order; the first controller is P1 together with the keyboard, the IJKL layout is P2 together with the second controller. Headless runs never open controllers. (M0)
+- Joins persist across new games and file loads within a process; a savestate load replaces them with the savestate's. (M0)
+- Ownership is dealt by join order, not by Player number. Walkers are derived (not stored) from ownership plus the Party. (M0)
+- Savestate format stays v16; the new SECTION_COOP changes `layout_id`, which already rejects old slots. (M0)
+- Design memos for input focus (M2/M3) and Walkers (M1) are in `docs/coop-design/`. (M0)
 
 ## Blocked
 
