@@ -21,6 +21,8 @@
 #include "include/constants.h"
 #include "include/pad.h"
 #include "platform/platform.h"
+#include "coop/coop.h"
+#include "coop/coop_input.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -2784,7 +2786,7 @@ static EB_NOINLINE bool pm_main_result(PauseMenuState *st, StepResult *out) {
          * the asm (open_menu.asm @TALK_TO: DISPLAY_TEXT with no
          * CLOSE_WINDOW). The phone script MSG_GLOBAL_TELEPHONE also
          * opens its Call menu without closing windows. */
-        return pm_talk_or_check(st, talk_to(), MSG_SYS_TALK_NO_TARGET, out);
+        return pm_talk_or_check(st, coop_interact(talk_to), MSG_SYS_TALK_NO_TARGET, out);
 
     case 2:  /* MENU_OPTIONS::GOODS (assembly lines 55-61) */
         /* SHOW_HPPP_AND_MONEY_WINDOWS (assembly line 56) */
@@ -2799,7 +2801,7 @@ static EB_NOINLINE bool pm_main_result(PauseMenuState *st, StepResult *out) {
         return pm_show_hppp_money(st, PM_EQUIP_OPEN, out);
 
     case 5:  /* MENU_OPTIONS::CHECK */
-        return pm_talk_or_check(st, check_action(), MSG_SYS_NOTHING_WRONG_HERE,
+        return pm_talk_or_check(st, coop_interact(check_action), MSG_SYS_NOTHING_WRONG_HERE,
                                 out);
 
     case 6:  /* MENU_OPTIONS::STATUS (assembly lines 594-602) */
@@ -3458,9 +3460,9 @@ StepResult mode_step_quick_checktalk(ModeState *ms) {
         play_sfx(1);  /* SFX::CURSOR1 */
 
         /* Resolve target text: TALK_TO, then CHECK, then the fallback. */
-        uint32_t text_ptr = talk_to();
+        uint32_t text_ptr = coop_interact(talk_to);  /* co-op: from the focused Walker */
         if (text_ptr == 0)
-            text_ptr = check_action();
+            text_ptr = coop_interact(check_action);
         if (text_ptr == 0)
             text_ptr = MSG_SYS_NOTHING_WRONG_HERE;
 

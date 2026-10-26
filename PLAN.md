@@ -58,7 +58,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
   - A Walker can't move past the visible screen edge minus a small margin (the leash).
   - Use the 320x240 wide view for slack, and make the leash scale with viewport size so 256x224 works too.
 - [ ] Enemy contact: any Walker touching an overworld enemy starts the battle for the whole Party. First strike is judged against the Walker that was touched.
-- [ ] Interaction: any Player can press A to talk to or check whatever their Walker faces. The world pauses for everyone while a text box is open, as in vanilla.
+- [x] Interaction: any Player can press A to talk to or check whatever their Walker faces. The world pauses for everyone while a text box is open, as in vanilla.
 - [ ] Regrouping.
   - Doors, stairs and screen transitions: when any Walker triggers one, everyone regroups behind the Leader and goes through together.
   - Scripted cutscenes and forced movement do the same. Non-Leader Walkers snap into the Leader's trail while the game controls movement, and get independence back when control returns.
@@ -80,9 +80,9 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 
 ## M3 Menus and dialogue
 
-- [ ] Any Player can open the overworld menu (Goods, PSI, Equip, Check, Status). Whoever opens it controls it until it closes, and the cursor starts on their Walker. No per-Hero restriction: keep it simple.
-- [ ] Text boxes, yes/no prompts, shops, ATMs, phones (including saving), hotels and Escargo Express are all controlled by whoever started the interaction.
-- [ ] Scenarios: P2 buys an item, P2 saves at a phone (`save.srm` changes and reloads), P3 uses an item from Goods, and yes/no prompts come from the right pad.
+- [x] Any Player can open the overworld menu (Goods, PSI, Equip, Check, Status). Whoever opens it controls it until it closes, and the cursor starts on their Walker. No per-Hero restriction: keep it simple.
+- [x] Text boxes, yes/no prompts, shops, ATMs, phones (including saving), hotels and Escargo Express are all controlled by whoever started the interaction.
+- [x] Scenarios: P2 buys an item, P2 saves at a phone (`save.srm` changes and reloads), P3 uses an item from Goods, and yes/no prompts come from the right pad.
 
 ## M4 Party changes and soak
 
@@ -139,6 +139,13 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - Two levels of "not free": a window, text box or interaction only pauses non-Leader Walkers (they hold their spot, no snap); the game moving the party (camera_mode, stairs, escalator, bicycle, door, teleport, demo, swirl/battle, a frozen or scripted Leader or chain member) snaps them. (M1)
 - Trails: the memo's shadow `position_index` is kept (every independent chain member's index equals its Party predecessor's), so snapping is just "stop overriding". Unsnapping lays the chain's trail as straight segments through the members' current positions at vanilla spacing instead of copying the Leader's ring, so it is seamless wherever the members stand. Any chain change (join, leave, KO, revive, party change) snaps and unsnaps. (M1)
 - Until the leash: a temporary clamp keeps non-Leader Walkers within viewport/2 - 16 px of the Leader per axis (`TEMP_CLAMP_*` in `coop_walk.c`). (M1)
+- Input focus (`src/coop/coop_input.{h,c}`) replaces M1's pad feed: P1 outside overworld play, the Leader's Owner on the overworld, the lock holder while locked, ALL in battle. Only a Player with a Walker can take the lock (a Spectator has nobody to talk from). (M3)
+- Capture-eligible = the harness idle predicate plus no window open, no queued interaction or demo, and the Leader not on the bicycle. So the bicycle dismount (A/L) and anything else that only works while riding stay with the Leader's Owner; nothing else special-cases Leader-only presses. (M3)
+- While someone else has the focus, the Leader's step reads only its Owner's held pad (no presses). Without it, the locker's d-pad turned and moved Ness for 1 frame on the frame the menu closed. (M3)
+- Talk to / Check search from the focused Player's Walker only while it walks independently; a Walker that is snapped onto the Leader's trail searches from the Leader, as vanilla. Scripted text still names the Leader ("Ness picked up the receiver"). (M3)
+- "Who?" cursors (Goods, PSI if the Hero can use PSI, Equip, Status, and the text-script party select such as a shop's "Which of you will carry this?") start on the focused Walker. "Whom?" target selects keep vanilla's start. (M3)
+- Whoever starts an interaction drives all of it, saving at a phone included, though CONTEXT.md lists saving as a Leader action: the lock is simpler than a per-action rule, and the save is party-wide anyway. (M3)
+- Battle focus is ALL for the whole battle until M2 moves it per Hero with `coop_set_focus()`. (M3)
 
 ## Blocked
 

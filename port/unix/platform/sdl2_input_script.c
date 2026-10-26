@@ -102,6 +102,7 @@
 #include "core/mode_stack.h"
 #include "coop/coop.h"
 #include "coop/coop_walk.h"
+#include "coop/coop_input.h"
 #include "entity/entity.h"
 #include "game/battle.h"
 #include "game/display_text.h"
@@ -582,9 +583,10 @@ static void print_surface(uint16_t sf) {
     printf(")");
 }
 
-/* PLAYERS P1:joined owns=Ness,Jeff walker=Ness pos=(X,Y) dir=UP walk=0 | P2:joined owns=- walker=- spectator | P3:- | P4:-
+/* PLAYERS P1:joined owns=Ness,Jeff walker=Ness pos=(X,Y) dir=UP walk=0 | P2:joined owns=- walker=- spectator | P3:- | P4:- | focus=P1
  * owns = the Player's Heroes present in the Party (Party order); walker = coop_walker_info()
- * (pos/dir/walk: the Leader's globals, an independent Walker's state, else its entity) */
+ * (pos/dir/walk: the Leader's globals, an independent Walker's state, else its entity);
+ * focus = the input focus, P1-P4 (" locked": holding the overworld lock) or ALL */
 static void print_players(void) {
     printf("PLAYERS");
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
@@ -615,7 +617,12 @@ static void print_players(void) {
                    w.walking_style);
         }
     }
-    printf("\n");
+    /* The input focus (coop/coop_input.h): whose pad feeds the game */
+    int f = coop_focus();
+    if (f < PLATFORM_MAX_PLAYERS)
+        printf(" | focus=P%d%s\n", f + 1, coop_focus_locked() ? " locked" : "");
+    else
+        printf(" | focus=ALL\n");
 }
 
 /* Netplay prints the PLAYERS line at every hash point (net/session.c). */

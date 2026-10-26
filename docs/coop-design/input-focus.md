@@ -2,6 +2,14 @@
 
 Research memo, 2026-10-26. Line numbers are against d32c421 and drift.
 
+**As built (M1 Interaction, M3):** `src/coop/coop_input.{h,c}`. It follows the memo, with these differences:
+- Only a Player with a Walker can take the lock.
+- Capture-eligible is the release predicate plus no window, no queued interaction or demo, and not on the bicycle, which keeps the dismount with the Leader's Owner.
+- The Leader's step reads its Owner's pad while someone else has the focus (`coop_leader_pad_enter/leave`).
+- Talk/Check swap in the focused Walker only while it is independent (`coop_interact`).
+- The text-script party select (a shop's "Which of you will carry this?") also starts on the Walker.
+- Battle is ALL throughout until M2 calls `coop_set_focus()` at the hook points below.
+
 ## Model
 
 One serialized input focus: P1..P4 or ALL.

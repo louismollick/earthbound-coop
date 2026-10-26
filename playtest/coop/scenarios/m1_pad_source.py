@@ -1,7 +1,7 @@
 """The Leader's Owner's pad drives the Leader (Winters: Jeff alone, P3's with 3 Players).
 
-P1, who booted the file, can't move him; P3 walks him and opens the menu, with no phantom presses
-from the pad switch after boot.
+P1, who booted the file, can't move him; P3 walks him and opens and closes the menu, with no
+phantom presses from the pad switch after boot.
 """
 
 from lib import expect
@@ -26,12 +26,13 @@ def run(ctx):
     expect(st.pos[0] > lead[0] + 8 and st.players[3].pos == st.pos, "P3's d-pad walks Jeff", st.players_line)
     ctx.shot(s, "P3 walks the Leader")
 
-    # P3's A opens the pause menu (P1's doesn't). Inside menus the selection code still reads P1's
-    # platform pad directly (window.c), so P1 closes it: menu focus is M3
+    # P3's A opens the pause menu (P1, a Spectator, can't); P3 holds it, so P1's B doesn't close it
     s.do("press A; wait 30")
     expect(s.state().idle == "yes", "P1's A opens nothing", s.state().state)
     s.do("P3 press A; wait 30")
     st = s.state()
-    expect(st.idle == "modes", "P3's A opened the menu", st.state)
+    expect(st.idle == "modes" and st.focus == "P3 locked", "P3's A opened the menu", st.players_line)
     s.do("press B; wait 30")
-    expect(s.state().idle == "yes", "the menu closed", s.state().state)
+    expect(s.state().idle == "modes", "P1's B doesn't close P3's menu", s.state().state)
+    s.do("P3 press B; wait 30")
+    expect(s.state().idle == "yes", "P3's B closed the menu", s.state().state)
