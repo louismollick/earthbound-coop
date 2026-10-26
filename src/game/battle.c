@@ -40,6 +40,7 @@
 #include "game/display_text_internal.h"  /* dt_make_child_init (battle text pushes) */
 #include "core/log.h"
 #include "coop/coop.h"
+#include "coop/coop_battle.h"
 #include "coop/coop_input.h"
 #include <string.h>
 
@@ -2784,12 +2785,14 @@ static void bm_build_menu(BattleMenuState *st, const CharStruct *ch) {
 
     /* Set window title to character name (assembly: SET_WINDOW_TITLE with X=5) */
     {
-        char name_buf[8];
-        int j;
+        char name_buf[WINDOW_TITLE_SIZE];
+        int j, max_len = 5;
         for (j = 0; j < 5 && ch->name[j]; j++)
             name_buf[j] = eb_char_to_ascii(ch->name[j]);
         name_buf[j] = '\0';
-        set_window_title(window_id, name_buf, 5);
+        if (coop_player_count() > 1)  /* co-op: "Paula P2", the Owner's tag */
+            max_len = coop_battle_title(name_buf, (int)sizeof(name_buf), st->char_id);
+        set_window_title(window_id, name_buf, max_len);
     }
 
     /* Add attack option (Bash/Shoot/Do Nothing) */
@@ -5389,6 +5392,8 @@ StepResult mode_step_battle(ModeState *ms) {
     StepResult r;
 
     for (;;) {
+        if (coop_player_count() > 1)  /* co-op: a command menu reads its Hero's Owner */
+            coop_battle_focus(st->phase, st->party_slot);
         switch ((BattleRoutinePhase)st->phase) {
 
         case BTL_BEGIN:
