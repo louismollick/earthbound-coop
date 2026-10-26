@@ -10,6 +10,7 @@
  */
 #include "platform/platform.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #ifdef _WIN32
 #include <io.h>        /* _commit, _fileno */
@@ -53,12 +54,59 @@ static void fsync_containing_dir(const char *path) {
 }
 #endif
 
+/* Memory-backed slots (netplay join transfers, port/unix/net/): while enabled, the
+ * slot API below reads and writes these buffers instead of the slot files, so a
+ * Session never touches savestate.bin. See savestate_mem_* in net/net_internal.h. */
+static bool mem_mode;
+static struct { unsigned char *data; size_t len, cap; } mem_slot[SAVESTATE_SLOTS];
+
+void savestate_mem_enable(bool on) {
+    mem_mode = on;
+}
+
+/* Empty both memory slots. */
+void savestate_mem_clear(void) {
+    for (int i = 0; i < SAVESTATE_SLOTS; i++)
+        mem_slot[i].len = 0;
+}
+
+static bool mem_reserve(int slot, size_t len) {
+    if (len <= mem_slot[slot].cap)
+        return true;
+    size_t cap = len * 2;
+    unsigned char *d = realloc(mem_slot[slot].data, cap);
+    if (!d)
+        return false;
+    mem_slot[slot].data = d;
+    mem_slot[slot].cap = cap;
+    return true;
+}
+
+/* Memory slot `slot`'s bytes (NULL and *len 0 if empty). */
+const unsigned char *savestate_mem_data(int slot, size_t *len) {
+    *len = mem_slot[slot].len;
+    return mem_slot[slot].len ? mem_slot[slot].data : NULL;
+}
+
+/* Replace memory slot `slot` with `len` bytes. */
+bool savestate_mem_put(int slot, const void *data, size_t len) {
+    if (!mem_reserve(slot, len))
+        return false;
+    memcpy(mem_slot[slot].data, data, len);
+    mem_slot[slot].len = len;
+    return true;
+}
+
 /* In-progress writers, one per slot (NULL when no write is open). */
 static FILE *slot_writer[SAVESTATE_SLOTS];
 
 bool platform_savestate_begin(int slot) {
     if (slot < 0 || slot >= SAVESTATE_SLOTS)
         return false;
+    if (mem_mode) {
+        mem_slot[slot].len = 0;
+        return true;
+    }
     if (slot_writer[slot]) {
         fclose(slot_writer[slot]);
         slot_writer[slot] = NULL;
@@ -71,6 +119,16 @@ bool platform_savestate_begin(int slot) {
 }
 
 bool platform_savestate_write(int slot, size_t offset, const void *src, size_t size) {
+    if (mem_mode && slot >= 0 && slot < SAVESTATE_SLOTS) {
+        if (!mem_reserve(slot, offset + size))
+            return false;
+        if (offset > mem_slot[slot].len)
+            memset(mem_slot[slot].data + mem_slot[slot].len, 0, offset - mem_slot[slot].len);
+        memcpy(mem_slot[slot].data + offset, src, size);
+        if (offset + size > mem_slot[slot].len)
+            mem_slot[slot].len = offset + size;
+        return true;
+    }
     if (slot < 0 || slot >= SAVESTATE_SLOTS || !slot_writer[slot])
         return false;
     if (fseek(slot_writer[slot], (long)offset, SEEK_SET) != 0)
@@ -79,6 +137,8 @@ bool platform_savestate_write(int slot, size_t offset, const void *src, size_t s
 }
 
 bool platform_savestate_commit(int slot) {
+    if (mem_mode)
+        return slot >= 0 && slot < SAVESTATE_SLOTS;
     if (slot < 0 || slot >= SAVESTATE_SLOTS || !slot_writer[slot])
         return false;
     FILE *f = slot_writer[slot];
@@ -103,6 +163,13 @@ bool platform_savestate_commit(int slot) {
 size_t platform_savestate_read(int slot, size_t offset, void *dst, size_t size) {
     if (slot < 0 || slot >= SAVESTATE_SLOTS)
         return 0;
+    if (mem_mode) {
+        if (offset >= mem_slot[slot].len)
+            return 0;
+        size_t n = mem_slot[slot].len - offset < size ? mem_slot[slot].len - offset : size;
+        memcpy(dst, mem_slot[slot].data + offset, n);
+        return n;
+    }
     FILE *f = fopen(slot_path(slot), "rb");
     if (!f)
         return 0;
