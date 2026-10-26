@@ -39,6 +39,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -46,7 +47,9 @@ from PIL import Image, ImageDraw
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 SESSIONS = HERE / "out" / "sessions"
-BIN = os.environ.get("EB_BIN", str(ROOT / "port/unix/build/earthbound"))
+# Windows has no FIFOs: the game serves a named pipe instead (port/unix/platform/win_compat.c)
+WINDOWS = os.name == "nt"
+BIN = os.environ.get("EB_BIN", str(ROOT / ("port/unix/build/earthbound" + (".exe" if WINDOWS else ""))))
 FFMPEG = os.environ.get("FFMPEG") or shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
 
 # Title screen -> file select -> file 1 -> Continue, then wait for control.
@@ -118,17 +121,63 @@ def session_dir(name):
     return SESSIONS / name
 
 
+def pid_alive(pid):
+    """Whether process ``pid`` runs (on Windows ``os.kill(pid, 0)`` would terminate it)."""
+    if not WINDOWS:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+    import ctypes  # noqa: PLC0415
+
+    k32 = ctypes.windll.kernel32
+    h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    code = ctypes.c_ulong()
+    ok = k32.GetExitCodeProcess(h, ctypes.byref(code))
+    k32.CloseHandle(h)
+    return bool(ok) and code.value == 259  # STILL_ACTIVE
+
+
 def read_pid(d):
     try:
         pid = int((d / "pid").read_text())
-        os.kill(pid, 0)
     except (OSError, ValueError):
         return None
-    return pid
+    return pid if pid_alive(pid) else None
+
+
+def cmd_channel(d):
+    """Session dir ``d``'s command channel: ``cmd.fifo``, or on Windows the pipe named in ``d/pipe``."""
+    return (d / "pipe").read_text().strip() if WINDOWS else d / "cmd.fifo"
+
+
+def send_windows(d, text):
+    """Windows: each send is one client of the game's pipe; it is busy while the game finishes the last."""
+    deadline = time.time() + 60
+    while True:
+        try:
+            with open(cmd_channel(d), "wb", buffering=0) as f:  # noqa: PTH123
+                f.write(text.encode())
+        except FileNotFoundError:
+            sys.exit(f"session {d.name} is not running")
+        except OSError:
+            if read_pid(d) is None:
+                sys.exit(f"session {d.name} is not running")
+            if time.time() > deadline:
+                sys.exit(f"session {d.name} did not take the command (still busy)")
+            time.sleep(0.01)
+        else:
+            return
 
 
 def send(d, text):
     """Write command text to the session FIFO (the game holds it open)."""
+    if WINDOWS:
+        send_windows(d, text)
+        return
     try:
         fd = os.open(d / "cmd.fifo", os.O_WRONLY | os.O_NONBLOCK)
     except OSError as e:
@@ -271,21 +320,37 @@ def start(name, save, boot=True, scale=1, history=None, emu=False, num_players=1
     shutil.copy(save, d / "save.srm")
     shutil.copy(save, d / "start.srm")
     (d / "history.play").write_text(f"# pt.py session {name} from {save}\n")
-    os.mkfifo(d / "cmd.fifo")
+    if WINDOWS:
+        (d / "pipe").write_text(rf"\\.\pipe\eb-pt-{name}-{uuid.uuid4().hex}" + "\n")
+        # Outlive this pt.py process (and its console's job, when allowed)
+        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        detach = [{"creationflags": flags | subprocess.CREATE_BREAKAWAY_FROM_JOB}, {"creationflags": flags}]
+    else:
+        os.mkfifo(d / "cmd.fifo")
+        detach = [{"start_new_session": True}]
     with (d / "log.txt").open("wb") as log:
-        p = subprocess.Popen(  # noqa: S603
-            [*game_command(d), "--headless", "--save", "save.srm", "--session", "cmd.fifo"],
-            cwd=d,
-            stdin=subprocess.DEVNULL,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
+        for i, extra in enumerate(detach):
+            try:
+                p = subprocess.Popen(  # noqa: S603
+                    [*game_command(d), "--headless", "--save", "save.srm", "--session", str(cmd_channel(d))],
+                    cwd=d,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    **extra,
+                )
+                break
+            except PermissionError:  # the job forbids breakaway
+                if i == len(detach) - 1:
+                    raise
     (d / "pid").write_text(str(p.pid))
     # Wait until the game has opened the FIFO
     for _ in range(500):
         try:
-            os.close(os.open(d / "cmd.fifo", os.O_WRONLY | os.O_NONBLOCK))
+            if WINDOWS:
+                open(cmd_channel(d), "wb").close()  # noqa: PTH123, SIM115
+            else:
+                os.close(os.open(d / "cmd.fifo", os.O_WRONLY | os.O_NONBLOCK))
             break
         except OSError:
             if p.poll() is not None:
@@ -392,9 +457,13 @@ def video(name, out=None, scale=3, fps=60, skip_boot=False, audio=True, crf=18, 
     work.mkdir()
     shutil.copy(src / "start.srm", work / "save.srm")
     (work / "video.play").write_text("\n".join(lines) + "\n")
-    os.mkfifo(work / "video.fifo")
+    if WINDOWS:  # the game serves it
+        video_in = rf"\\.\pipe\eb-video-{uuid.uuid4().hex}"
+    else:
+        video_in = "video.fifo"
+        os.mkfifo(work / video_in)
     cmd = [*game_command(src), "--headless", "--save", "save.srm", "--input", "video.play"]
-    cmd += ["--record-video", "video.fifo"]
+    cmd += ["--record-video", video_in]
     if audio:
         cmd += ["--record-audio", "audio.raw"]
     if skipping:
@@ -423,7 +492,7 @@ def video(name, out=None, scale=3, fps=60, skip_boot=False, audio=True, crf=18, 
     if fps != 60:
         vf.append(f"fps={fps}")
     enc = [FFMPEG, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24"]
-    enc += ["-s", f"{size[0]}x{size[1]}", "-framerate", "60", "-i", "video.fifo"]
+    enc += ["-s", f"{size[0]}x{size[1]}", "-framerate", "60", "-i", video_in]
     enc += ["-vf", ",".join(vf)] if vf else []
     enc += ["-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf), "-pix_fmt", "yuv420p", "video.mp4"]
     encoder = subprocess.Popen(enc, cwd=work, stdin=subprocess.DEVNULL)  # noqa: S603
@@ -488,7 +557,7 @@ def stop(name):
             break
         time.sleep(0.02)
     else:
-        os.kill(pid, signal.SIGKILL)
+        os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))  # SIGTERM = TerminateProcess on Windows
     print(f"stopped {name}")
 
 

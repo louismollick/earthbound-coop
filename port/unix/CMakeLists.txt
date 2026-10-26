@@ -66,6 +66,19 @@ target_include_directories(earthbound PRIVATE
 
 eb_target_warnings(earthbound)
 
+if(WIN32)
+    # Our own main() (no SDL2main), a console program so headless runs print;
+    # Winsock for netplay
+    target_compile_definitions(earthbound PRIVATE SDL_MAIN_HANDLED)
+    target_link_libraries(earthbound ws2_32)
+    # SDL2.dll next to the exe, so it starts from Explorer without MSYS2 on PATH
+    if(TARGET SDL2::SDL2)
+        add_custom_command(TARGET earthbound POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:earthbound> $<TARGET_FILE_DIR:earthbound>
+            COMMAND_EXPAND_LISTS)
+    endif()
+endif()
+
 # Sanitizer support
 option(ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)

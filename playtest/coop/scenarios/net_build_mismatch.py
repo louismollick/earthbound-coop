@@ -10,12 +10,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import lib
 from _net import netrun
 from lib import expect
 
 
 def run(ctx):
-    native = os.environ.get("EB_BIN_NATIVE") or str(Path(ctx.bin).parents[1] / "build" / "earthbound")
+    native = os.environ.get("EB_BIN_NATIVE") or str(Path(ctx.bin).parents[1] / "build" / f"earthbound{lib.EXE}")
     expect(Path(native).exists() and native != ctx.bin, "a native (256x224) build next to the wide one", native)
     end = 12000  # the lone Host runs uncapped: long enough for the client to start and ask
     r = netrun.run(

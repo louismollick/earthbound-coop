@@ -23,6 +23,7 @@
  */
 #include "platform/platform.h"
 #include "game/audio.h"
+#include "platform/win_compat.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -66,9 +67,18 @@ static void register_close(void) {
 }
 
 bool record_open_video(const char *path) {
+#ifdef _WIN32
+    /* A named pipe exists before the RECORD line, so the reader it starts can connect */
+    void *pipe = win_pipe_path(path) ? win_pipe_create(path, false) : NULL;
+#endif
     printf("RECORD video %dx%d fps=%d\n", EB_VIEWPORT_WIDTH, EB_VIEWPORT_HEIGHT, TARGET_FPS);
     fflush(stdout);
-    video_out = fopen(path, "wb");
+#ifdef _WIN32
+    if (win_pipe_path(path))
+        video_out = win_pipe_accept(pipe, false);
+    else
+#endif
+        video_out = fopen(path, "wb");
     if (!video_out) {
         fprintf(stderr, "record: cannot open %s\n", path);
         return false;

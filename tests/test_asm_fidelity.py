@@ -300,7 +300,7 @@ def check_c_calls() -> tuple[list[str], list[str]]:
     calls = asm_calls()
     mismatches, unmatched = [], []
     for path in sorted(p for p in _c_files() if p.suffix == ".c"):
-        rel = str(path.relative_to(ROOT))
+        rel = path.relative_to(ROOT).as_posix()
         raw = path.read_text().splitlines()
         code = _strip_c_comments("\n".join(raw)).split("\n")
         for top, start, end, func in _c_function_spans(raw):

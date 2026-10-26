@@ -103,8 +103,13 @@ bool platform_save_write(const void *src, size_t offset, size_t size) {
         return false;
     }
     if (rf) {
-        fread(buf, 1, existing, rf);
+        /* Keep the rest of the file: never write it back zeroed after a short read */
+        bool ok = fread(buf, 1, existing, rf) == existing;
         fclose(rf);
+        if (!ok) {
+            free(buf);
+            return false;
+        }
     }
     memcpy(buf + offset, src, size);
 

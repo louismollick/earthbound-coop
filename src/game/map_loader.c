@@ -3618,7 +3618,7 @@ void resolve_map_sector_music(uint16_t x_coord, uint16_t y_coord) {
     uint16_t offset = ptr - EVENT_MUSIC_TABLE_LOWORD;
 
     /* Walk event flag entries (4 bytes each: flag_word, music_word) */
-    while (offset + 4 <= event_music_table_size) {
+    while ((size_t)(offset + 4) <= event_music_table_size) {
         uint16_t flag_word = read_u16_le(&event_music_table[offset]);
 
         if (flag_word == 0) {
@@ -3686,7 +3686,7 @@ void apply_next_map_music(void) {
         change_music(ml.next_map_music_track);
 
         /* Read byte 3 of the matched entry (APU port 1 parameter) */
-        if (event_music_table && ml.loaded_map_music_entry_offset + 4 <= event_music_table_size) {
+        if (event_music_table && (size_t)(ml.loaded_map_music_entry_offset + 4) <= event_music_table_size) {
             uint8_t apu_param = event_music_table[ml.loaded_map_music_entry_offset + 3];
             write_apu_port1(apu_param);
         }

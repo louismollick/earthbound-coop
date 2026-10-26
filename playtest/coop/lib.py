@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -35,6 +36,9 @@ NEWGAME = PLAYTEST / "scripts" / "newgame.play"
 SAVES = PLAYTEST / "saves"
 # Title screen -> file select -> file 1 -> Continue, then wait for control (pt.py BOOT)
 BOOT = "300 -; 1 START; 200 -; 1 A; 120 -; 1 A; 120 -; 1 A; until idle 900"
+# Windows has no FIFOs: the game serves a named pipe instead (port/unix/platform/win_compat.c)
+WINDOWS = os.name == "nt"
+EXE = ".exe" if WINDOWS else ""
 SANITIZER = re.compile(r"runtime error:|ERROR: AddressSanitizer|ERROR: LeakSanitizer")
 
 
@@ -221,8 +225,12 @@ class Session:
             shutil.copy(save, self.dir / "save.srm")
         else:
             (self.dir / "save.srm").write_bytes(bytes(8192))  # empty SRAM: new game
-        os.mkfifo(self.dir / "cmd.fifo")
-        args = [binary or scenario.bin, "--headless", "--save", "save.srm", "--session", "cmd.fifo"]
+        if WINDOWS:
+            cmd_path = rf"\\.\pipe\eb-coop-{uuid.uuid4().hex}"
+        else:
+            cmd_path = self.dir / "cmd.fifo"
+            os.mkfifo(cmd_path)
+        args = [binary or scenario.bin, "--headless", "--save", "save.srm", "--session", str(cmd_path)]
         if players > 1:
             args += ["--players", str(players)]
         self.timeout = timeout
@@ -243,12 +251,14 @@ class Session:
         deadline = time.time() + 10
         while self.fifo is None:
             try:
-                self.fifo = os.open(self.dir / "cmd.fifo", os.O_WRONLY | os.O_NONBLOCK)
+                flags = os.O_WRONLY | os.O_BINARY if WINDOWS else os.O_WRONLY | os.O_NONBLOCK
+                self.fifo = os.open(cmd_path, flags)
             except OSError:
                 if self.proc.poll() is not None or time.time() > deadline:
                     raise ScenarioError(f"game did not open its session FIFO (rc={self.proc.poll()})") from None
                 time.sleep(0.01)
-        os.set_blocking(self.fifo, True)
+        if not WINDOWS:
+            os.set_blocking(self.fifo, True)
 
     def _read(self):
         for ln in self.proc.stdout:
@@ -418,7 +428,7 @@ class Scenario:
     def native_bin(self):
         """The 256x224 build (``$EB_NATIVE_BIN``, else ``port/unix/build/earthbound`` next to ``$EB_BIN``'s build)."""
         env = os.environ.get("EB_NATIVE_BIN")
-        path = Path(env) if env else Path(self.bin).resolve().parents[1] / "build" / "earthbound"
+        path = Path(env) if env else Path(self.bin).resolve().parents[1] / "build" / f"earthbound{EXE}"
         if not path.exists():
             raise ScenarioError(f"a 256x224 build at {path} (or set EB_NATIVE_BIN)")
         return str(path)

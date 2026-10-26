@@ -450,7 +450,7 @@ def load_results(d, cases=None):
 def build_tag(binary):
     """A short name for a binary: its build dir (port/unix/build-X/earthbound -> build-X)."""
     p = Path(binary).resolve()
-    return p.parent.name if p.name == "earthbound" else p.stem
+    return p.parent.name if p.stem == "earthbound" else p.stem
 
 
 def main():

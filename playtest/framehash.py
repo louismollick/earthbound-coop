@@ -19,7 +19,8 @@ boot lines yourself, as a pt.py history has them) and ``--session NAME`` (a pt.p
 start.srm and history.play). ``--no-cases`` skips the regress cases.
 
 It never hangs: the FIFO is opened non-blocking with a placeholder writer (so neither side waits
-in ``open``), reads go through ``select`` against a per-case wall-clock deadline (``--timeout``,
+in ``open``; on Windows the game serves a named pipe and a reader thread connects to it), reads
+go through ``select`` (a condition variable on Windows) against a per-case wall-clock deadline (``--timeout``,
 default 3x the case's), a case that runs out of time has both games killed and is reported as
 TIMEOUT, every game still alive at exit is killed, and the temp dirs (FIFOs, saves) are removed.
 
@@ -42,6 +43,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -51,6 +53,7 @@ from PIL import Image, ImageDraw
 SNES_W, SNES_H = 256, 224
 RECORD_LINE = re.compile(rb"RECORD video (\d+)x(\d+)")
 CHUNK = 1 << 20
+WINDOWS = os.name == "nt"
 
 _live = set()  # every game Popen still running, killed at exit
 _live_lock = threading.Lock()
@@ -99,8 +102,11 @@ class GameRun:
     def __init__(self, binary, workdir, save, script, args=()):
         self.binary, self.workdir = str(Path(binary).resolve()), Path(workdir)
         self.workdir.mkdir(parents=True)
-        self.fifo = self.workdir / "video.fifo"
-        os.mkfifo(self.fifo)
+        if WINDOWS:  # the game creates it (platform/win_compat.c)
+            self.fifo = rf"\\.\pipe\eb-framehash-{uuid.uuid4().hex}"
+        else:
+            self.fifo = self.workdir / "video.fifo"
+            os.mkfifo(self.fifo)
         if save:
             shutil.copy(save, self.workdir / "save.srm")
         else:
@@ -115,8 +121,14 @@ class GameRun:
         self.frames = 0
         self.hashes = []
         self.log = self.workdir / "log.txt"
+        self._cv = threading.Condition()  # Windows: the reader thread's chunks
+        self._chunks = []
+        self._pipe_eof = False
 
     def start(self):
+        if WINDOWS:
+            self._start_windows()
+            return
         # Reader first, non-blocking (never waits for a writer); then a placeholder writer, so the
         # game's open() for writing returns at once and our reads see no EOF before the game opens
         # the FIFO. The placeholder is closed once the game has exited, which lets EOF through.
@@ -131,6 +143,62 @@ class GameRun:
         with _live_lock:
             _live.add(self.proc)
 
+    def _start_windows(self):
+        cmd = [self.binary, "--headless", *self.args, "--save", "save.srm", "--input", "input.play"]
+        cmd += ["--record-video", self.fifo]
+        with self.log.open("wb") as logf:
+            self.proc = subprocess.Popen(  # noqa: S603
+                cmd, cwd=self.workdir, stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT
+            )
+        with _live_lock:
+            _live.add(self.proc)
+        threading.Thread(target=self._pipe_reader, daemon=True).start()
+
+    def _pipe_reader(self):
+        """Windows: connect to the game's pipe once it exists, then queue what it writes until EOF.
+
+        A game that is killed breaks the pipe, so a blocked read always returns.
+        """
+        f = None
+        while f is None and self.proc.poll() is None and not _abort.is_set():
+            try:
+                f = open(self.fifo, "rb", buffering=0)  # noqa: PTH123, SIM115
+            except OSError:  # not created yet
+                time.sleep(0.01)
+        try:
+            while f is not None:
+                try:
+                    chunk = f.read(CHUNK)
+                except OSError:
+                    chunk = b""
+                if not chunk:
+                    break
+                with self._cv:
+                    self._chunks.append(chunk)
+                    self._cv.notify()
+        finally:
+            if f is not None:
+                f.close()
+            with self._cv:
+                self._pipe_eof = True
+                self._cv.notify()
+
+    def _fill_windows(self, deadline):
+        left = deadline - time.monotonic()
+        if left <= 0 or _abort.is_set():
+            raise CaseTimeoutError
+        with self._cv:
+            if not self._chunks and not self._pipe_eof:
+                self._cv.wait(min(0.25, left))
+            if self._chunks:
+                self.buf += b"".join(self._chunks)
+                self._chunks.clear()
+                return True
+            if self._pipe_eof:
+                self.eof = True
+                return False
+        return True
+
     def _release_writer_if_exited(self):
         if self.wfd is not None and self.proc.poll() is not None:
             os.close(self.wfd)
@@ -138,6 +206,8 @@ class GameRun:
 
     def _fill(self, deadline):
         """Read what is available (waiting at most until ``deadline``); False at EOF."""
+        if WINDOWS:
+            return self._fill_windows(deadline)
         self._release_writer_if_exited()
         left = deadline - time.monotonic()
         if left <= 0 or _abort.is_set():
@@ -286,7 +356,7 @@ def compare_case(case, bin_a, bin_b, outdir, timeout, max_png=0):
             tag = "AB"[k]
             if r.log.exists():
                 shutil.copy(r.log, outdir / f"{name}.{tag}.log")
-            (outdir / f"{name}.{tag}.hashes").write_text("".join(f"{x}\n" for x in r.hashes))
+            (outdir / f"{name}.{tag}.hashes").write_text("".join(f"{x}\n" for x in r.hashes), newline="\n")
         shutil.rmtree(tmp, ignore_errors=True)
     sides = f"A {res['status_ab'][0] or '-'}, B {res['status_ab'][1] or '-'}"
     if res["status"] == "done" and any(s not in ("done", "") for s in res["status_ab"]):
@@ -356,8 +426,9 @@ def run(cases, bin_a, bin_b, outdir, jobs=None, timeout=None, max_png=0, list_ma
 
     # SIGTERM/SIGHUP (and SIGINT, even when inherited as ignored) unwind like Ctrl-C, so the games
     # get killed and the temp dirs removed
-    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-        signal.signal(sig, interrupted)
+    for sig in (signal.SIGINT, signal.SIGTERM, getattr(signal, "SIGHUP", None)):
+        if sig is not None:  # Windows has no SIGHUP
+            signal.signal(sig, interrupted)
     results = []
     ex = ThreadPoolExecutor(max_workers=jobs)
     try:

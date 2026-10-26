@@ -205,7 +205,7 @@ uint16_t upload_sprite_to_vram(uint16_t width, uint16_t height, uint16_t hint) {
     /* Clear the VRAM region for this sprite.
      * Each slot covers 0x20 VRAM words (256 bytes).
      * The VRAM address = SPRITE_VRAM_SLOT_TABLE[slot] + VRAM_OBJ_BASE. */
-    if (spritemap_config && spritemap_config_size > SMCFG_VRAM_SLOT_TABLE_OFF + (slot + num_tiles) * 2) {
+    if (spritemap_config && spritemap_config_size > (uint32_t)(SMCFG_VRAM_SLOT_TABLE_OFF + (slot + num_tiles) * 2)) {
         const uint8_t *vram_table = spritemap_config + SMCFG_VRAM_SLOT_TABLE_OFF;
         for (uint16_t i = slot; i < slot + num_tiles; i++) {
             uint16_t vram_word_off = read_u16_le(vram_table + i * 2);

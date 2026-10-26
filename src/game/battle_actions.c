@@ -5036,7 +5036,7 @@ static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
             const uint8_t *noise_table =
                 ASSET_DATA(ASSET_DATA_FINAL_GIYGAS_PRAYER_NOISE_TABLE_BIN);
             uint16_t idx = st->scratch16[0];
-            if (!noise_table || idx + 1 >= noise_size) {
+            if (!noise_table || (size_t)(idx + 1) >= noise_size) {
                 st->pc = 15;
                 break;
             }

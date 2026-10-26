@@ -68,7 +68,7 @@ static void town_map_init_animation(TownMapState *s) {
 static uint16_t smap_offset_from_mapping(const uint8_t *smap_ptrs, size_t ptrs_size,
                                           uint16_t map_entry) {
     uint16_t ptr_idx = map_entry * 2;  /* ASL in assembly */
-    if (ptr_idx + 1 >= ptrs_size) return 0;
+    if ((size_t)(ptr_idx + 1) >= ptrs_size) return 0;
     uint16_t rom_addr = read_u16_le(&smap_ptrs[ptr_idx]);
     return rom_addr - SPRITEMAP_ROM_BASE;
 }
@@ -231,7 +231,7 @@ static void update_town_map_player_icon(TownMapState *s) {
     /* Read pixel position and direction from sector data.
      * Each sector entry is 3 bytes: [flags_and_dir, pixel_x, pixel_y] */
     uint16_t pixel_x = 0, pixel_y = 0, dir_flags = 0;
-    if (sector_idx + 2 < sector_size) {
+    if ((size_t)(sector_idx + 2) < sector_size) {
         dir_flags = sector_data[sector_idx] & 0x70;
         pixel_x = sector_data[sector_idx + 1] & 0xFF;
         pixel_y = sector_data[sector_idx + 2] & 0xFF;
@@ -345,7 +345,7 @@ static void render_town_map_icons(TownMapState *s) {
 
         if (should_draw) {
             uint16_t ptr_idx = icon_type * 2;
-            if (ptr_idx + 1 < ptrs_size) {
+            if ((size_t)(ptr_idx + 1) < ptrs_size) {
                 uint16_t rom_addr = read_u16_le(&smap_ptrs[ptr_idx]);
                 uint16_t smap_off = rom_addr - SPRITEMAP_ROM_BASE;
                 queue_sprite_draw(smap_off, (int16_t)icon_x, (int16_t)icon_y,

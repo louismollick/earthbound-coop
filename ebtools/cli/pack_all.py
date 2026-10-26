@@ -1232,7 +1232,8 @@ def _generate_text_refs_header(
     lines.append("#endif /* DATA_TEXT_REFS_H */")
     lines.append("")
 
-    header_path.write_text("\n".join(lines))
+    # UTF-8 and LF on every OS: the header is tracked, so other bytes would make the tree dirty
+    header_path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     print(f"  Generated {header_path} ({len(flat_label_offsets)} defines)")
 
 

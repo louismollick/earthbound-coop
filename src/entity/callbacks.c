@@ -585,7 +585,7 @@ static uint16_t execute_overlay_animation_script(uint16_t script_offset,
     uint16_t y = 0;
 
     for (;;) {
-        if (script_offset + y + 4 > overlay_data_size) {
+        if ((size_t)(script_offset + y + 4) > overlay_data_size) {
             *out_new_ptr = script_offset;
             return 1;
         }

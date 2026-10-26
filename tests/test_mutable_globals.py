@@ -27,9 +27,11 @@ LIB = ROOT / "port" / "unix" / "build-debug" / "game_lib" / "libearthbound_game.
 AUDIT = ROOT / "docs" / "coop-design" / "serialization-audit.md"
 STATE_DUMP = ROOT / "src" / "core" / "state_dump.c"
 # Compiler, sanitizer and vendored-library symbols, not game state.
-IGNORE = re.compile(r"^(l_|ltmp|___?asan|__odr|___unnamed|\.L|__sancov|__llvm|__profc)")
+IGNORE = re.compile(r"^(l_|ltmp|_{2,3}asan|__odr|_{2,3}unnamed|\.L|__sancov|__llvm|__profc)")
 # Vendored tamp (de)compressor objects: library internals, not game state.
 VENDOR_OBJECTS = {"common.c", "compressor.c", "decompressor.c"}
+# The generated incbin asset table: read-only blobs, though COFF (Windows) puts them in .data.
+VENDOR_OBJECTS.add("embedded_assets_array.c")
 
 
 def mutable_globals(lib):
@@ -40,11 +42,12 @@ def mutable_globals(lib):
     kind = r"\((?:__DATA,__(?:data|bss|common)|common)\).*" if darwin else r"[DdBbC]"
     syms = {}
     for line in out.stdout.splitlines():
-        m = re.match(r"^.*?\(?([\w.+-]+)\.o\)?:\s*(?:[0-9a-fA-F]+\s+)?" + kind + r"\s(\S+)$", line)
+        # Objects are FILE.c.o, or FILE.c.obj on Windows
+        m = re.match(r"^.*?\(?([\w.+-]+)\.o(?:bj)?\)?:\s*(?:[0-9a-fA-F]+\s+)?" + kind + r"\s(\S+)$", line)
         if not m:
             continue
         obj, name = m.groups()
-        name = name[1:] if name.startswith("_") else name  # Mach-O prefixes C names with "_"
+        name = name[1:] if darwin and name.startswith("_") else name  # Mach-O prefixes C names with "_"
         if IGNORE.match(name) or obj in VENDOR_OBJECTS:
             continue
         syms[re.sub(r"\.\d+$", "", name)] = obj  # gcc's "var.123" for function statics

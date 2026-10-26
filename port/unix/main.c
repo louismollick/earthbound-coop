@@ -157,6 +157,9 @@ int main(int argc, char *argv[]) {
         sdl_flags |= SDL_INIT_AUDIO;
 #endif
     }
+#ifdef _WIN32
+    SDL_SetMainReady(); /* SDL_MAIN_HANDLED: no SDL2main */
+#endif
     if (SDL_Init(sdl_flags) < 0) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return 1;

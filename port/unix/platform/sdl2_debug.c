@@ -5,6 +5,8 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "platform/win_compat.h"
+
 #include "snes/ppu.h"
 #include "game/window.h"
 

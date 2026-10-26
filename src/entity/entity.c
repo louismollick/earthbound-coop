@@ -498,7 +498,7 @@ int16_t create_entity(uint16_t sprite, uint16_t script, int16_t index,
     /* ASM lines 145-157: Compute and store VRAM address.
      * VRAM address = SPRITE_VRAM_SLOT_TABLE[vram_slot] + VRAM_OBJ_BASE ($4000). */
     uint16_t vram_addr = VRAM_OBJ_BASE;
-    if (spritemap_config && spritemap_config_size > SMCFG_VRAM_SLOT_TABLE_OFF + vram_slot * 2 + 2) {
+    if (spritemap_config && spritemap_config_size > (uint32_t)(SMCFG_VRAM_SLOT_TABLE_OFF + vram_slot * 2 + 2)) {
         const uint8_t *vram_table = spritemap_config + SMCFG_VRAM_SLOT_TABLE_OFF;
         vram_addr = read_u16_le(vram_table + vram_slot * 2) + VRAM_OBJ_BASE;
     }

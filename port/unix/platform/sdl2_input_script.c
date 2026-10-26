@@ -127,6 +127,8 @@
 #include <strings.h>
 #include <sys/stat.h>
 
+#include "platform/win_compat.h"
+
 /* sdl2_video.c */
 extern int video_frames_rendered;
 const pixel_t *video_last_frame(void);
@@ -137,6 +139,9 @@ void record_set_paused(bool paused);
 uint32_t record_frames(void);
 
 static FILE *script_file;
+#ifdef _WIN32
+static bool script_is_pipe; /* a --session named pipe: EOF = the driver's command ended */
+#endif
 static int script_line_no;
 static uint16_t hold_pad;
 static int hold_frames;
@@ -963,6 +968,12 @@ void input_script_shot(const char *path) {
 /* ---- Script input ---- */
 
 static bool open_script(const char *path, bool session) {
+#ifdef _WIN32
+    script_is_pipe = session && win_pipe_path(path);
+    if (script_is_pipe) {
+        script_file = win_pipe_open(path, true);
+    } else
+#endif
     if (session) {
         /* O_RDWR keeps a writer open ourselves, so the FIFO never reports EOF
          * between driver writes; reads simply block until a command arrives. */
@@ -978,6 +989,20 @@ static bool open_script(const char *path, bool session) {
     text_trace_hook = text_trace;
     sfx_trace_hook = sfx_trace;
     return true;
+}
+
+/* The next script line; false at the end of the script */
+static bool script_read_line(char *line, int size) {
+#ifdef _WIN32
+    if (script_is_pipe) {
+        /* The driver's command ended (its pipe client left): wait for the next */
+        while (!fgets(line, size, script_file))
+            if (!win_pipe_reconnect(script_file))
+                return false;
+        return true;
+    }
+#endif
+    return fgets(line, size, script_file) != NULL;
 }
 
 bool input_script_open(const char *path) {
@@ -1109,7 +1134,7 @@ static bool start_until(const char *line) {
         }
     } else if (strncmp(cond, "said:", 5) == 0) {
         until_kind = UC_SAID;
-        snprintf(until_word, sizeof(until_word), "%s", cond + 5);
+        snprintf(until_word, sizeof(until_word), "%.*s", (int)sizeof(until_word) - 1, cond + 5);
     } else if (strcmp(cond, "idle") == 0) {
         until_kind = UC_IDLE;
     } else if (strcmp(cond, "input") == 0) {
@@ -1482,7 +1507,7 @@ static uint16_t script_step(uint16_t *aux, bool *paused) {
     if (press_left > 0)
         return press_step();
     while (hold_frames == 0) {
-        if (!script_file || !fgets(line, sizeof(line), script_file)) {
+        if (!script_file || !script_read_line(line, (int)sizeof(line))) {
             if (script_file) {
                 fclose(script_file);
                 script_file = NULL;

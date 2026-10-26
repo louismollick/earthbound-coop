@@ -207,7 +207,7 @@ static int fps_overlay_timing_lines(void) {
     uint32_t work = logic10 + render10;
     uint32_t idle10 = (work < frame_budget) ? frame_budget - work : 0;
 
-    char vbuf[16];
+    char vbuf[8];  /* debug_format_tenths caps at "999.9" */
     int n = 0;
     debug_format_tenths(vbuf, sizeof(vbuf), fps10);
     snprintf(fps_overlay.lines[n], sizeof(fps_overlay.lines[0]), "FPS %s", vbuf);

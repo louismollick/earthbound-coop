@@ -41,7 +41,7 @@ for i in "${!SAVES[@]}"; do
   name="${SAVES[$i]}"; n="${name%%-*}"
   [ -f "playtest/saves/$name.srm" ] && continue
   tmp="$(mktemp -d)"
-  curl -fsSL "https://fantasyanime.com/legacy/saves/earthbsave$n.zip" -o "$tmp/s.zip"
+  curl -fsSL "https://fantasyanime.com/legacy/saves/earthbsave$name.zip" -o "$tmp/s.zip"
   unzip -q -o "$tmp/s.zip" -d "$tmp/x"
   cp "$(find "$tmp/x" -iname 'earthbound.srm' | head -1)" "playtest/saves/$name.srm"
   rm -rf "$tmp"

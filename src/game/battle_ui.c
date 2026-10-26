@@ -597,7 +597,7 @@ void set_color_math_from_table(uint16_t index) {
      * have 10 entries; callers only pass 1, 3 and 7, so reject anything that
      * would read past the 41-byte table. */
     const uint8_t *table = ASSET_DATA(ASSET_DATA_COLOR_MATH_REGISTER_TABLE_BIN);
-    if (COLOR_MATH_CGADSUB_OFFSET + index >=
+    if ((size_t)(COLOR_MATH_CGADSUB_OFFSET + index) >=
         ASSET_SIZE(ASSET_DATA_COLOR_MATH_REGISTER_TABLE_BIN))
         return;
     ppu.tm      = table[COLOR_MATH_TM_OFFSET + index];

@@ -30,7 +30,6 @@ import queue
 import random
 import re
 import shutil
-import signal
 import socket
 import subprocess
 import sys
@@ -364,7 +363,7 @@ def run(
                 m.syncs[int(s.group(1))] = (s.group(2), s.group(3))
                 spec = next((c for c in clients if c.name == name), None)
                 if spec and spec.kill_after is not None and int(s.group(1)) >= spec.kill_after and not m.killed:
-                    procs[name].send_signal(signal.SIGKILL)
+                    procs[name].kill()  # SIGKILL; TerminateProcess on Windows
                     m.killed = True
             elif ln.startswith("NET "):
                 m.events.append(ln)

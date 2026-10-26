@@ -1,0 +1,131 @@
+{
+ "about": "per regress case: frame count and sha256 of its per-frame hashes (playtest/framedigest.py)",
+ "viewport": "320x240",
+ "recorded_on": "Linux",
+ "cases": {
+  "ailments-goods": {
+   "frames": 2149,
+   "sha256": "75bcf1d0dd3cfd201244f577aa596d3bf9f035686618ccdd7424ce76e496d0e8"
+  },
+  "attract": {
+   "frames": 5175,
+   "sha256": "e794b2ce5abfd9d57b243386488a3e8ea921fd393a0df6d9009fd2d7d14ff9b9"
+  },
+  "battle-psi-items": {
+   "frames": 3259,
+   "sha256": "4f828d9caf71f8dffa500b3e423d7fb022421ecdfcc32748e575d22b7e3dc8f4"
+  },
+  "bus": {
+   "frames": 9013,
+   "sha256": "507accad568f9010ebc5a251e4122d2beb9b56d2e34f479bdc27098566df281b"
+  },
+  "credits": {
+   "frames": 14123,
+   "sha256": "7a3dac25cba45bed66a13e5908defcd9d7303f62ad9f6edcba971df4d8d5bdeb"
+  },
+  "deep-darkness": {
+   "frames": 1281,
+   "sha256": "c9a68a5f6dc8b62d8b0dc7a391b0eaffddffab59fbdf26f702a1db5991914797"
+  },
+  "desert-autofight": {
+   "frames": 2591,
+   "sha256": "afedb63ae5b734436253cdf9a8109e52af2fe7ba599c3427deafa525070be8c1"
+  },
+  "door-exit": {
+   "frames": 1078,
+   "sha256": "f72f9af2e70ff1b793460e2c1eec13c904014aaf4f3639b46d7b9b27277f917a"
+  },
+  "doors": {
+   "frames": 963,
+   "sha256": "498eceaf579188267a778749afa1a276762efa6750f7e07819a50198857baf82"
+  },
+  "escargo": {
+   "frames": 1846,
+   "sha256": "87e5cad201c86728b62f25f31e82e910f750c6abef07f9f6a668a182aa302cf1"
+  },
+  "game-over": {
+   "frames": 2018,
+   "sha256": "fac2fa287dec0d7e734e97898306867ffde5f888ecd1de251ba7c5cc657e4280"
+  },
+  "giygas": {
+   "frames": 4951,
+   "sha256": "cfe6fa13c230750769e263d4b5c206d0c7b945ab5dd4cdc5e72ba3d305547d92"
+  },
+  "happy-shop": {
+   "frames": 1256,
+   "sha256": "e75bcf8777a0b364b7b877dd97bd5274aab45239e4d4206ca9871e852d88a866"
+  },
+  "hotel-atm": {
+   "frames": 2426,
+   "sha256": "354c342f820b7664151c5d813ad632809d6ad7af6adad93f6269863f015b94dd"
+  },
+  "lab": {
+   "frames": 1108,
+   "sha256": "a11a653d49aa610f5c2b70fc582ec9343a970a7d4451fef04b8c9e63a157ffaf"
+  },
+  "lumine-hall": {
+   "frames": 5861,
+   "sha256": "af4b977eb21900f0c7572b6eb61174d4a930de6283e6911302e4029c56f28516"
+  },
+  "magicant": {
+   "frames": 8541,
+   "sha256": "6f44dc02016afecb685742c6deff477f5ea4bdbb08ad1a82e20d25532fac1108"
+  },
+  "moonside": {
+   "frames": 1204,
+   "sha256": "91ffba8cda004e42055bc40544ab26ca1e5738f826de58b123c46471a4fb8411"
+  },
+  "mu-training": {
+   "frames": 5264,
+   "sha256": "16699f90c040de40fc3874c352ed5d4f9c05949131bf53231f9f0482e460ece8"
+  },
+  "naming": {
+   "frames": 932,
+   "sha256": "28b125eb048539f699f38355620d130b6abc657b559ad55c20a9d675accb7f26"
+  },
+  "onett-battle": {
+   "frames": 2534,
+   "sha256": "e55d61c389bdd259a0b20449f8067dbdd73f59f867181ce0fbb6f229295f2b3f"
+  },
+  "pause-menu": {
+   "frames": 1496,
+   "sha256": "b1e1db1555a6a0eb230d4af276d180f06464a5529c0690057c516eff3c187ccd"
+  },
+  "phone-dad": {
+   "frames": 1287,
+   "sha256": "d645fcdabb43ec1065f2dc007e799f557a275bc9ab1c846bb2a6593f2e456cde"
+  },
+  "plague-rat": {
+   "frames": 11971,
+   "sha256": "42003b542a786c3a6c4bdb05696cab648e004d2b2f5a149ff32c6da465a78bee"
+  },
+  "psi-teleport": {
+   "frames": 1203,
+   "sha256": "288293fb22d5e826072e93a4a4d430522aa0756c29be35ed7d4124bcd130524f"
+  },
+  "snap-restore": {
+   "frames": 1019,
+   "sha256": "13f9e2d12d5024f922b7854790b9181ad533a78f75159521699431eb63135468"
+  },
+  "sound-stone": {
+   "frames": 1714,
+   "sha256": "54a5a5223577800816d3176c44e1ed2b6a616849c92115701568806f65e3fa3e"
+  },
+  "surprise": {
+   "frames": 1136,
+   "sha256": "f0c9a62c1d1db79dcea3d27e5c4fe46713cc150a173deba4d99a331571e6fd86"
+  },
+  "surprise-enemy": {
+   "frames": 1769,
+   "sha256": "31f9b23865e22dbddfe789255f61fbfa76a66ba7937c4c7bd3aa6391c07eeb53"
+  },
+  "towns": {
+   "frames": 2751,
+   "sha256": "588494d8db4919f966a5c988e14b1701017ffd5ad1a955a81802da4fba750e72"
+  },
+  "underworld-fall": {
+   "frames": 1296,
+   "sha256": "92a8256bb3cbd3bc3ab9ea516f6635ae2919ad0d089c2da9cc5ff1a9b3ce46f3"
+  }
+ }
+}

@@ -62,6 +62,11 @@ endif()
 
 # Embedded assets - game assets are compiled into the binary via incbin.h
 find_program(EBTOOLS_EXE ebtools REQUIRED)
+# Python's default text encoding on Windows is the ANSI code page: run ebtools in
+# UTF-8 mode there, as on macOS and Linux
+if(WIN32)
+    set(EBTOOLS_EXE ${CMAKE_COMMAND} -E env PYTHONUTF8=1 ${EBTOOLS_EXE})
+endif()
 
 set(EMBED_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(EMBED_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../asm/bin")

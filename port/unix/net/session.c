@@ -1532,6 +1532,10 @@ bool net_start(const NetConfig *cfg) {
     }
     /* The Host owns the save: this machine's SRAM is a temp file for the Session */
     const char *tmp = getenv("TMPDIR");
+#ifdef _WIN32
+    if (!tmp || !*tmp)
+        tmp = getenv("TEMP");
+#endif
     snprintf(n.save_path, sizeof n.save_path, "%s/earthbound-net-%d.srm", tmp && *tmp ? tmp : "/tmp", (int)getpid());
     remove(n.save_path);
     platform_save_set_path(n.save_path);

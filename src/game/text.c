@@ -3800,7 +3800,8 @@ void print_number(int value, int min_digits) {
         set_text_pixel_position(w->text_y, w->cursor_pixel_x + pad_pixels);
     } else if (min_digits > digit_count) {
         /* No window padding — fallback to caller-specified min_digits */
-        snprintf(buf, sizeof(buf), "%*d", min_digits, value);
+        /* Width capped to the buffer (callers pass 1 or 2) */
+        snprintf(buf, sizeof(buf), "%*d", min_digits < 11 ? min_digits : 11, value);
     }
 
     print_string(buf);

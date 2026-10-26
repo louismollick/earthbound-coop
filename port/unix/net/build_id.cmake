@@ -10,15 +10,17 @@
 # clean checkout of one commit gives the same string on every OS. Game data
 # isn't covered here: session.c hashes the embedded assets themselves.
 set(rev "unknown")
+# ENCODING UTF-8: on Windows CMake would otherwise decode git's output with the
+# console code page, and a non-ASCII line in the diff would hash differently.
 execute_process(COMMAND git -C "${ROOT}" rev-parse --short=12 HEAD
-    OUTPUT_VARIABLE head RESULT_VARIABLE rc OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    OUTPUT_VARIABLE head RESULT_VARIABLE rc OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET ENCODING UTF-8)
 if(rc EQUAL 0 AND head)
     set(rev "${head}")
     set(paths src port/unix cmake)
     execute_process(COMMAND git -C "${ROOT}" diff HEAD --ignore-submodules=all -- ${paths}
-        OUTPUT_VARIABLE changes ERROR_QUIET)
+        OUTPUT_VARIABLE changes ERROR_QUIET ENCODING UTF-8)
     execute_process(COMMAND git -C "${ROOT}" ls-files --others --exclude-standard -- ${paths}
-        OUTPUT_VARIABLE untracked OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        OUTPUT_VARIABLE untracked OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET ENCODING UTF-8)
     if(untracked)
         string(REPLACE "\n" ";" untracked "${untracked}")
         foreach(f IN LISTS untracked)
