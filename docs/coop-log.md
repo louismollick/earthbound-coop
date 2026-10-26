@@ -290,3 +290,6 @@ One entry per PLAN.md item: what changed, gate results, decisions and deviations
 
 ### M5 frame hashes, Mac side (2026-10-26)
 - `python playtest/framedigest.py check base port/unix/build-wide/earthbound` on the Mac at ee093f65: 0 of 31 cases differ from `base.json` (recorded on Linux), so Mac, Linux and Windows produce the same frame hashes for every frame of every regress case. PLAN item ticked; only the user's 10-minute test remains in M5.
+
+### M5 review (GPT 6.1 Sol, one pass; Windows paths reviewed by reading)
+- Bugs: Windows save replacement deletes the live `.srm` before the rename (pre-existing upstream); `framedigest.py check` passes with missing/unrecorded cases; the named-pipe startup probe can race `ConnectNamedPipe` (`ERROR_NO_DATA` treated as fatal); the dirty-tree fingerprint depends on git diff config (color, external diff). Risks: Winsock `SOCKET` narrowed to `int` in `udp.c`; `framedigest.py record` accepts truncated runs. All six to a fix agent (m5fix).
