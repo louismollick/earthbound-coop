@@ -74,7 +74,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 ## M2 Battle
 
 - [x] Command input for each Hero comes from its Owner's pad: command menu, PSI, Goods, target selection.
-- [x] Party-wide choices: Run belongs to the Leader's Owner. Auto Fight keeps vanilla behaviour (whole Party), and any Player can cancel it.
+- [x] Party-wide choices: Run belongs to the Leader's Owner (when the Leader can't act, to the Owner of the first Hero who can, where vanilla puts Run). Auto Fight keeps vanilla behaviour (whole Party), and any Player can cancel it.
 - [x] The battle UI shows whose turn it is: a small P1 to P4 tag next to the acting Hero's name. Keep it tiny and pixel-consistent with the game.
 - [x] Scenarios: a 2-Player and a 4-Player battle where each Owner's input decides their Hero's command, and the other Players' input is ignored during that menu. Win, flee and game over all exit cleanly.
 
@@ -101,22 +101,22 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 
 ## M6 Online
 
-- [ ] Netcode in `port/unix/net/`.
+- [x] Netcode in `port/unix/net/`.
   - UDP transport. Every packet carries the last K frames of local input for redundancy.
   - Fixed input delay, 3 frames by default, set with `--input-delay`.
   - Up to 4 Players, and a machine may have several local Players (keyboard, IJKL layout, controllers) in one Session. Direct IP and port only: no matchmaking and no NAT traversal (document Tailscale or port forwarding).
-- [ ] Session flow.
+- [x] Session flow.
   - `--host PORT` and `--join ADDR:PORT`.
   - A joining Player gets a savestate from the Host at a root-loop boundary, then everyone resumes on the same frame.
   - When a Player disconnects, the others pause for 10 seconds, then continue with that Player left.
-- [ ] Desync detection: every 60 frames, peers exchange a hash of the serialized game state. On a mismatch, both sides dump a state diff and the session stops with a clear message.
-- [ ] Headless netplay test harness: 2 to 4 headless processes on localhost behind a Python UDP proxy that injects latency, jitter, loss and reordering.
-- [ ] Scenarios:
+- [x] Desync detection: every 60 frames, peers exchange a hash of the serialized game state. On a mismatch, both sides dump a state diff and the session stops with a clear message.
+- [x] Headless netplay test harness: 2 to 4 headless processes on localhost behind a Python UDP proxy that injects latency, jitter, loss and reordering.
+- [x] Scenarios:
   - A 2-Player session runs 30 game minutes of scripted play with 100 ms of latency, 30 ms of jitter and 2% loss, with zero desyncs.
   - A Player joins mid-game and the session stays in sync.
   - A Player disconnects and rejoins.
   - The same session at 4 Players.
-- [ ] `docs/coop-online.md`: how to host and join.
+- [x] `docs/coop-online.md`: how to host and join.
 
 ## M7 Polish
 

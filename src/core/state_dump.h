@@ -2,6 +2,8 @@
 #define CORE_STATE_DUMP_H
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 /* Crash-safe ping-pong savestate persistence (build-order items #4 + #5).
  *
@@ -65,5 +67,22 @@ bool state_dump_coldload_test(void);
  * confirms each such module re-resolves its caches on demand (the ensure_*
  * guards). Returns true on success. */
 bool state_dump_asset_pointer_test(void);
+
+/* Walk every serialized section in slot order: begin() with its id, name (the
+ * section id without "SECTION_", e.g. "RNG") and size, then bytes() with its
+ * contents in the canonical form a slot stores (pointer slots canonicalized), in
+ * one or more pieces. Nothing is compressed or written and no game state changes,
+ * so it is safe at any point in a frame. Netplay hashes it for desync detection
+ * (port/unix/net/). */
+typedef struct {
+    void (*begin)(void *ctx, uint16_t id, const char *name, uint32_t size);
+    void (*bytes)(void *ctx, const void *data, size_t n);
+    void *ctx;
+} StateDumpVisitor;
+void state_dump_visit(const StateDumpVisitor *v);
+
+/* This build's savestate layout fingerprint (the slot header's layout_id). Netplay
+ * peers compare it to refuse a build that would desync. */
+uint32_t state_dump_layout_id(void);
 
 #endif /* CORE_STATE_DUMP_H */

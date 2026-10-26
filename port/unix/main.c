@@ -10,6 +10,7 @@
 #include "core/state_dump.h"
 #include "game/smooth_camera.h"
 #include "coop/coop.h"
+#include "net/net.h"
 
 /* Unix-specific: set save file path (defined in sdl2_save.c) */
 void platform_save_set_path(const char *path);
@@ -41,6 +42,7 @@ int main(int argc, char *argv[]) {
     bool savestate_selftest = false;
     const char *coldload_prefix = NULL;
     int players = 1;
+    NetConfig net = { .input_delay = NET_DEFAULT_INPUT_DELAY, .local_players = 1 };
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--verify") == 0 && i + 1 < argc) {
@@ -89,6 +91,27 @@ int main(int argc, char *argv[]) {
                 fprintf(stderr, "--players takes 1-%d\n", PLATFORM_MAX_PLAYERS);
                 return 1;
             }
+        } else if (strcmp(argv[i], "--host") == 0 && i + 1 < argc) {
+            /* Online co-op: host a Session on this UDP port (docs/coop-online.md) */
+            net.host_port = atoi(argv[++i]);
+            if (net.host_port <= 0 || net.host_port > 65535) {
+                fprintf(stderr, "--host takes a UDP port (default %d)\n", NET_DEFAULT_PORT);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--join") == 0 && i + 1 < argc) {
+            /* Online co-op: join the Session at ADDR[:PORT] */
+            net.join = argv[++i];
+        } else if (strcmp(argv[i], "--input-delay") == 0 && i + 1 < argc) {
+            net.input_delay = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--local-players") == 0 && i + 1 < argc) {
+            /* Online co-op: Players at this machine (keyboard, IJKL layout, controllers) */
+            net.local_players = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--net-wait-players") == 0 && i + 1 < argc) {
+            /* Host: the game waits until N Players (the Host included) are in */
+            net.wait_players = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--net-end-frame") == 0 && i + 1 < argc) {
+            /* Test flag (Host): every machine quits after this net frame */
+            net.end_frame = (uint32_t)strtoul(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--skip-intro") == 0) {
             platform_skip_intro = true;
         } else if (strcmp(argv[i], "--verbose") == 0) {
@@ -99,10 +122,20 @@ int main(int argc, char *argv[]) {
                 verbose_level++;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--smooth-camera] [--players N] [--verbose] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX]\n",
+            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--smooth-camera] [--players N] [--host PORT] [--join ADDR[:PORT]] [--input-delay N] [--local-players N] [--verbose] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX]\n",
                     argv[0]);
             return 1;
         }
+    }
+
+    bool netplay = net.host_port > 0 || net.join;
+    if (net.host_port > 0 && net.join) {
+        fprintf(stderr, "--host and --join are exclusive\n");
+        return 1;
+    }
+    if (netplay && (players > 1 || savestate_selftest || coldload_prefix)) {
+        fprintf(stderr, "--host/--join can't be combined with --players or the self-tests\n");
+        return 1;
     }
 
     if (record_active() && !platform_headless) {
@@ -134,8 +167,19 @@ int main(int argc, char *argv[]) {
     atexit(platform_cleanup);
     platform_timer_init();
 
+    /* Online co-op: connect before game_init (a client moves its SRAM to a temp
+     * file first, so it never writes the local save) */
+    if (netplay) {
+        if (!net_start(&net))
+            return 1;
+        atexit(net_shutdown); /* runs before platform_cleanup */
+    }
+
     /* Initialize game systems */
     game_init();
+    /* The Host's local Players are in from the start, like --players */
+    if (net.host_port > 0)
+        players = net.local_players;
     for (int p = 1; p < players; p++)
         coop_join(p);
 

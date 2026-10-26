@@ -75,6 +75,20 @@ One entry per PLAN.md item: what changed, gate results, decisions and deviations
 - Gates `--framehash`, then `--full`: PASS. regress 0 of 32 cases differ, framehash 0 of 31 cases / 0 differing frames, pytest 1827 passed / 5 skipped, co-op 32/32, ASan+UBSan 32/32 clean. The M2 scenarios also pass at 256x224. Contact sheet read: the tags, the Run Away cursor, Ness's sleep icon, the raised HP window of the Hero whose turn it is, and the untagged solo title all match the state output.
 - Not scenario-tested: a Player leaving mid-battle (the request then names an unjoined Player, so the focus falls back to ALL), and the Giygas prayer menus (they use the same command menu).
 
+### M3 review (GPT 6.1 Sol, one pass, retry after a capacity failure)
+- Bug (high): the Leader pad override in `coop_input.c` replaces demo/scripted input, so closing a menu at a stair entry strands the auto-walk and the lock. Bug (medium): a join/leave in the same frame leaves `focus_new` stale (dropped or replayed presses). Risk: ALL focus has different edge semantics for `coop_pad_new()` vs `core.pad1_pressed`. All three to a fix agent (m3fix).
+
+### M6 Online (merged fdb7a936)
+- Star-topology input lockstep in `port/unix/net/` (UDP, the Host relays confirmed 4-pad frame sets; K-frame redundancy; `--host`, `--join`, `--input-delay`, `--local-players`). Joins: a CAPTURE session event makes every machine unwind identically, the Host ships state + SRAM + platform pad history in 1 KB chunks, then a JOIN event runs `coop_join` everywhere. A client silent for 10 s is dropped with a LEAVE event. Per-section state hashes every 60 frames; a mismatch stops the Session and writes `desync-*` dumps.
+- Found and fixed two real cold-load bugs via join desyncs (flavour-palette cache, lazily bound battle action table); both also affected F7 after a restart.
+- Long soak: 108,000 frames, 2 Players, 100 ms one-way + 30 ms jitter + 2% loss, input delay 30 (for throughput; headless is uncapped), 0 desyncs, 612 s wall. Short soak, mid-game join, rejoin, 4P, mixed local+remote and a deliberate-desync detector run in the normal suite.
+- Gates on the merged tree (with M2): `--framehash` PASS (regress 0/32, framehash 0 changed frames).
+
+### M2 review (GPT 6.1 Sol, one pass)
+- Bug: a join/leave while a battle menu (or its PSI/Goods/target child) is open leaves the menu on the old Owner's pad and a stale tag. Sent to the M7 battle agent (it is reworking the same focus code) with a scenario-first brief.
+- Risk: `m2_exits` lock check passes vacuously when P2 has no Walker. Same agent.
+- Rebutted: "Run belongs to another Owner when the Leader cannot act". When the Leader is asleep or can't act, vanilla puts Run on the first Hero who can act; that Hero's Owner holding Run keeps the escape option with someone who has a menu this turn, and a Leader who can't act shouldn't block the Party. PLAN's M2 wording now states this explicitly.
+
 ## M7 Polish
 
 ### Battle rotation (item 3)
