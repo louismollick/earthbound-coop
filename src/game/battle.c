@@ -2541,6 +2541,10 @@ StepResult mode_step_check_dead_players(ModeState *ms) {
  * [2] = WINDOW::BATTLE_MENU_FULL  = 0x30  */
 static const uint8_t battle_window_sizes[] = { 0x12, 0x0F, 0x30 };
 
+uint8_t battle_menu_window_id(uint8_t window_index) {
+    return battle_window_sizes[window_index < 3 ? window_index : 0];
+}
+
 /* ITEM_USABLE_FLAGS table (from asm/data/item_usable_flags.asm)
  * Indexed by char_id - 1 (0=Ness, 1=Paula, 2=Jeff, 3=Poo) */
 static const uint8_t item_usable_flags[4] = { 0x01, 0x02, 0x04, 0x08 };
@@ -5394,8 +5398,6 @@ StepResult mode_step_battle(ModeState *ms) {
     StepResult r;
 
     for (;;) {
-        if (coop_player_count() > 1)  /* co-op: a command menu reads its Hero's Owner */
-            coop_battle_focus(st->phase, st->party_slot);
         switch ((BattleRoutinePhase)st->phase) {
 
         case BTL_BEGIN:

@@ -83,7 +83,7 @@ typedef struct {
     /* Input focus (coop_input.h) */
     uint8_t focus;                              /* the Player (0-3) or COOP_FOCUS_ALL whose pad
                                                  * feeds core.pad1 now */
-    uint8_t focus_request;                      /* battle: coop_set_focus's request */
+    uint8_t unused_focus;                       /* explicit padding (savestates hash every byte) */
     uint8_t focus_locked;                       /* overworld: `focus` holds the lock */
     uint8_t focus_in_battle;                    /* the last feed was in a battle (entry edge) */
     uint16_t focus_new;                         /* this frame's new presses of the focused pad(s),

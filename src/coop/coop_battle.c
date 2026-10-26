@@ -9,7 +9,10 @@
 #include "coop/coop.h"
 #include "coop/coop_input.h"
 #include "core/mode_stack.h"
+#include "game/battle.h"
 #include "game/game_state.h"
+#include "game/window.h"
+#include "game/text.h"
 
 /* The phases from choosing a Hero's menu to acting on its result (SELECT and
  * OPEN wait a frame each before the menu reads input, so the host has applied
@@ -59,12 +62,23 @@ void coop_battle_start_turn(void) {
         coop.rotation++;
 }
 
-void coop_battle_focus(uint8_t phase, uint16_t party_slot) {
-    uint8_t hero = party_slot < TOTAL_PARTY_COUNT ? game_state.party_members[party_slot] : 0;
-    if (menu_phase(phase) && hero >= 1 && hero <= COOP_HERO_COUNT)
-        coop_set_focus(coop_battle_menu_player(hero));
-    else
-        coop_set_focus(COOP_FOCUS_ALL);
+/* The live state of the innermost mode `mode` on the stack, or NULL. */
+static ModeState *mode_state(GameMode mode) {
+    for (int i = g_mode_stack.depth - 1; i >= 0; i--)
+        if (g_mode_stack.mode[i] == mode)
+            return &g_mode_stack.state[i];
+    return NULL;
+}
+
+int coop_battle_focus(void) {
+    ModeState *ms = mode_state(GAME_MODE_BATTLE);
+    if (!ms || !menu_phase(ms->battle.phase) || ms->battle.party_slot >= TOTAL_PARTY_COUNT)
+        return COOP_FOCUS_ALL;
+    uint8_t hero = game_state.party_members[ms->battle.party_slot];
+    if (hero < 1 || hero > COOP_HERO_COUNT)
+        return COOP_FOCUS_ALL;
+    int p = coop_battle_menu_player(hero);
+    return coop_player_joined(p) ? p : COOP_FOCUS_ALL;
 }
 
 int coop_battle_title(char *name, int size, uint8_t char_id) {
@@ -72,4 +86,23 @@ int coop_battle_title(char *name, int size, uint8_t char_id) {
     if (char_id >= 1 && char_id <= COOP_HERO_COUNT)
         snprintf(name + len, (size_t)(size - len), " P%d", coop_battle_menu_player(char_id) + 1);
     return (int)strlen(name);
+}
+
+void coop_battle_retitle(void) {
+    ModeState *ms = mode_state(GAME_MODE_BATTLE_MENU);
+    if (!ms || ms->battle_menu.phase == BM_ENTER)
+        return; /* no command window built yet */
+    uint8_t char_id = (uint8_t)ms->battle_menu.char_id;
+    WindowInfo *w = get_window(battle_menu_window_id(ms->battle_menu.window_index));
+    if (!w || char_id < 1 || char_id > COOP_HERO_COUNT)
+        return;
+    /* As bm_build_menu: the Hero's name (5 letters at most), then the tag */
+    char title[WINDOW_TITLE_SIZE];
+    int j;
+    for (j = 0; j < 5 && party_characters[char_id - 1].name[j]; j++)
+        title[j] = eb_char_to_ascii(party_characters[char_id - 1].name[j]);
+    title[j] = '\0';
+    int len = coop_battle_title(title, (int)sizeof(title), char_id);
+    if (strcmp(w->title, title) != 0)
+        set_window_title(battle_menu_window_id(ms->battle_menu.window_index), title, len);
 }

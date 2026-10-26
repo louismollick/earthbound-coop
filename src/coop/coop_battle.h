@@ -11,7 +11,11 @@
  * Goods, PSI, the "Whom?" ally select and the enemy target select all read only
  * that Player's pad. Everywhere else in a battle the focus is ALL: any Player
  * advances text, and any Player can cancel Auto Fight by holding B
- * (battle_push_text_ex).
+ * (battle_push_text_ex). The host derives the focus every frame from the
+ * battle routine's serialized state (its phase and menu slot in the mode
+ * stack), and re-tags the open command window, so a join or leave that hands
+ * an open menu, or its PSI/Goods/target child, to another Owner takes effect
+ * on the next frame.
  *
  * A menu's Player is the Hero's Owner, except in a Solo Chapter battle (exactly
  * one Hero in the Party, more than one Player joined): there Battle rotation
@@ -30,11 +34,14 @@
 
 #include "core/types.h"
 
-/* Hook, top of every mode_step_battle iteration: request the focus for the
- * battle routine's `phase` (BattleRoutinePhase) with `party_slot` its menu
- * loop index: the menu Player of that slot's Hero during its command menu,
- * else ALL. Co-op only. */
-void coop_battle_focus(uint8_t phase, uint16_t party_slot);
+/* coop_input_feed, every co-op frame in a battle: the focus the battle
+ * routine's state calls for: the menu Player of the Hero whose command menu is
+ * up (a Player 0-3), else COOP_FOCUS_ALL. */
+int coop_battle_focus(void);
+
+/* coop_input_feed, every co-op frame in a battle: if a command window is open,
+ * make its title tag name the menu's Player now (after a join or leave). */
+void coop_battle_retitle(void);
 
 /* Hook, btl_start_turn: a new turn; advances Battle rotation in a Solo Chapter
  * battle. Co-op only. */

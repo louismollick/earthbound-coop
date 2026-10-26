@@ -4,8 +4,9 @@
 - Flee: 01-Start (Ness; P2 a Spectator), the Onett crow's surprise opening makes Run Away certain.
 - Game over: 12-Zombies, every Hero's HP set to 0; "another shot?" Yes reloads the last save.
 
-After each, the Party is idle with focus=P1 (the Leader's Owner, unlocked), and P2 can still take the
-overworld lock by opening the pause menu (then let it go).
+After each, the Party is idle with focus=P1 (the Leader's Owner, unlocked), and P2 (joined, with a Walker:
+Paula is revived after the game over, which brings back only Ness) can still take the overworld lock by
+opening the pause menu (then let it go).
 """
 
 from lib import expect
@@ -18,8 +19,7 @@ def back_to_normal(s, what):
 
 def p2_can_lock(s, what):
     st = s.state()
-    if not st.players[2].walker:
-        return
+    expect(st.players[2].joined and st.players[2].walker, f"{what}: P2 joined with a Walker", st.players_line)
     s.do("P2 press A; wait 20")
     st = s.state()
     expect(st.focus == "P2 locked" and "PAUSE_MENU" in st.state, f"{what}: P2 opens the menu on its lock", st.state)
@@ -57,4 +57,8 @@ def run(ctx):
     ctx.shot(s, "game over prompt")
     s.do("press A; until idle 3000 advance")
     back_to_normal(s, "game over")
+    # "Another shot" brings back only Ness: Paula stays unconscious, so P2 has no Walker until she is revived
+    st = s.state()
+    expect(st.players[2].joined and st.players[2].spectator, "game over: P2 joined, Paula still down", st.players_line)
+    s.do("status 2 1 0; heal; wait 10")
     p2_can_lock(s, "game over")
