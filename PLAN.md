@@ -130,6 +130,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - Joins persist across new games and file loads within a process; a savestate load replaces them with the savestate's. (M0)
 - Ownership is dealt by join order, not by Player number. Walkers are derived (not stored) from ownership plus the Party. (M0)
 - Savestate format stays v16; the new SECTION_COOP changes `layout_id`, which already rejects old slots. (M0)
+- Every absent Player (no Hero in the Party) gets a Stand-in Guest if one is free, else the Companion, not only in Solo Chapters; a Player whose Heroes are all KO'd is a plain Spectator. Bicycle: no forced dismount (a join never changes the Party). The taxi doesn't exist as a ride; dropped. (M4/M7 research, docs/coop-design/party-changes.md)
 - Solo Chapters: Mr. Saturn Companion with Look-only interactions plus Battle rotation, both shipped on by default; Claude owns testing and sign-off. (user, 2026-10-26)
 - Local and online co-op are both first-class, including mixed (several local Players on one machine in an online Session). Claude owns all testing and should improve the test loop when it finds gaps. (user, 2026-10-26)
 - Co-op join edges use co-op's own serialized pad history; capture-unwind frames are invisible to co-op. (M0 review)

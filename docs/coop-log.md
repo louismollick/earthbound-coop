@@ -59,3 +59,8 @@ One entry per PLAN.md item: what changed, gate results, decisions and deviations
 - Scenarios (all failed on the pre-change build): `m1_p2_talks`, `m3_yesno_pad` (L), `m3_p2_buys`, `m3_p2_phone_save` (save.srm changes, a fresh process boots it), `m3_p3_goods`, `m3_lock_release` (no 1-frame Leader step on the locker's d-pad: without the Leader pad swap Ness moved 1 px on the menu-close frame), `m3_battle_all`, solo guard `m3_solo_menus`. `m1_pad_source` now has P3 close its own menu.
 - Gates `--framehash`, then `--full`: PASS. regress 0 of 32 differ, framehash 0 of 31 cases / 0 differing frames, pytest 1827 passed / 5 skipped, co-op 26/26 at 320x240 and at 256x224, ASan+UBSan 26/26. Contact sheet read: the menu and carry cursors are on the locker's Hero (Paula, Jeff), Ness in solo, and the sailor faces Paula.
 - Not scenario-tested: ATMs, hotels and Escargo (they read input through the same selection menus, number select and text prompts), and the town map and HP/PP window opened by a non-Leader (the HP/PP capture shows up in `m3_p2_buys`).
+
+### M1 milestone end (ba4646ca)
+- Gates `--full --framehash`: PASS (regress 0/32, framehash 0 changed frames, co-op 35/35 at both viewports and under ASan+UBSan). Contact sheet read: leash margins, 3P/4P framing, door and escalator regroup all match the state output.
+- GPT 6.1 Sol review (one pass) found: (1) leash axis rejection can land a Walker inside an NPC hitbox after a diagonal step; (2) leaving co-op while spread keeps the co-op camera and follower offsets in solo until the Leader moves; (3) `_camera_np.py` 4P Leader-leash check never reaches the limit. All three go to the next agent (fix before M4 work).
+- The M3 review's first attempt failed on model capacity (no pass consumed); retried.
