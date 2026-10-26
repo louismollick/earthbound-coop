@@ -77,3 +77,9 @@ One entry per PLAN.md item: what changed, gate results, decisions and deviations
 
 ### M3 review (GPT 6.1 Sol, one pass, retry after a capacity failure)
 - Bug (high): the Leader pad override in `coop_input.c` replaces demo/scripted input, so closing a menu at a stair entry strands the auto-walk and the lock. Bug (medium): a join/leave in the same frame leaves `focus_new` stale (dropped or replayed presses). Risk: ALL focus has different edge semantics for `coop_pad_new()` vs `core.pad1_pressed`. All three to a fix agent (m3fix).
+
+### M6 Online (merged fdb7a936)
+- Star-topology input lockstep in `port/unix/net/` (UDP, the Host relays confirmed 4-pad frame sets; K-frame redundancy; `--host`, `--join`, `--input-delay`, `--local-players`). Joins: a CAPTURE session event makes every machine unwind identically, the Host ships state + SRAM + platform pad history in 1 KB chunks, then a JOIN event runs `coop_join` everywhere. A client silent for 10 s is dropped with a LEAVE event. Per-section state hashes every 60 frames; a mismatch stops the Session and writes `desync-*` dumps.
+- Found and fixed two real cold-load bugs via join desyncs (flavour-palette cache, lazily bound battle action table); both also affected F7 after a restart.
+- Long soak: 108,000 frames, 2 Players, 100 ms one-way + 30 ms jitter + 2% loss, input delay 30 (for throughput; headless is uncapped), 0 desyncs, 612 s wall. Short soak, mid-game join, rejoin, 4P, mixed local+remote and a deliberate-desync detector run in the normal suite.
+- Gates on the merged tree (with M2): `--framehash` PASS (regress 0/32, framehash 0 changed frames).
