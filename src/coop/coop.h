@@ -129,7 +129,9 @@ typedef struct {
                                                  * held Y+R (stops at COOP_WARP_FRAMES) */
     uint8_t warp;                               /* bit p: Player p's warp to the Leader is due
                                                  * (coop_walk_leader_tick applies it) */
-    uint8_t unused_warp[3];                     /* explicit padding (savestates hash every byte) */
+    uint8_t dialogue_tagged;                    /* the open standard text window's title is co-op's
+                                                 * Player tag (coop_input.c dialogue_tag) */
+    uint8_t unused_warp[2];                     /* explicit padding (savestates hash every byte) */
     /* Non-Leader Walkers by Player. RAM: PLATFORM_MAX_PLAYERS x ~2.1 KB (the
      * 256-entry trail is 2 KB), about 8.4 KB, all of it in savestates. */
     CoopWalker walkers[PLATFORM_MAX_PLAYERS];

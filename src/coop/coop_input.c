@@ -135,18 +135,30 @@ static int decide_focus(const uint16_t pressed[PLATFORM_MAX_PLAYERS]) {
 }
 
 /* The dialogue window's title names the Player whose pad drives it ("P2"),
- * like a battle command menu's tag. Only an untitled window or one with an old
- * tag: the overworld PSI menu titles it with a Hero's name. */
+ * like a battle command menu's tag. In co-op it tags an untitled window (the
+ * overworld PSI menu titles it with a Hero's name), and keeps a tag it set
+ * current while the window stays open, after the last other Player left too.
+ * Solo play never tags. */
 static void dialogue_tag(void) {
     WindowInfo *w = get_window(WINDOW_TEXT_STANDARD);
-    if (!w || coop.focus >= PLATFORM_MAX_PLAYERS)
+    if (!w) {
+        coop.dialogue_tagged = 0;
         return;
-    bool tagged = w->title[0] == 'P' && w->title[1] >= '1' && w->title[1] <= '4' && w->title[2] == '\0';
-    if (w->title[0] != '\0' && !tagged)
+    }
+    if (coop.focus >= PLATFORM_MAX_PLAYERS)
         return;
     char tag[3] = { 'P', (char)('1' + coop.focus), '\0' };
-    if (strcmp(w->title, tag) != 0)
+    if (coop.dialogue_tagged) {
+        /* Still ours: a window reopened in between may carry a vanilla title */
+        bool ours = w->title[0] == 'P' && w->title[1] >= '1' && w->title[1] <= '4' && w->title[2] == '\0';
+        if (!ours)
+            coop.dialogue_tagged = 0;
+        else if (strcmp(w->title, tag) != 0)
+            set_window_title(WINDOW_TEXT_STANDARD, tag, 2);
+    } else if (coop.player_count > 1 && w->title[0] == '\0') {
         set_window_title(WINDOW_TEXT_STANDARD, tag, 2);
+        coop.dialogue_tagged = 1;
+    }
 }
 
 uint16_t coop_input_feed(uint16_t p1_pad, bool unwinding) {
@@ -168,7 +180,7 @@ uint16_t coop_input_feed(uint16_t p1_pad, bool unwinding) {
     if (coop.focus_in_battle) {
         coop_battle_note_claims(pressed, want);  /* A queues for the next command menu */
         coop_battle_retitle();  /* the open command menu's tag names its Player */
-    } else if (coop.player_count > 1) {
+    } else {
         dialogue_tag();
     }
     uint16_t pad = focused(held, want);
