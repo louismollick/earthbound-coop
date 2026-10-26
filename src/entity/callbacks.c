@@ -25,6 +25,8 @@
 #include "core/log.h"
 #include "core/math.h"
 #include "game/smooth_camera.h"
+#include "coop/coop.h"
+#include "coop/coop_walk.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -144,6 +146,11 @@ static uint16_t follower_spacing_delta(int16_t ent, int16_t leader, unsigned ord
  * leader/direction/var5 guards only reject values whose table dispatch
  * would be out of range. */
 static void update_party_sprite_position(int16_t ent) {
+    /* Co-op: a Walker chain moves on its own, not with the camera */
+    if (coop_player_count() > 1 && coop_walk_entity_independent(ent)) {
+        entity_screen_coords_bg1(ent);
+        return;
+    }
     int16_t leader = (int16_t)ow.current_leading_party_member_entity;
     uint16_t spacing_offset = (uint16_t)entities.var[5][ent];
     if (leader >= 0 && leader < MAX_ENTITIES && ent != leader &&

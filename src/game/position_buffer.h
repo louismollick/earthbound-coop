@@ -77,6 +77,10 @@ void position_buffer_write(int16_t source_entity);
  * Port of UPDATE_FOLLOWER_STATE (C04D78). */
 void update_follower_state(int16_t entity_offset);
 
+/* One frame of d-pad walking for the Leader (game_state leader fields).
+ * Port of UPDATE_OVERWORLD_PLAYER_INPUT. Co-op reuses it for other Walkers. */
+void update_overworld_player_input(void);
+
 /* Leader entity tick callback.
  * Port of UPDATE_LEADER_MOVEMENT (C04236). */
 void update_leader_movement(int16_t entity_offset);

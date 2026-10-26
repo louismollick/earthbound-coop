@@ -27,3 +27,14 @@ One entry per PLAN.md item: what changed, gate results, decisions and deviations
 - Risk: out-of-order ownership was only checked with Ness present (a by-Player-number deal passed). Fixed: `ownership_full_party` now joins P3, P4, P2 with all four Heroes, has a middle Player leave and rejoin, and asserts every owner.
 - Risk: setup could reuse a moved `../ebsrc-base`. Fixed: setup checks it's a clean checkout of d32c421.
 - Gates `--full --framehash`: PASS (regress 0 differ, framehash 0 changed frames, co-op 7/7, ASan+UBSan clean).
+
+## M1 Overworld
+
+### Ownership/Walkers and independent walking (items 1-2)
+- `src/coop/coop_walk.{h,c}`. The Leader walks the vanilla path on its Owner's pad (`coop_pad1_feed`, with `memory_rebase_joypad` on a switch, only during overworld play). Each other Player's Walker takes `update_overworld_player_input()` with its state swapped into the Leader globals and writes its own 256-entry trail. That Player's other conscious Heroes follow the trail with vanilla spacing and animation; Guests, the Leader's Owner's other Heroes and unconscious members trail the Leader.
+- Hooks (all gated on `coop_player_count() > 1`): end of `update_leader_movement`, top of `update_follower_state`, the ladder/door tile check in `update_overworld_player_input` (escalators and stairs are walls for Walkers), `init_party_position_buffer` / `fill_party_position_buffer` (trail reset → snap), `update_party_sprite_position` (chain members always recompute screen coords), `host_process_frame` (pad feed, unwind = no Walker input).
+- Snap/unsnap: shadow `position_index` per the memo; unsnap lays straight segments through the members' current positions. Windows/text only pause Walkers. A temporary clamp (viewport/2 − 16 px from the Leader) stands in for the leash.
+- CoopState +8330 bytes (26 → 8356): `walk_pad[4]`, `pad1_player`, `walkers[4]` (Walker state, touched, active, head, chain, ring indices, trail). `state_layout.h` regenerated.
+- Scenarios (all failed on the pre-change build): `m1_p2_walks_wall`, `m1_npc_blocks`, `m1_diagonal`, `m1_water`, `m1_trails`, `m1_snap`, `m1_stairs_rope`, `m1_walker_ko`, `m1_pad_source`, `m1_3p`, `m1_4p`.
+- Gates `--framehash --full`: PASS. regress 0 of 32 differ, framehash 0 of 31 cases / 0 frames, pytest 1827 passed / 5 skipped, co-op 18/18, ASan+UBSan 18/18. The 11 M1 scenarios also pass at 256x224. Contact sheet read: sprites sit where PLAYERS/FOLLOW say, unconscious Paula shows the vanilla ghost sprite.
+- Untested: escalators (stairs are covered, and both go through the same door-type check), real pads, the arm builds and cppcheck (no toolchain here).

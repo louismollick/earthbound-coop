@@ -67,3 +67,12 @@ void memory_update_joypad(uint16_t raw_pad) {
     core.pad1_held = current;
     core.pad1_raw = raw_pad;
 }
+
+/* Co-op: core.pad1 is about to be fed from another pad (coop_pad1_feed).
+ * Seed the edge detector with that pad's previous state so the switch makes
+ * no phantom press, and restart auto-repeat. Never called in solo play. */
+void memory_rebase_joypad(uint16_t prev_raw) {
+    core.pad1_held = prev_raw & 0xFFF0;
+    core.pad1_autorepeat = 0;
+    core.pad_timer = PAD_INITIAL_DELAY;
+}

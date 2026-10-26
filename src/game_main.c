@@ -9,6 +9,7 @@
 #include "core/memory.h"
 #include "core/state_dump.h"
 #include "coop/coop.h"
+#include "coop/coop_walk.h"
 #include "core/math.h"
 #include "core/decomp.h"
 #include "data/assets.h"
@@ -479,6 +480,9 @@ void host_process_frame(void) {
     /* Poll input */
     platform_input_poll();
     uint16_t current_pad = platform_input_get_pad();
+    /* Co-op: core.pad1 follows the Leader's Owner (coop/coop_walk.h) */
+    if (coop_player_count() > 1 || coop.pad1_player != 0)
+        current_pad = coop_pad1_feed(current_pad);
     /* A capture unwind runs hundreds of frames in a few milliseconds; feeding them
      * the live pad would let a button held across F6/F7 (or power-off) advance
      * prompts or scroll menus the player never saw. The unwind gets no input: a
@@ -504,6 +508,8 @@ void host_process_frame(void) {
         for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
             held[p] = platform_input_get_pad_n(p);
         coop_tick(held);
+    } else {
+        coop_unwind_frame();
     }
 
 #ifdef EB_ENABLE_VERIFY

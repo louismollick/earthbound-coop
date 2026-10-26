@@ -48,8 +48,8 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 
 ## M1 Overworld
 
-- [ ] Ownership and Walkers follow the settled rule and recompute whenever the Party changes (join, leave, unconscious).
-- [ ] Independent walking.
+- [x] Ownership and Walkers follow the settled rule and recompute whenever the Party changes (join, leave, unconscious).
+- [x] Independent walking.
   - Every Walker moves with the leader's own movement and collision code, covering walls, NPCs, surfaces (water, ladders, stairs) and diagonals.
   - Each Walker has its own position trail, and that Player's other owned members follow it.
   - Members nobody owns follow the Leader, as in vanilla.
@@ -104,7 +104,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - [ ] Netcode in `port/unix/net/`.
   - UDP transport. Every packet carries the last K frames of local input for redundancy.
   - Fixed input delay, 3 frames by default, set with `--input-delay`.
-  - Up to 4 Players. Direct IP and port only: no matchmaking and no NAT traversal (document Tailscale or port forwarding).
+  - Up to 4 Players, and a machine may have several local Players (keyboard, IJKL layout, controllers) in one Session. Direct IP and port only: no matchmaking and no NAT traversal (document Tailscale or port forwarding).
 - [ ] Session flow.
   - `--host PORT` and `--join ADDR:PORT`.
   - A joining Player gets a savestate from the Host at a root-loop boundary, then everyone resumes on the same frame.
@@ -121,7 +121,8 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 ## M7 Polish
 
 - [ ] Simultaneous battle input: every Player picks their Heroes' commands at the same time, and the turn starts when all are locked in. Vanilla order is preserved when one Player owns several Heroes.
-- [ ] Solo Chapter companion: a small cat, using an existing cat overworld sprite from the ROM, that Spectators walk during Solo Chapters. It is overworld-only and sits out battles. Gate it behind `--coop-cat` until the user signs off.
+- [ ] Solo Chapter Companion (CONTEXT.md): Spectators walk a Mr. Saturn (existing overworld sprite) during Solo Chapters. Overworld only, sits out battles. A Companion can trigger Look-only interactions (static scan of the text script); anything else plays a Mr. Saturn sound with no text. On by default, no flag.
+- [ ] Battle rotation in Solo Chapters: the solo Hero's command menu goes to its Owner, then each Spectator in join order, one turn each.
 
 ## Decisions made during the build
 
@@ -129,8 +130,15 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - Joins persist across new games and file loads within a process; a savestate load replaces them with the savestate's. (M0)
 - Ownership is dealt by join order, not by Player number. Walkers are derived (not stored) from ownership plus the Party. (M0)
 - Savestate format stays v16; the new SECTION_COOP changes `layout_id`, which already rejects old slots. (M0)
+- Solo Chapters: Mr. Saturn Companion with Look-only interactions plus Battle rotation, both shipped on by default; Claude owns testing and sign-off. (user, 2026-10-26)
+- Local and online co-op are both first-class, including mixed (several local Players on one machine in an online Session). Claude owns all testing and should improve the test loop when it finds gaps. (user, 2026-10-26)
 - Co-op join edges use co-op's own serialized pad history; capture-unwind frames are invisible to co-op. (M0 review)
 - Design memos for input focus (M2/M3) and Walkers (M1) are in `docs/coop-design/`. (M0)
+- A Walker must be able to walk: unconscious and diamondized Heroes are skipped, as vanilla's party sort does. (M1)
+- core.pad1 follows the Leader's Owner during overworld play only (P1 on title, file select, boot and in battle until M2), with `memory_rebase_joypad` on every switch. Menus opened by that Player still read P1's platform pad directly (window.c etc.): M3. (M1)
+- Two levels of "not free": a window, text box or interaction only pauses non-Leader Walkers (they hold their spot, no snap); the game moving the party (camera_mode, stairs, escalator, bicycle, door, teleport, demo, swirl/battle, a frozen or scripted Leader or chain member) snaps them. (M1)
+- Trails: the memo's shadow `position_index` is kept (every independent chain member's index equals its Party predecessor's), so snapping is just "stop overriding". Unsnapping lays the chain's trail as straight segments through the members' current positions at vanilla spacing instead of copying the Leader's ring, so it is seamless wherever the members stand. Any chain change (join, leave, KO, revive, party change) snaps and unsnaps. (M1)
+- Until the leash: a temporary clamp keeps non-Leader Walkers within viewport/2 - 16 px of the Leader per axis (`TEMP_CLAMP_*` in `coop_walk.c`). (M1)
 
 ## Blocked
 

@@ -57,6 +57,8 @@ class Player:
     owns: list = field(default_factory=list)
     walker: str | None = None
     pos: tuple | None = None
+    dir: str | None = None
+    walk: int | None = None
     spectator: bool = False
 
     def __str__(self):
@@ -64,12 +66,12 @@ class Player:
             return f"P{self.num}:-"
         s = f"P{self.num}:joined owns={','.join(self.owns) or '-'} walker={self.walker or '-'}"
         if self.pos:
-            s += f" pos={self.pos}"
+            s += f" pos={self.pos} dir={self.dir} walk={self.walk}"
         return s + (" spectator" if self.spectator else "")
 
 
 def parse_players(line):
-    """``PLAYERS P1:joined owns=Ness walker=Ness pos=(1,2) | P2:- ...`` -> {1: Player, ...}."""
+    """``PLAYERS P1:joined owns=Ness walker=Ness pos=(1,2) dir=UP walk=0 | P2:- ...`` -> {1: Player, ...}."""
     out = {}
     for seg in line[len("PLAYERS") :].split("|"):
         seg = seg.strip()
@@ -83,12 +85,16 @@ def parse_players(line):
         owns = re.search(r"owns=(\S+)", rest)
         walker = re.search(r"walker=(\S+)", rest)
         pos = re.search(r"pos=\((\d+),(\d+)\)", rest)
+        dir_ = re.search(r"dir=(\S+)", rest)
+        walk = re.search(r"walk=(\d+)", rest)
         out[num] = Player(
             num,
             True,
             owns=[] if not owns or owns.group(1) == "-" else owns.group(1).split(","),
             walker=None if not walker or walker.group(1) == "-" else walker.group(1),
             pos=(int(pos.group(1)), int(pos.group(2))) if pos else None,
+            dir=dir_.group(1) if dir_ else None,
+            walk=int(walk.group(1)) if walk else None,
             spectator=" spectator" in rest,
         )
     return out
@@ -102,6 +108,7 @@ class State:
     party: str = ""
     players_line: str = ""
     follow: str = ""
+    near_line: str = ""
 
     @property
     def players(self):
@@ -116,6 +123,11 @@ class State:
     def follow_offsets(self):
         """FOLLOW line as {party member id: (dx, dy) from the Leader}."""
         return {int(m[0]): (int(m[1]), int(m[2])) for m in re.findall(r" (\d+):\(([+-]\d+),([+-]\d+)\)", self.follow)}
+
+    @property
+    def near(self):
+        """NEAR line as {"npc1065": (dx, dy), ...}, offsets from the Leader."""
+        return {m[0]: (int(m[1]), int(m[2])) for m in re.findall(r"(npc\d+) \(([+-]\d+),([+-]\d+)\)", self.near_line)}
 
     @property
     def idle(self):
@@ -201,6 +213,8 @@ class Session:
                 st.players_line = ln
             elif ln.startswith("FOLLOW"):
                 st.follow = ln
+            elif ln.startswith("NEAR"):
+                st.near_line = ln
         expect(st.players_line, "a PLAYERS line after 'state'", st.state or "nothing")
         return st
 
@@ -220,6 +234,21 @@ class Session:
         st = self.state("bedroom")
         expect(st.idle == "yes", "Ness idle in his bedroom after the new-game script", st.state)
         return st
+
+    def kraken_spot(self, where="desert"):
+        """Boot 27-Kraken (Ness, Paula, Jeff, Poo), no enemies, and teleport the Party.
+
+        ``desert``: all on one spot of open Scaraba desert at (1400,5520), Ness facing DOWN; open
+        ground 100+ px every way except the shore (a wall) about 85 px below.
+        ``sailor``: the Summers harbour nook (7264,2900) right above the standing sailor npc1065
+        (7264,2928); then P1 walks Ness right to (7341,2912) and non-Leader Walkers stay put.
+        """
+        self.boot()
+        if where == "sailor":
+            self.do("flag 11 1; teleport 7264 2900 2; 60 RIGHT; 30 -")
+        else:
+            self.do("flag 11 1; teleport 1400 5520 4; 30 -")
+        return self.state(where)
 
     def shot(self, label):
         for ln in self.do(f"shot {label}"):
