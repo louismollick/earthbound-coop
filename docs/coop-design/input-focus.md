@@ -10,6 +10,7 @@ Research memo, 2026-10-26. Line numbers are against d32c421 and drift.
 - Under ALL a press is any one Player's new press, for `core.pad1_pressed`/`pad1_autorepeat` as for `coop_pad_new()` (`coop_all_focus_edges`).
 - Talk/Check swap in the focused Walker only while it is independent (`coop_interact`).
 - The text-script party select (a shop's "Which of you will carry this?") also starts on the Walker.
+- Dialogue tag: in co-op the standard text window's title is the focused Player (`P2`), set by `coop_input_feed` (`dialogue_tag`) while it is open outside battle.
 - Battle (M2, `src/coop/coop_battle.{h,c}`; M2 review fix): the host's feed derives the focus every frame from the battle routine's state in the mode stack: the menu Player of `party_members[party_slot]` during `BTL_MENU_SELECT`..`BTL_MENU_DECIDE`, ALL in every other phase (`coop_battle_focus()`), so a join or leave under an open menu or its children moves it on the next frame. The title tag is `coop_battle_title()` in `bm_build_menu`, reconciled every frame by `coop_battle_retitle()`.
 
 ## Model

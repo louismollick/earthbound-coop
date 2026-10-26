@@ -18,6 +18,8 @@
 #include "include/constants.h"
 #include "snes/ppu.h"
 
+#include <string.h>
+
 static bool mode_on_stack(GameMode mode) {
     for (int i = 0; i < g_mode_stack.depth; i++)
         if (g_mode_stack.mode[i] == mode)
@@ -132,6 +134,21 @@ static int decide_focus(const uint16_t pressed[PLATFORM_MAX_PLAYERS]) {
     return coop.focus_locked ? coop.focus : coop_leader_owner();
 }
 
+/* The dialogue window's title names the Player whose pad drives it ("P2"),
+ * like a battle command menu's tag. Only an untitled window or one with an old
+ * tag: the overworld PSI menu titles it with a Hero's name. */
+static void dialogue_tag(void) {
+    WindowInfo *w = get_window(WINDOW_TEXT_STANDARD);
+    if (!w || coop.focus >= PLATFORM_MAX_PLAYERS)
+        return;
+    bool tagged = w->title[0] == 'P' && w->title[1] >= '1' && w->title[1] <= '4' && w->title[2] == '\0';
+    if (w->title[0] != '\0' && !tagged)
+        return;
+    char tag[3] = { 'P', (char)('1' + coop.focus), '\0' };
+    if (strcmp(w->title, tag) != 0)
+        set_window_title(WINDOW_TEXT_STANDARD, tag, 2);
+}
+
 uint16_t coop_input_feed(uint16_t p1_pad, bool unwinding) {
     uint16_t held[PLATFORM_MAX_PLAYERS], pressed[PLATFORM_MAX_PLAYERS];
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
@@ -151,6 +168,8 @@ uint16_t coop_input_feed(uint16_t p1_pad, bool unwinding) {
     if (coop.focus_in_battle) {
         coop_battle_note_claims(pressed, want);  /* A queues for the next command menu */
         coop_battle_retitle();  /* the open command menu's tag names its Player */
+    } else if (coop.player_count > 1) {
+        dialogue_tag();
     }
     uint16_t pad = focused(held, want);
     if (remap) {

@@ -9,6 +9,8 @@ M0 to M7 are done, except your own 10-minute test on the PC (the last M5 item). 
 - **Heroes:** dealt round-robin by join order. With 2 Players, P1 has Ness and Jeff and P2 has Paula and Poo.
 - **Walking:** each Player walks their first Hero with the game's own movement and collision, and their other Heroes trail them. The camera frames everyone, and a leash keeps everyone on screen. Doors, stairs and cutscenes regroup the Party behind the Leader.
 - **Interacting:** any Player can talk, check or open the menu. Whoever starts an interaction drives it (shops, phone and save, ATM, hotel, Escargo), and the menu cursor starts on their Hero.
+- **Who drives it:** in co-op the dialogue window's title says whose pad drives it (`P2`), like the battle menus.
+- **Stuck?** Hold Y+R for 1 s to warp your Hero (or Mr. Saturn) back to the Leader.
 - **Battle:** a Player claims a command menu by pressing A, so nobody waits on anyone. Each Hero's menu takes only its Owner's pad. The tiny `P2` tag in the menu title shows whose turn it is. Run Away stays with the Leader's Owner. When the battle waits, a small box shows who still has to pick.
 - **Party changes:**
   - A Player with no Hero in the Party walks a Guest if one is free (Bubble Monkey, the Flying Men, Pokey and so on). Otherwise they walk their own Mr. Saturn. Mr. Saturn can read signs and chat, but anything that would change the game just gets a sound.
@@ -23,7 +25,7 @@ scripts/coop-setup.sh                       # once; builds everything (needs ear
 port/unix/build-wide/earthbound             # 320x240, the comfortable view for co-op
 ```
 - **P1, keyboard:** arrows, X = A, Z = B, Enter = Start, Right Shift = Select, Q/W = L/R.
-- **P2, keyboard:** I/J/K/L to move, U = A, O = B, P = Start, `[` = Select.
+- **P2, keyboard:** I/J/K/L to move, U = A, O = B, P = Start, `[` = Select, Y = Y, `]` = R.
 - **Controllers:** they join in connection order. The first is P1 (alongside the keyboard), the second P2, and so on. Buttons are SNES-positional: the right face button is A.
 - **Joining:** load your file, then press Start on P2 (P on the keyboard). `--players 2` joins P2 at launch.
 
@@ -49,7 +51,7 @@ port/unix/build-wide/earthbound --join 127.0.0.1:7744               # window 2: 
 - **Not tested end to end:** real controllers and the IJKL layout in a window (headless tests drive pads directly), the later Sky Runner ride, hotspot-only transitions, and the Moonside to Monotoli stretch (Paula's chapter), which is covered at both ends.
 - **Bubble Monkey:** after a door, ride or battle he does his own catch-up dance for about 4 s, and his Stand-in can't walk him until he's done.
 - **Mr. Saturn:** it uses one of the 22 NPC slots, and gives it up whenever the game needs it. It can reappear in a boxed-in spot.
-- **Walker stuck behind a wall:** it holds the Leader back through the leash. If that's annoying in play, the fix is a "warp to Leader" button combo.
+- **Walker stuck behind a wall:** it holds the Leader back through the leash; its Player holds Y+R for 1 s to warp back.
 - **Online:** IPv4 only, the same commit and viewport on every machine, and the joiner's music restarts.
 
 
@@ -307,4 +309,10 @@ One entry per PLAN.md item: what changed, gate results, decisions and deviations
 - Bug: Mr. Saturn walked through NPCs, including the game's road blocks (the barricades and police lines are NPCs; map walls already stopped it). Its hitbox is now on for its own step only, with its slot collision-disabled; non-enemy NPCs block it and enemies don't (still no contact or battle). NPCs it already overlaps don't block it, as for Walkers (`shade_overlapped_npcs` became `coop_shade_npcs(..., pass_enemies, ...)` in `coop_walk_internal.h`). NPCs still walk through it (its hitbox is off outside its step).
 - Scenarios: `m7_companion_look` (on its spot and out on every sampled frame of the porter's dialogue, also with Ness walking as P2 talks: `coop_companion_watch` runs on frames without the Leader's tick, where `leader_moved` is stale, so only `coop_companion_tick` reads it), `m7_companion_lifecycle` (a stationary freeze leaves it standing; it walks on after), `m7_companion_passive` (npc1325 stops it, it walks off when placed on it, the 01-Start barricade npc187 stops it). All three fail on the old code.
 - No GPT review: a small playtest fix (one review per milestone is spent).
+
+### Dialogue tag and warp to the Leader (user request)
+- Dialogue tag: in co-op, the standard text window (w1) is titled with the focused Player (`P1`..`P4`), the pad that drives it, set by `coop_input_feed` (`dialogue_tag`) every overworld frame the window is open; it reuses `set_window_title` and the TINY font like the battle tag. Only an untitled window or one with an old tag (the overworld PSI menu titles w1 with a Hero's name). Solo: no title.
+- Warp: Y+R held for `COOP_WARP_FRAMES` (60) on the free overworld (`WALK_FREE`) by P2-P4. Y and R have no overworld action outside the bicycle bell, and the count resets on release or whenever the overworld isn't free, so a menu or text can't arm it. `coop_tick` sets `CoopState.warp` bit p; `coop_walk_leader_tick` snaps that Player's chain and regroups it behind the Leader (it walks on from there next frame), and parks their Mr. Saturn next to the Leader (`coop_companion_warp`). CoopState +8 bytes (`warp_hold[4]`, `warp`, padding); `state_layout.h` regenerated.
+- P2 keyboard gains Y (`Y`) and R (`]`).
+- Scenarios: `tag_dialogue` (P2's Walker and P2's Mr. Saturn say P2, P1 says P1, solo has no title), `warp_leader` (59 frames: nothing; 60: Paula with Ness and walking on; held under the HP/PP window: nothing, nor after it closes; Mr. Saturn across the lobby comes next to Ness).
 

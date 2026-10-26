@@ -12,7 +12,8 @@
  * P1 = the keyboard's main layout (arrows, X/Z = A/B, S/A = X/Y, Q/W = L/R,
  * Return = Start, Right Shift = Select) OR'd with the first connected game
  * controller. P2 = a second keyboard layout (I/J/K/L = Up/Left/Down/Right,
- * U/O = A/B, P = Start, [ = Select) OR'd with the second controller. P3/P4 =
+ * U/O = A/B, P = Start, [ = Select, Y = Y, ] = R; Y+R is the warp to the
+ * Leader) OR'd with the second controller. P3/P4 =
  * the third/fourth controller. Controllers take the first free Player slot
  * when they connect, so they're assigned in connection order. An input script
  * (sdl2_input_script.c) replaces all four pads, so scripted runs never see real
@@ -153,6 +154,8 @@ static void pump_events(void) {
             case SDL_SCANCODE_O:           bit2 = PAD_B;      break;
             case SDL_SCANCODE_P:           bit2 = PAD_START;  break;
             case SDL_SCANCODE_LEFTBRACKET: bit2 = PAD_SELECT; break;
+            case SDL_SCANCODE_Y:            bit2 = PAD_Y;      break;
+            case SDL_SCANCODE_RIGHTBRACKET: bit2 = PAD_R;      break;
             case SDL_SCANCODE_F1:     aux_bit = AUX_DEBUG_DUMP;   break;
             case SDL_SCANCODE_F2:     aux_bit = AUX_VRAM_DUMP;    break;
             case SDL_SCANCODE_F3:     aux_bit = AUX_FPS_TOGGLE;   break;

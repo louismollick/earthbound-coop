@@ -592,6 +592,23 @@ void coop_walk_leader_tick(void) {
         coop_walk_regroup();
         coop.regroup = 0;
     }
+    if (coop.warp) {
+        /* Y+R held (coop_tick): the Player's chain regroups behind the Leader and
+         * walks on from there; their Mr. Saturn reappears next to him */
+        bool any = false;
+        for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
+            if (!(coop.warp & (1u << p)) || control != WALK_FREE)
+                continue;
+            if (coop.walkers[p].active) {
+                snap(&coop.walkers[p]);
+                any = true;
+            }
+            coop_companion_warp(p);
+        }
+        coop.warp = 0;
+        if (any)
+            regroup();
+    }
     if (coop_player_count() <= 1) {
         /* The last other Player left: only the camera eases back to the Leader */
         if (control != WALK_BATTLE)

@@ -4,6 +4,7 @@
 #include "coop/coop.h"
 
 #include "coop/coop_companion.h"
+#include "coop/coop_walk_internal.h"
 
 #include "data/assets.h"
 #include "game/battle.h"
@@ -74,6 +75,16 @@ void coop_tick(const uint16_t held[PLATFORM_MAX_PLAYERS]) {
                 coop_leave(p);
         } else {
             coop.leave_hold[p] = 0;
+        }
+    }
+    /* Warp: Y+R (no overworld action of their own outside the bicycle) held
+     * for a second on the free overworld; fires once per hold */
+    bool can_warp = coop.player_count > 1 && coop_walk_control() == WALK_FREE;
+    for (int p = 1; p < PLATFORM_MAX_PLAYERS; p++) {
+        if (!can_warp || !coop.joined[p] || (held[p] & (PAD_Y | PAD_R)) != (PAD_Y | PAD_R)) {
+            coop.warp_hold[p] = 0;
+        } else if (coop.warp_hold[p] < COOP_WARP_FRAMES && ++coop.warp_hold[p] == COOP_WARP_FRAMES) {
+            coop.warp |= (uint8_t)(1u << p);
         }
     }
     coop_companion_watch();

@@ -55,6 +55,10 @@ void coop_companion_watch(void);
  * reset (map load): every Companion hides, to reappear next to the Leader. */
 void coop_companion_hide_all(void);
 
+/* The Player's warp (coop_walk_leader_tick): their Mr. Saturn, if out, moves
+ * next to the Leader. */
+void coop_companion_warp(int player);
+
 /* Player p's Companion entity slot if it is out (visible), else -1. */
 int16_t coop_companion_entity(int player);
 

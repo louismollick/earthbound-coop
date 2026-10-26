@@ -27,6 +27,8 @@
 
 #define COOP_HERO_COUNT   4    /* Ness, Paula, Jeff, Poo (party member ids 1-4) */
 #define COOP_LEAVE_FRAMES 120  /* Select+Start held this long (2 s) leaves */
+#define COOP_WARP_FRAMES 60    /* Y+R held this long (1 s) on the free overworld warps
+                                * the Player's Walker or Mr. Saturn to the Leader */
 
 /*
  * One Player's non-Leader Walker (coop_walk.h): the Leader-like state the
@@ -123,6 +125,11 @@ typedef struct {
                                                  * claim (B: back or retry), 0 = none */
     uint8_t choosers;                           /* while the battle waits for a claim: bit p set if
                                                  * Player p has a Hero left to choose for */
+    uint8_t warp_hold[PLATFORM_MAX_PLAYERS];    /* consecutive free-overworld frames Player p has
+                                                 * held Y+R (stops at COOP_WARP_FRAMES) */
+    uint8_t warp;                               /* bit p: Player p's warp to the Leader is due
+                                                 * (coop_walk_leader_tick applies it) */
+    uint8_t unused_warp[3];                     /* explicit padding (savestates hash every byte) */
     /* Non-Leader Walkers by Player. RAM: PLATFORM_MAX_PLAYERS x ~2.1 KB (the
      * 256-entry trail is 2 KB), about 8.4 KB, all of it in savestates. */
     CoopWalker walkers[PLATFORM_MAX_PLAYERS];

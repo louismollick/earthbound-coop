@@ -257,6 +257,12 @@ void coop_companion_watch(void) {
     }
 }
 
+void coop_companion_warp(int player) {
+    CoopCompanion *c = &coop.companions[player];
+    if (owns_entity(player, c))
+        park(c);
+}
+
 void coop_companion_hide_all(void) {
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++)
         hide(p, &coop.companions[p]);
