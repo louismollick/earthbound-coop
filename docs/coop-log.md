@@ -188,3 +188,7 @@ One entry per PLAN.md item: what changed, gate results, decisions and deviations
 - `m7c`: Mr. Saturn Companion for every absent non-Stand-in Player, Look-only scan (`coop_look.c`; 605 of 1314 NPC texts look-only, 0 item boxes), sound 114 otherwise. Merged with a regenerated `state_layout.h`.
 - After the merge, the `globals` guard caught two unclassified statics from the Companion work (`step_kind`, `sfx_trace_hook`); both are transient/host-only and are classified. `net_join_midgame` had an off-by-one: a hash point landing exactly on the (timing-dependent) JOIN frame is taken before the join applies; it now checks strictly later frames.
 - Gates `--full`: PASS (regress 0/32 vs build-base-fix, co-op 73/73, ASan 73/73, globals, continuity).
+
+### M7 review (GPT 6.1 Sol, one pass)
+- No battle ownership bug, claim deadlock or misclassified Look-only text found.
+- Risk: a hidden Companion keeps its NPC slot, so normal NPC allocations can fail (synthetic probe). Bug: a cutscene that freezes the Party without moving the Leader leaves Mr. Saturn visible. Risk: `find_entity_by_sprite_id(171)` can return a Companion. Test gaps: `m7_companion_look` doesn't compare inventory; `m7_companion_lifecycle` has a silent `until` timeout. All five to a fix agent (m7fix).
