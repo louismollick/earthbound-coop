@@ -7,7 +7,8 @@
  *
  * The game has one pad, core.pad1. In co-op the focus decides whose pad that
  * is: one Player (P1..P4 = 0..3) or COOP_FOCUS_ALL (the OR of every joined
- * Player's pad). The host applies the focus once per frame, before
+ * Player's pad, where any one Player's new press is a press:
+ * coop_all_focus_edges). The host applies the focus once per frame, before
  * memory_update_joypad, and rebases the pad state on every switch
  * (memory_rebase_joypad), so a switch never makes a phantom press or an
  * instant autorepeat. Game code that reads the platform's new presses directly
@@ -24,13 +25,14 @@
  *   text box, yes/no prompt, shop, phone or save that follows. The lock is
  *   released on the first frame the Party is idle again. While someone else
  *   holds the lock, the Leader's step still reads only its Owner's pad
- *   (coop_leader_pad_enter/leave).
+ *   (coop_leader_pad_enter/leave), except for a scripted approach walk.
  * - Battle: entering a battle clears the lock and sets the focus to ALL;
  *   battle code then moves it with coop_set_focus: each Hero's command menu
  *   is its Owner's, everything else is ALL (coop_battle.h).
  *
- * Every hook is gated on coop_player_count() > 1, so solo play is vanilla:
- * the feed isn't called and coop_pad_new() is platform_input_get_pad_new().
+ * Every hook is gated on coop_player_count() > 1, so solo play is vanilla: the
+ * feed runs every frame but returns P1's pad unchanged, and coop_pad_new() is
+ * platform_input_get_pad_new().
  * The state lives in the serialized CoopState (coop.h).
  */
 
@@ -56,12 +58,22 @@ int coop_focus(void);
 /* True while a Player holds the overworld lock. */
 bool coop_focus_locked(void);
 
-/* Host, once per frame between platform_input_poll and memory_update_joypad
- * (co-op, or while the focus isn't P1 yet): decide the focus, rebase on a
- * switch, compute the focused new presses for coop_pad_new(), and return the
- * pad for core.pad1. `p1_pad` is P1's platform pad. On a capture-unwind frame
- * nobody can take the lock and coop_pad_new() is 0. */
+/* Host, every frame between platform_input_poll and memory_update_joypad (solo
+ * too): decide the focus, rebase on a switch, compute the focused new presses
+ * for coop_pad_new(), and return the pad for core.pad1. `p1_pad` is P1's
+ * platform pad. It runs before coop_tick's join/leave, so the presses it
+ * caches are the ones of the pad core.pad1 got this frame, whatever the
+ * Player count becomes. In solo it is P1's pad and P1's presses. On a
+ * capture-unwind frame nobody can take the lock and coop_pad_new() is 0. */
 uint16_t coop_input_feed(uint16_t p1_pad, bool unwinding);
+
+/* Host, right after memory_update_joypad, co-op only: under focus ALL, a
+ * button is newly pressed when any one Player newly presses it (the OR of the
+ * per-Player edges, as coop_pad_new() reports), not only when the OR of the
+ * held pads changes. So P2's A still advances text while P1 holds A. Adds
+ * those presses to core.pad1_pressed and core.pad1_autorepeat (a press fires
+ * autorepeat, as in memory_update_joypad). Any other focus is untouched. */
+void coop_all_focus_edges(void);
 
 /* The new presses of the focused pad this frame: every game-code site that
  * used platform_input_get_pad_new() (menus, battle targeting, title, file
@@ -72,7 +84,9 @@ uint16_t coop_pad_new(void);
 
 /* Hook, update_leader_movement around the Leader's step: while another Player
  * holds the focus, core.pad1_held is the Leader's Owner's pad (no presses), so
- * a capturing Player's d-pad never steers the Leader. Co-op only. */
+ * a capturing Player's d-pad never steers the Leader. Not during demo playback
+ * (a scripted approach walk onto stairs, an escalator or a door), whose pad is
+ * the game's. Co-op only. */
 void coop_leader_pad_enter(void);
 void coop_leader_pad_leave(void);
 
