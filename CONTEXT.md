@@ -30,10 +30,10 @@ _Avoid_: avatar, active character
 A Player whose Hero is not in the Party, temporarily controlling a Guest.
 
 **Spectator**:
-A Player whose Hero is not in the Party and who has no Guest to stand in for. During a Solo Chapter they walk the Companion and take Battle rotation turns.
+A Player who controls no Hero or Guest: either all their Heroes are unconscious (they watch), or none is in the Party and no Guest is free (they walk the Companion). In Solo Chapters, Spectators take Battle rotation turns.
 
 **Companion**:
-Mr. Saturn, walked on the overworld by a Spectator during a Solo Chapter. Overworld only: sits out battles, has no stats, and is never part of the Party.
+Mr. Saturn, walked on the overworld by a Player none of whose Heroes is in the Party (not only in Solo Chapters) and who isn't a Stand-in. Overworld only: sits out battles, has no stats, and is never part of the Party.
 _Avoid_: cat, pet, co-op character
 
 **Look-only interaction**:

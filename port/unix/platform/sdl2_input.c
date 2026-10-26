@@ -1,5 +1,7 @@
 #include "platform/platform.h"
 #include "include/pad.h"
+#include "game_main.h"
+#include "net/net.h"
 #include <SDL.h>
 #include <signal.h>
 #include <string.h>
@@ -15,6 +17,11 @@
  * when they connect, so they're assigned in connection order. An input script
  * (sdl2_input_script.c) replaces all four pads, so scripted runs never see real
  * keys or controllers; headless runs don't open controllers at all.
+ *
+ * Netplay (net/net.h): the four pads come from the Session's confirmed input set.
+ * This machine's own pad (P1's keys and first controller, or the script's P1
+ * commands) is what it sends, for whichever Player it is. Only presentation aux
+ * keys (F1-F3) work; the rest would change one machine's game.
  */
 static uint16_t pad_state[PLATFORM_MAX_PLAYERS];
 static uint16_t pad_prev[PLATFORM_MAX_PLAYERS];
@@ -107,13 +114,9 @@ static uint16_t controller_pad(SDL_GameController *c) {
     return pad;
 }
 
-void platform_input_poll(void) {
+/* Handle pending SDL events: quit, controller hotplug, keys. */
+static void pump_events(void) {
     SDL_Event event;
-
-    record_frame(); /* --record-video/--record-audio: this frame is rendered */
-
-    memcpy(pad_prev, pad_state, sizeof(pad_prev));
-
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
         case SDL_QUIT:
@@ -172,6 +175,44 @@ void platform_input_poll(void) {
         }
         }
     }
+}
+
+/* Netplay: this machine's pads for the next net frame. Local pad k is what would
+ * be Player k+1's pad in local play (keyboard layouts and controllers in
+ * connection order, or the script's P1..P4 commands); it goes to this machine's
+ * k-th Player in the Session. */
+static void net_sample_local(uint16_t pads[PLATFORM_MAX_PLAYERS], int count) {
+    uint16_t local[PLATFORM_MAX_PLAYERS] = { 0 };
+    if (input_script_active()) {
+        uint16_t aux = 0;
+        input_script_next(local, &aux);
+    } else {
+        for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
+            local[p] = p < 2 ? key_state[p] : 0;
+            if (controllers[p])
+                local[p] |= controller_pad(controllers[p]);
+        }
+    }
+    for (int k = 0; k < PLATFORM_MAX_PLAYERS; k++)
+        pads[k] = k < count ? local[k] : 0;
+}
+
+void platform_input_poll(void) {
+    record_frame(); /* --record-video/--record-audio: this frame is rendered */
+
+    memcpy(pad_prev, pad_state, sizeof(pad_prev));
+
+    pump_events();
+
+    if (net_active()) {
+        /* A capture unwind is not a net frame: every machine runs it with no
+         * input, so the pads stay as they are (the script doesn't advance). */
+        if (!host_capture_unwinding()) {
+            static const NetInputHooks hooks = { pump_events, net_sample_local };
+            net_frame(pad_state, &hooks);
+        }
+        return;
+    }
 
     if (input_script_active()) {
         uint16_t aux = 0;
@@ -184,6 +225,16 @@ void platform_input_poll(void) {
         if (controllers[p])
             pad_state[p] |= controller_pad(controllers[p]);
     }
+}
+
+void platform_input_get_state(uint16_t pads[PLATFORM_MAX_PLAYERS], uint16_t prev[PLATFORM_MAX_PLAYERS]) {
+    memcpy(pads, pad_state, sizeof(pad_state));
+    memcpy(prev, pad_prev, sizeof(pad_prev));
+}
+
+void platform_input_set_state(const uint16_t pads[PLATFORM_MAX_PLAYERS], const uint16_t prev[PLATFORM_MAX_PLAYERS]) {
+    memcpy(pad_state, pads, sizeof(pad_state));
+    memcpy(pad_prev, prev, sizeof(pad_prev));
 }
 
 uint16_t platform_input_get_pad(void) {
@@ -203,6 +254,8 @@ uint16_t platform_input_get_pad_new_n(int player) {
 }
 
 uint16_t platform_input_get_aux(void) {
+    if (net_active())
+        return aux_state & (AUX_DEBUG_DUMP | AUX_VRAM_DUMP | AUX_FPS_TOGGLE);
     return aux_state;
 }
 

@@ -911,4 +911,8 @@ typedef struct {
 void ow_palette_backup_savestate_pack(void *out);   /* out: OwPaletteBackupSaveState* */
 void ow_palette_backup_savestate_unpack(const void *in);
 
+/* Bind the enemy placement/config and battle action tables (idempotent;
+ * overworld_spawn.c). game_init binds them for every boot path. */
+void load_enemy_spawn_data(void);
+
 #endif /* GAME_OVERWORLD_H */
