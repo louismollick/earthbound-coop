@@ -107,6 +107,10 @@ When a suspected divergence comes up (port behaviour that might or might not be 
 | Surprise attack, both ways | 17-GoldMine | `teleport 3424 9312`, walk LEFT into the Cute Li'l UFO (party first). An enemy touching you from behind gives the enemy-first case |
 | Bomb splash | 17-GoldMine | from the UFO battle: `give 147 1`, throw it at the middle enemy |
 | Jeff overnight repair | 17-GoldMine | give Jeff a broken item with IQ requirement ≤ his IQ, `flag 696 0` (100% chance), sleep at the desert cabin (npc752) |
+| Paula's prayer → Jeff alone in Snow Wood (skips the bus and hotel trap) | 10-ToThreed | `warp threed; wait 5; teleport 6864 10035 0; wait 3; press L` (cell door npc479 checks only flags 14, 541), `until idle 8000 advance` (~3200 frames) → Jeff at 7232,1880 |
+| Fire Spring sanctuary → Magicant (walked) | 33-FireSpring | `flag 185 1` (Pink Cloud melody unset in this save); Carbon Dog `teleport 3344 6410 0; 30 UP`, talk, debug win; `until in:DOOR_TRANSITION 120 UP`, then the exact step list in `playtest/coop/scenarios/m4_solo_magicant.py`; `until idle 9000 advance` ×2 → 6000,4440, Ness alone |
+| Magicant Flying Man joins | 34-Magicant | `teleport 8080 8172 0; wait 1`, Talk to npc1313 right away (he walks toward you; 8080,8168 / 8086,8172 as fallbacks) |
+| Dept Store blackout, exact | 18-DeptStore | `teleport 3588 4323 0; 30 UP+RIGHT` (store door arms hotspot 11), `teleport 4984 6858 6; 60 LEFT` (1F escalator → 2F arms hotspot 10), `teleport 4984 6845 2; until text 200 RIGHT` → blackout (~690 frames) |
 | Level-3 attacks | 30-DeepDark | `teleport 5600 7712`: Zap Eel + Hard Crocodile (bite, tail swing) |
 | Thunder and Storm (level-4 INTERTWINE) | 26-Dalaam | `teleport 2080 5530 0`, talk to npc1118; INTERTWINE comes about enemy turn 3 |
 | Mu training (EVENT_340 fade) | 26-Dalaam | `flag 16 0; flag 273 0`; `teleport 6824 8318 0`, talk to npc1089; `teleport 4988 3840 0`, walk UP; answer Yes ×4 |
