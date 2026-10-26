@@ -91,7 +91,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - [x] Solo Chapters (Jeff in Winters, Poo's Mu training, Magicant, Paula's kidnapping) play correctly with 2 to 4 Players joined. Start to end of each at 2 and 4 Players: `m4_solo_mu`, `m4_solo_magicant`, `m4_solo_winters`, `m4_solo_paula`.
 - [x] Edge cases: the bicycle (joining while Ness rides forces a dismount, or the join is deferred until he dismounts, whichever is simpler), Teleport, Sky Runner, the bus and the taxi with several Walkers. `m4_bicycle_join`, `m4_teleport_3p`, `m4_bus_2p` (2 and 3 Players), the Sky Runner Winters to Threed ride in `m4_solo_winters`; the taxi doesn't exist.
 - [x] Soak: a bot drives P2 to P4 (random walk biased toward the Leader, random menu presses) for 30 or more in-game minutes from every story save. It must not crash, the mode stack must not stay frozen, and there must be no ASan/UBSan reports.
-- [ ] Short playtest notes for the user at the top of `docs/coop-log.md`: how to play local co-op on the Mac, and what to look at.
+- [x] Short playtest notes for the user at the top of `docs/coop-log.md`: how to play local co-op on the Mac, and what to look at.
 
 ## M5 Windows (user present, skip for now)
 

@@ -1,5 +1,56 @@
 # Co-op build log
 
+## Summary for Louis (read this first)
+
+M0 to M4, M6 and M7 are done. M5 (Windows) is with the session on your desktop. Nothing is blocked. The `coop` branch builds clean at both viewports, and with one Player the game is bit-identical to upstream (32 regress cases, every frame hashed). 80 co-op scenarios pass, also under ASan+UBSan and across a save/restore in a fresh process. A bot soaked all 36 story saves for 30 in-game minutes with 4 Players, and a 30-minute online Session ran with 100 ms latency, 30 ms jitter and 2% loss without a desync.
+
+### What works
+- **Joining:** up to 4 Players, local, online or mixed. Press Start on an unjoined pad to join. Hold Select+Start for 2 s to leave.
+- **Heroes:** dealt round-robin by join order. With 2 Players, P1 has Ness and Jeff and P2 has Paula and Poo.
+- **Walking:** each Player walks their first Hero with the game's own movement and collision, and their other Heroes trail them. The camera frames everyone, and a leash keeps everyone on screen. Doors, stairs and cutscenes regroup the Party behind the Leader.
+- **Interacting:** any Player can talk, check or open the menu. Whoever starts an interaction drives it (shops, phone and save, ATM, hotel, Escargo), and the menu cursor starts on their Hero.
+- **Battle:** a Player claims a command menu by pressing A, so nobody waits on anyone. Each Hero's menu takes only its Owner's pad. The tiny `P2` tag in the menu title shows whose turn it is. Run Away stays with the Leader's Owner. When the battle waits, a small box shows who still has to pick.
+- **Party changes:**
+  - A Player with no Hero in the Party walks a Guest if one is free (Bubble Monkey, the Flying Men, Pokey and so on). Otherwise they walk their own Mr. Saturn. Mr. Saturn can read signs and chat, but anything that would change the game just gets a sound.
+  - In Solo Chapters, the solo Hero's battle menu rotates through every Player, one turn each.
+  - KO'd Heroes trail as ghosts, and their Owner walks their next conscious Hero.
+- **Online:** input lockstep. A mid-game join gets the Host's state. A dropped Player is removed after 10 s. Desyncs are detected and dumped. Mismatched builds are refused by name.
+- **Fixed along the way (in vanilla too):** the Runaway Five bus (an upstream asset-packing bug), plus several cases of state not restored after a savestate load in a fresh process: battle tables, the HP/PP window palettes, menu texts, and two unsaved globals.
+
+### Play local co-op on the Mac
+```
+scripts/coop-setup.sh                       # once; builds everything (needs earthbound.sfc in the repo root)
+port/unix/build-wide/earthbound             # 320x240, the comfortable view for co-op
+```
+- **P1, keyboard:** arrows, X = A, Z = B, Enter = Start, Right Shift = Select, Q/W = L/R.
+- **P2, keyboard:** I/J/K/L to move, U = A, O = B, P = Start, `[` = Select.
+- **Controllers:** they join in connection order. The first is P1 (alongside the keyboard), the second P2, and so on. Buttons are SNES-positional: the right face button is A.
+- **Joining:** load your file, then press Start on P2 (P on the keyboard). `--players 2` joins P2 at launch.
+
+### Try online on localhost
+```
+port/unix/build-wide/earthbound --host 7744                         # window 1: Host, P1
+port/unix/build-wide/earthbound --join 127.0.0.1:7744               # window 2: P2
+```
+- **Joining:** the client gets the Host's game when it connects.
+- **Input delay:** `--input-delay N` sets it (default 3 frames). Over the internet, use ping/16.7 + 1.
+- **Several local Players:** `--local-players 2` puts two Players on one machine.
+- **Networking:** there's no NAT traversal. Use Tailscale, or forward UDP 7744. Full guide in `docs/coop-online.md`.
+
+### What I'd like you to playtest by feel
+1. **The leash and camera with 2 Players:** does the midpoint camera feel calm, and is the leash margin too tight?
+2. **Claimed battle menus:** is pressing A to claim a menu intuitive? Is the "P1 P2" waiting box clear enough, or would you rather have sequential menus back?
+3. **Mr. Saturn:** is it fun, and does the "can't do that" sound read clearly? It hides during any dialogue that locks the Party.
+4. **Online over Tailscale with a real person:** at what input delay does it stop feeling heavy?
+5. **Solo Chapters with friends:** is battle rotation fun, or annoying in long fights?
+
+### Known limitations
+- **Not tested end to end:** real controllers and the IJKL layout in a window (headless tests drive pads directly), the later Sky Runner ride, and hotspot-only transitions.
+- **Mr. Saturn:** it uses one of the 22 NPC slots, and gives it up whenever the game needs it. It can reappear in a boxed-in spot.
+- **Walker stuck behind a wall:** it holds the Leader back through the leash. If that's annoying in play, the fix is a "warp to Leader" button combo.
+- **Online:** IPv4 only, the same commit and viewport on every machine, and the joiner's music restarts.
+
+
 One entry per PLAN.md item: what changed, gate results, decisions and deviations.
 
 ## M0 Foundation
