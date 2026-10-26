@@ -90,7 +90,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - [x] Unconscious Heroes trail the Leader as vanilla ghosts, and their Owner's Walker becomes their next owned conscious Hero. If they have none, they spectate until a revive.
 - [ ] Solo Chapters (Jeff in Winters, Poo's Mu training, Magicant, Paula's kidnapping) play correctly with 2 to 4 Players joined.
 - [ ] Edge cases: the bicycle (joining while Ness rides forces a dismount, or the join is deferred until he dismounts, whichever is simpler), Teleport, Sky Runner, the bus and the taxi with several Walkers. Bicycle and Teleport done (`m4_bicycle_join`, `m4_teleport_3p`); the bus is Blocked (below); Sky Runner untested (no save near it); the taxi doesn't exist.
-- [ ] Soak: a bot drives P2 to P4 (random walk biased toward the Leader, random menu presses) for 30 or more in-game minutes from every story save. It must not crash, the mode stack must not stay frozen, and there must be no ASan/UBSan reports.
+- [x] Soak: a bot drives P2 to P4 (random walk biased toward the Leader, random menu presses) for 30 or more in-game minutes from every story save. It must not crash, the mode stack must not stay frozen, and there must be no ASan/UBSan reports.
 - [ ] Short playtest notes for the user at the top of `docs/coop-log.md`: how to play local co-op on the Mac, and what to look at.
 
 ## M5 Windows (user present, skip for now)
