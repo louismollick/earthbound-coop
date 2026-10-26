@@ -16,11 +16,11 @@ def run(ctx):
         ctx.bin,
         ctx.dir / "run",
         "16-Fourside",
-        netrun.boot_then(netrun.random_play(8, end)),
+        netrun.boot_then(netrun.random_play(8, end, menus=False)),
         [
-            netrun.Peer("p2", netrun.random_play(9, end), env=env),
-            netrun.Peer("p3", netrun.random_play(10, end), start_after=900, env=env),
-            netrun.Peer("p4", netrun.random_play(11, end), start_after=1800, env=env),
+            netrun.Peer("p2", netrun.random_play(9, end, a_rate=0.12), env=env),
+            netrun.Peer("p3", netrun.random_play(10, end, a_rate=0.12), start_after=900, env=env),
+            netrun.Peer("p4", netrun.random_play(11, end, a_rate=0.12), start_after=1800, env=env),
         ],
         netrun.Net(latency=40, jitter=15, loss=0.01, seed=4),
         input_delay=10,
@@ -38,4 +38,6 @@ def run(ctx):
         expect(int(re.search(r"f=(\d+)", ev).group(1)) >= 900, f"P{p} to join mid-game", ev)
     last = host.syncs[max(host.syncs)][1]
     expect(all(f"P{p}:joined" in last for p in (1, 2, 3, 4)), "all four Players joined at the end", last)
+    takers = [p for p in (2, 3, 4) if host.took_focus(p)]
+    expect(len(takers) >= 2, "remote Players to open menus (take the input focus)", takers)
     shots(ctx, r, end - 60, "4 Players")

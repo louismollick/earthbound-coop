@@ -21,8 +21,8 @@ def run(ctx):
         ctx.bin,
         ctx.dir / "run",
         "16-Fourside",
-        netrun.boot_then(netrun.random_play(3, end)),
-        [netrun.Peer("p2", netrun.random_play(4, end), start_after=1500, env=env)],
+        netrun.boot_then(netrun.random_play(3, end, menus=False)),
+        [netrun.Peer("p2", netrun.random_play(4, end, a_rate=0.12), start_after=1500, env=env)],
         netrun.Net(latency=30, jitter=10, loss=0.01, seed=2),
         input_delay=8,
         end_frame=end,
@@ -43,4 +43,5 @@ def run(ctx):
     before = [f for f in host.syncs if f < j]
     expect(all("P2:-" in host.syncs[f][1] for f in before), "P2 not joined before the join", before[-1:])
     expect(all("P2:joined" in host.syncs[f][1] for f in after), "P2 joined after the join", after[:1])
+    expect(host.took_focus(2), "the joiner to open a menu (take the input focus)", host.syncs[max(host.syncs)])
     shots(ctx, r, end - 60, "after a mid-game join")

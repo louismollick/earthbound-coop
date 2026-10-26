@@ -24,8 +24,8 @@ def run(ctx):
         ctx.bin,
         ctx.dir / "run",
         "16-Fourside",
-        netrun.boot_then(netrun.random_play(1, frames)),
-        [netrun.Peer("p2", netrun.random_play(2, frames), env=env)],
+        netrun.boot_then(netrun.random_play(1, frames, menus=False)),
+        [netrun.Peer("p2", netrun.random_play(2, frames, a_rate=0.12), env=env)],
         netrun.Net(latency=100, jitter=30, loss=0.02, seed=1),
         input_delay=delay,
         end_frame=frames,
@@ -50,4 +50,5 @@ def run(ctx):
     expect(dropped > 0 and reordered > 0, "the proxy to drop and reorder packets", (fwd, dropped, reordered))
     last = host.syncs[max(host.syncs)][1]
     expect("P2:joined" in last, "P2 joined at the end", last)
+    expect(host.took_focus(2), "P2 to open a menu (take the input focus) at some point", last)
     shots(ctx, r, 2400, "frame 2400")

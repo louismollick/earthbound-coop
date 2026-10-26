@@ -50,11 +50,13 @@ class NetError(Exception):
     """A netplay check failed."""
 
 
-def random_play(seed, frames, menus=True, players=1):
+def random_play(seed, frames, menus=True, players=1, a_rate=0.05):
     """An input script: a seeded random walk with occasional A/B presses, ``frames`` long, then idle.
 
     With ``players`` > 1 (several local Players at one machine), P2.. walk too: their
     direction is a sticky hold that changes now and then while P1's commands run.
+    ``a_rate``: chance per step of a menu visit: A (on the overworld it opens the pause
+    menu and takes the co-op input focus), a cursor move, then B to back out.
     """
     rng = random.Random(seed)  # noqa: S311 - test input, not crypto
     out, t = [], 0
@@ -63,10 +65,12 @@ def random_play(seed, frames, menus=True, players=1):
             if rng.random() < 0.3:
                 out.append(f"hold P{k} {rng.choice(DIRS)}" if rng.random() < 0.8 else f"release P{k}")
         r = rng.random()
-        if menus and r < 0.05:
-            out.append("press A")
-            t += 6
-        elif menus and r < 0.10:
+        if menus and r < a_rate:
+            # Open a menu (on the overworld: the pause menu, taking the input focus),
+            # move the cursor, then back out with B so the focus moves on again
+            out += ["press A", "wait 20", f"press {rng.choice(['UP', 'DOWN', 'LEFT', 'RIGHT'])}", "press B 5"]
+            t += 6 + 20 + 6 + 30
+        elif menus and r < a_rate + 0.05:
             out.append("press B")
             t += 6
         elif r < 0.25:
@@ -132,6 +136,10 @@ class Machine:
     @property
     def last_frame(self):
         return max(self.syncs, default=-1)
+
+    def took_focus(self, player):
+        """True if some hash point shows ``player`` holding the overworld input lock (it opened a menu)."""
+        return any(f"focus=P{player} locked" in pl for _, pl in self.syncs.values())
 
     def event(self, pattern):
         """The first NET line matching ``pattern`` (regex), or None."""

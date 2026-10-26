@@ -20,8 +20,8 @@ def run(ctx):
         ctx.bin,
         ctx.dir / "run",
         "16-Fourside",
-        netrun.boot_then(netrun.random_play(20, end, players=2)),
-        [netrun.Peer("p3", netrun.random_play(21, end), env=env)],
+        netrun.boot_then(netrun.random_play(20, end, menus=False, players=2)),
+        [netrun.Peer("p3", netrun.random_play(21, end, a_rate=0.12), env=env)],
         netrun.Net(latency=30, jitter=10, loss=0.01, seed=6),
         input_delay=8,
         end_frame=end,
@@ -45,4 +45,5 @@ def run(ctx):
             if m:
                 seen.add(m.groups())
         expect(len(seen) > 3, f"P{p}'s Walker to move", sorted(seen)[:5])
+    expect(host.took_focus(3), "the remote P3 to open a menu (take the input focus)", "never")
     shots(ctx, r, end - 60, "Host P1+P2, client P3")
