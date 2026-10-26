@@ -162,13 +162,15 @@ def defend(s, hero, holder, n):
 
 
 def rotation_battle(ctx, s, hero, n, label, win=True):
-    """(b) A battle is starting: every Player in rotation order gets one turn (Defend), then the Owner again.
+    """(b) A battle is starting: every Player in rotation order gets one turn (Defend), then the first again.
 
     The Owner then wins it (debug) if ``win``. Returns the overworld state after the battle (or the battle's,
     without ``win``).
     """
     order = rotation_order(hero, n)
-    s.do(f"until input 1500 P{order[0]} advance; wait 10")
+    said = s.said(f"until input 1500 P{order[0]} advance; wait 10")
+    if "opening attack" in said:  # the enemies' surprise turn used up the first Player's place
+        order = order[1:] + order[:1]
     for i, holder in enumerate(order):
         rotation_turn(s, hero, holder, n)
         if i == 1:
