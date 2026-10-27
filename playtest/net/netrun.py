@@ -389,12 +389,12 @@ def run(
                     continue
                 if c.start_after_exit and (c.start_after_exit not in procs or procs[c.start_after_exit].poll() is None):
                     continue
-                invite = next((e.split("invite=")[1].split()[0] for e in host.events if " invite=" in e), None)
-                if relay and not invite:
-                    continue  # the room isn't open yet
                 if procs["host"].poll() is not None:
                     pending.remove((c, lk))  # the host is gone: never start it
                     continue
+                invite = next((e.split("invite=")[1].split()[0] for e in host.events if " invite=" in e), None)
+                if relay and not invite:
+                    continue  # the room isn't open yet
                 pending.remove((c, lk))
                 if c.name in machines:  # a rejoin under the same name: keep the old one's output
                     raise NetError(f"duplicate peer name {c.name}")
