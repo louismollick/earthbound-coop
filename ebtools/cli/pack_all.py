@@ -749,7 +749,7 @@ def pack_all(
     # --- Japanese Locale (<assets>/ja/ from `ebtools extract-ja`) ---
     from ebtools.cli.pack_ja import pack_ja
 
-    packed += pack_ja(assets_dir, output_dir, common_data, dialogue_label_addrs, string_table)
+    packed += pack_ja(assets_dir, output_dir, common_data, dialogue_label_addrs, string_table, bin_dir)
 
     if packed == 0:
         print("Warning: no assets found to pack", file=sys.stderr)

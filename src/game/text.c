@@ -1,4 +1,5 @@
 #include "game/text.h"
+#include "game/ui_text.h"
 #include "game/window.h"
 #include "game/display_text.h"
 #include "game/display_text_internal.h"  /* dt_make_child_init */
@@ -36,7 +37,7 @@ typedef struct {
     size_t   glyph_size;  /* total glyph data size */
     uint8_t  height;      /* pixel rows per glyph */
     uint8_t  bytes_per_glyph; /* bytes per glyph in data */
-    uint8_t  char_count;  /* glyphs in the table: FONT_CHAR_COUNT, or JA_FONT_CHAR_COUNT */
+    uint8_t  char_count;  /* glyphs in the table: FONT_CHAR_COUNT, or JA_FONT_GLYPHS */
     bool     loaded;
 } FontData;
 
@@ -77,7 +78,7 @@ TextRenderState text_render_state;
 
 /* Bind font slot `font_id` to a glyph/width asset pair. `char_count` is the
  * number of glyphs in the table (FONT_CHAR_COUNT for the US fonts,
- * JA_FONT_CHAR_COUNT for the Japanese one). */
+ * JA_FONT_GLYPHS for the Japanese ones). */
 static bool load_font(uint8_t font_id, AssetId gfx_id, AssetId width_id,
                       uint8_t height, uint8_t char_count) {
     if (font_id >= 5) return false;
@@ -164,13 +165,16 @@ void text_system_init(void) {
     load_font(FONT_ID_MRSATURN, ASSET_FONTS_MRSATURN_GFX, ASSET_FONTS_MRSATURN_BIN, 16, FONT_CHAR_COUNT);
 
 #ifdef EB_HAVE_JA
-    /* Japanese: Mother 2's 8x16 glyphs (JA/fonts/main.gfx: 224 chars x 32 bytes,
-     * codes 0x20-0xFF, width 7 + CHARACTER_PADDING) in every variable-width slot
-     * the text uses. TINY (window titles) and MRSATURN keep the US data for now. */
+    /* Japanese: Mother 2's 8x16 glyphs (JA/fonts/main.gfx: 226 glyphs x 32 bytes,
+     * codes 0x20-0xFF then the two marks, width 7 + CHARACTER_PADDING) in every
+     * variable-width slot the text uses, and Mr. Saturn's (JA/fonts/mrsaturn.gfx,
+     * same indices; see ja_print_mrsaturn_letter). TINY keeps the US data: the
+     * Japanese window titles are tiles (render_title_to_vram). */
     if (locale_is_ja()) {
-        load_font(FONT_ID_NORMAL, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_CHAR_COUNT);
-        load_font(FONT_ID_BATTLE, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_CHAR_COUNT);
-        load_font(FONT_ID_LARGE, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_CHAR_COUNT);
+        load_font(FONT_ID_NORMAL, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_GLYPHS);
+        load_font(FONT_ID_BATTLE, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_GLYPHS);
+        load_font(FONT_ID_LARGE, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_GLYPHS);
+        load_font(FONT_ID_MRSATURN, ASSET_JA_FONTS_MRSATURN_GFX, ASSET_JA_FONTS_MRSATURN_BIN, 16, JA_FONT_GLYPHS);
     }
 #endif
 
@@ -787,7 +791,7 @@ static uint8_t temporary_other_gear;
  *  16: slot display labels, 4 × 11 bytes ("  Weapon", etc.)
  *  60: slot title names, 4 × 8 bytes ("Weapons", "Body", "Arms", "Others")
  *  92: "(Nothing) " (10 bytes)
- * 102: "None" (5 bytes) */
+ * 102: "None" (5 bytes; to the end of the asset, the Japanese one is longer) */
 #define ETEXT8_OFF   0
 #define ETEXT8_LEN   8
 #define ETEXT9_OFF   8
@@ -799,13 +803,15 @@ static uint8_t temporary_other_gear;
 #define ETEXT12_OFF  92
 #define ETEXT12_LEN  10
 #define ETEXT13_OFF  102
-#define ETEXT13_LEN  5
 
 static const uint8_t *equip_text_data;  /* loaded from status_equip_window_text_8_13.bin */
+static size_t equip_text_size;
 
 static void load_equip_text_data(void) {
-    if (!equip_text_data)
+    if (!equip_text_data) {
         equip_text_data = ASSET_DATA(ASSET_DATA_STATUS_EQUIP_WINDOW_TEXT_8_13_BIN);
+        equip_text_size = ASSET_SIZE(ASSET_DATA_STATUS_EQUIP_WINDOW_TEXT_8_13_BIN);
+    }
 }
 
 /* Helper: get equipment item strength value from item config.
@@ -873,13 +879,8 @@ static void display_equipment_menu(uint16_t char_id) {
         /* Add slot label ("  Weapon", "      Body", etc.) as menu option.
          * Assembly: ADD_POSITIONED_MENU_OPTION with text_x=0, text_y=slot. */
         char slot_label[16];
-        if (equip_text_data) {
-            eb_to_ascii_buf(equip_text_data + ETEXT10_OFF + slot * ETEXT10_STRIDE,
-                            ETEXT10_STRIDE, slot_label);
-        } else {
-            static const char *fallback[] EB_NORELOC = { "  Weapon", "      Body", "     Arms", "     Other" };
-            snprintf(slot_label, sizeof(slot_label), "%s", fallback[slot]);
-        }
+        eb_to_ascii_buf(equip_text_data + ETEXT10_OFF + slot * ETEXT10_STRIDE,
+                        ETEXT10_STRIDE, slot_label);
         /* add_menu_item with explicit position: column 0, row = slot.
          * Userdata = slot+1 (1=Weapon..4=Other), matching assembly's
          * counted-mode selection_menu return. */
@@ -893,11 +894,7 @@ static void display_equipment_menu(uint16_t char_id) {
         char item_buf[32];
         if (equip_slot_idx == 0) {
             /* No item equipped — show "(Nothing) " from TEXT_12 */
-            if (equip_text_data) {
-                eb_to_ascii_buf(equip_text_data + ETEXT12_OFF, ETEXT12_LEN, item_buf);
-            } else {
-                snprintf(item_buf, sizeof(item_buf), "(Nothing)");
-            }
+            eb_to_ascii_buf(equip_text_data + ETEXT12_OFF, ETEXT12_LEN, item_buf);
         } else {
             /* Read item at this inventory slot */
             uint8_t item_id = party_characters[char_idx].items[equip_slot_idx - 1];
@@ -920,9 +917,10 @@ static void display_equipment_menu(uint16_t char_id) {
 
         /* Print ": <item>" at column 6, current line.
          * Assembly: SET_FOCUS_TEXT_CURSOR(X=line, A=6), PRINT_LETTER ':',
-         * PRINT_LETTER ' ', PRINT_STRING(ert.buffer, 49). */
-        set_focus_text_cursor(6, line);
-        print_string(": ");
+         * PRINT_LETTER ' ', PRINT_STRING(ert.buffer, 49). Mother 2
+         * (display_equipment_menu-jp.asm): ':' at column 4, no space. */
+        set_focus_text_cursor(locale_is_ja() ? 4 : 6, line);
+        print_string(locale_is_ja() ? ":" : ": ");
         print_string(item_buf);
         line++;
     }
@@ -942,6 +940,10 @@ static void display_equipment_menu(uint16_t char_id) {
  * char_id: 1-based character ID. */
 static void display_character_equipment_stats(uint16_t char_id) {
     uint16_t char_idx = char_id - 1;
+    /* Japanese: Mother 2's layout (display_character_equipment_stats-jp.asm):
+     * オフェンス: at column 1, ディフェンス: at 0, each number right after its
+     * label, the arrows at column 10 */
+    bool ja = locale_is_ja();
     create_window(WINDOW_EQUIPMENT_STATS);
     window_tick_without_instant_printing();
     set_window_number_padding(2);
@@ -949,14 +951,10 @@ static void display_character_equipment_stats(uint16_t char_id) {
     load_equip_text_data();
 
     /* --- Row 0: Offense --- */
-    set_focus_text_cursor(0, 0);
+    set_focus_text_cursor(ja ? 1 : 0, 0);
     {
         char label[12];
-        if (equip_text_data) {
-            eb_to_ascii_buf(equip_text_data + ETEXT8_OFF, ETEXT8_LEN, label);
-        } else {
-            snprintf(label, sizeof(label), "Offense:");
-        }
+        eb_to_ascii_buf(equip_text_data + ETEXT8_OFF, ETEXT8_LEN, label);
         print_string(label);
     }
 
@@ -967,7 +965,8 @@ static void display_character_equipment_stats(uint16_t char_id) {
 
     /* Print offense value at pixel position 55 */
     dt.force_left_text_alignment = 1;
-    set_text_pixel_position(0, 55);
+    if (!ja)
+        set_text_pixel_position(0, 55);
     print_number(clamp_stat(offense), 0);
     dt.force_left_text_alignment = 0;
 
@@ -975,11 +974,7 @@ static void display_character_equipment_stats(uint16_t char_id) {
     set_focus_text_cursor(0, 1);
     {
         char label[12];
-        if (equip_text_data) {
-            eb_to_ascii_buf(equip_text_data + ETEXT9_OFF, ETEXT9_LEN, label);
-        } else {
-            snprintf(label, sizeof(label), "Defense:");
-        }
+        eb_to_ascii_buf(equip_text_data + ETEXT9_OFF, ETEXT9_LEN, label);
         print_string(label);
     }
 
@@ -994,14 +989,18 @@ static void display_character_equipment_stats(uint16_t char_id) {
 
     /* Print defense value at pixel position 55 */
     dt.force_left_text_alignment = 1;
-    set_text_pixel_position(1, 55);
+    if (!ja)
+        set_text_pixel_position(1, 55);
     print_number(clamp_stat(defense), 0);
     dt.force_left_text_alignment = 0;
 
     /* --- Preview mode: show "▶ offense  ▶ defense" with temporary equipment --- */
     if (compare_equipment_mode) {
         /* Print arrow separator at row 0, pixel 76 */
-        set_text_pixel_position(0, 76);
+        if (ja)
+            set_focus_text_cursor(10, 0);
+        else
+            set_text_pixel_position(0, 76);
         set_window_palette_index(1);
         print_char_with_sound(0x014E);  /* right arrow tile */
         set_window_palette_index(0);
@@ -1015,7 +1014,10 @@ static void display_character_equipment_stats(uint16_t char_id) {
         dt.force_left_text_alignment = 0;
 
         /* Print arrow separator at row 1, pixel 76 */
-        set_text_pixel_position(1, 76);
+        if (ja)
+            set_focus_text_cursor(10, 1);
+        else
+            set_text_pixel_position(1, 76);
         set_window_palette_index(1);
         print_char_with_sound(0x014E);
 
@@ -1331,11 +1333,9 @@ static void display_psi_ability_details(uint16_t palette_index, uint16_t ability
  * GAME_MODE_PSI_MENU (mode_step_psi_menu, with the pause-menu machinery further
  * down this file), STEP_PUSHed by the pause menu's PSI case. */
 
-/* PSI category names — structural labels matching asm/data/psi_categories.asm (US).
- * These are 8-byte PADDEDEBTEXT in ROM; we use ASCII equivalents here. */
-static const char *status_psi_category_names[4] EB_NORELOC = {
-    "Offense", "Recover", "Assist", "Other"
-};
+/* PSI_CATEGORIES (asm/data/psi_categories.asm): 4 names, 8 bytes each
+ * (PADDEDEBTEXT), the Status menu's PSI categories. */
+#define PSI_CATEGORY_NAME_SIZE 8
 
 /* OPEN_STATUS_MENU is now GAME_MODE_STATUS_MENU (mode_step_status_menu, with
  * the pause-menu machinery further down this file), STEP_PUSHed by the pause
@@ -1718,11 +1718,8 @@ StepResult mode_step_equip_menu(ModeState *ms) {
              * Userdata = -1 (0xFFFF) to signal unequip. */
             {
                 char none_label[8];
-                if (equip_text_data) {
-                    eb_to_ascii_buf(equip_text_data + ETEXT13_OFF, ETEXT13_LEN, none_label);
-                } else {
-                    snprintf(none_label, sizeof(none_label), "None");
-                }
+                eb_to_ascii_buf(equip_text_data + ETEXT13_OFF,
+                                (int)(equip_text_size - ETEXT13_OFF), none_label);
                 add_menu_item_no_position(none_label, (uint16_t)-1);
             }
 
@@ -1857,8 +1854,10 @@ StepResult mode_step_status_menu(ModeState *ms) {
             st->first_display = 1;
             create_window(WINDOW_STATUS_PSI_CATEGORY);
             for (int i = 0; i < 4; i++) {
-                add_menu_item_no_position(status_psi_category_names[i],
-                                          (uint16_t)(i + 1));
+                char name[PSI_CATEGORY_NAME_SIZE + 1];
+                eb_to_ascii_buf(ASSET_DATA(ASSET_US_DATA_PSI_CATEGORIES_BIN) + i * PSI_CATEGORY_NAME_SIZE,
+                                PSI_CATEGORY_NAME_SIZE, name);
+                add_menu_item_no_position(name, (uint16_t)(i + 1));
             }
             open_window_and_print_menu(1, 0);
             st->phase = SU_CAT_HEAD;
@@ -2943,7 +2942,7 @@ static void pm_build_item_action_menu(PauseMenuState *st) {
 
     set_focus_text_cursor(0, 0);
     for (int i = start_action; i < 4; i++) {
-        add_menu_item_no_position(item_action_labels[i], i + 1);
+        add_menu_item_no_position(ui_text((UiText)(UI_GOODS_USE + i), item_action_labels[i]), i + 1);
     }
     open_window_and_print_menu(1, 0);
 
@@ -3120,6 +3119,11 @@ static EB_NOINLINE bool pm_give_char_result(PauseMenuState *st, StepResult *out)
     return menu_flush_ticks(&st->phase, PM_GIVE_CLOSE_SEL, out);
 }
 
+/* give_case values of the Japanese give flow (pm_give_after): after
+ * MSG_SYS_ITEM_TRANSFER, after the closing message. */
+#define GIVE_CASE_JA_TRANSFER 0xFE
+#define GIVE_CASE_JA_DONE     0xFF
+
 /* Determine give status case (assembly lines 362-457).
  * case_index combines: same_char, giver_dead, has_space, target_dead */
 static uint8_t pm_give_case(const PauseMenuState *st, uint16_t give_target) {
@@ -3183,6 +3187,19 @@ static EB_NOINLINE bool pm_give_after(PauseMenuState *st, StepResult *out) {
         return pushed;
     }
 
+    if (locale_is_ja()) {
+        /* Mother 2 (open_menu-jp.asm @GOODS_GIVE_DISPLAY) has none of the US
+         * messages below: MSG_SYS_ITEM_TRANSFER ("<giver>は <item>を"), then
+         * pm_give_ja_transfer moves the item and ends the sentence. */
+        create_window(WINDOW_TEXT_STANDARD);
+        set_working_memory(st->goods_char);
+        set_argument_memory(st->item_slot);
+        st->give_case = GIVE_CASE_JA_TRANSFER;
+        bool pushed;
+        *out = pm_push_text(st, PM_GIVE_MSG_RESUME, MSG_SYS_ITEM_TRANSFER, &pushed);
+        return pushed;
+    }
+
     uint8_t case_index = pm_give_case(st, give_target);
     st->give_case = case_index;
 
@@ -3226,7 +3243,33 @@ static EB_NOINLINE bool pm_give_blocked_resume(PauseMenuState *st, StepResult *o
     return menu_flush_ticks(&st->phase, PM_ACTION_MENU, out);
 }
 
-static void pm_give_msg_resume(PauseMenuState *st) {
+/* Japanese, after MSG_SYS_ITEM_TRANSFER (open_menu-jp.asm, lines 371-401):
+ * to oneself, the item moves and _SELF ("きれいに せいとんした。"); to another
+ * member with room, it moves and _OTHER names them; else _FAILED. Then the
+ * US cleanup (GIVE_CASE_JA_DONE moves nothing). */
+static bool pm_give_ja_transfer(PauseMenuState *st, StepResult *out) {
+    uint32_t msg;
+    if (st->give_target == st->goods_char) {
+        swap_item_into_equipment(st->goods_char, st->item_slot, st->give_target);
+        msg = MSG_SYS_ITEM_TRANSFER_SELF;
+    } else if (find_inventory_space2(st->give_target) != 0) {
+        swap_item_into_equipment(st->goods_char, st->item_slot, st->give_target);
+        set_working_memory(st->give_target);
+        msg = MSG_SYS_ITEM_TRANSFER_OTHER;
+    } else {
+        set_working_memory(st->give_target);
+        msg = MSG_SYS_ITEM_TRANSFER_FAILED;
+    }
+    st->give_case = GIVE_CASE_JA_DONE;
+    bool pushed;
+    *out = pm_push_text(st, PM_GIVE_MSG_RESUME, msg, &pushed);
+    return pushed;
+}
+
+static bool pm_give_msg_resume(PauseMenuState *st, StepResult *out) {
+    if (st->give_case == GIVE_CASE_JA_TRANSFER)
+        return pm_give_ja_transfer(st, out);
+
     /* Successful transfers call SWAP_ITEM_INTO_EQUIPMENT.
      * Cases 0,3,4,5,8,9 are success (assembly lines 458-523). */
     uint8_t c = st->give_case;
@@ -3240,6 +3283,7 @@ static void pm_give_msg_resume(PauseMenuState *st) {
     /* Cleanup: close all sub-windows, return to main menu
      * (assembly @GOODS_GIVE_DONE, lines 526-533). */
     st->phase = PM_CLOSE_TEXT3;
+    return false;
 }
 
 /* The single-party / single-PSI tail of Equip and PSI: play the close sfx and
@@ -3401,7 +3445,7 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             continue;
 
         case PM_GIVE_MSG_RESUME:
-            pm_give_msg_resume(st);
+            if (pm_give_msg_resume(st, &r)) return r;
             continue;
 
         case PM_DROP_RESUME:
@@ -3675,6 +3719,50 @@ uint8_t vwf_indent_new_line = 0;
 /* (store_eb_text and compute_eb_pixel_width removed — text now rendered
  * immediately via vwf_render_character + vwf_flush_tiles_to_vram) */
 
+/* One glyph of a Japanese Mr. Saturn letter (PRINT_MRSATURN_LETTER @READY_TO_PRINT,
+ * asm/text/print_mrsaturn_letter.asm). A glyph of his font (MRSATURN_CHAR_TILE_MAP
+ * != 0) is a VWF glyph of its own width; a code his font lacks (width 0 in
+ * JA/fonts/mrsaturn.bin) is a normal 8 px tile: if a VWF glyph left a partial
+ * tile, RESET_VWF_TEXT_STATE + text_x + 1 moves to the next tile first.
+ * (Mother 2 also skips a tile when the VWF glyph ended exactly on a tile
+ * boundary; the port knows a partial tile only by the pixel offset.) */
+static void ja_mrsaturn_glyph(uint8_t index) {
+    if (font_get_width(FONT_ID_MRSATURN, index) != 0) {
+        vwf_render_glyph(FONT_ID_MRSATURN, index);
+    } else {
+        WindowInfo *w = get_window(win.current_focus_window);
+        if (w && (vwf_x & 7))
+            set_focus_text_cursor(w->text_x, w->text_y);
+        vwf_render_glyph(FONT_ID_NORMAL, index);
+    }
+    vwf_flush_tiles_to_vram();
+}
+
+/* Japanese: PRINT_LETTER's Mr. Saturn path (asm/text/print_letter-jp.asm, a
+ * window font != 0): PRINT_MRSATURN_LETTER for the letter, then for a voiced or
+ * semi-voiced kana (codes 0x60+, low nibble 3/5/7/10 or 11) his dakuten (26) or
+ * handakuten (27) as a following glyph. PRINT_MRSATURN_LETTER first starts a new
+ * line, one tile in, once text_x is past 14 (text_x: the tile being drawn). */
+static void ja_print_mrsaturn_letter(uint8_t eb) {
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w) return;
+    uint16_t text_x = (vwf_x & 7) ? (uint16_t)(w->text_x - 1) : w->text_x;
+    if (text_x > 14 && eb >= 0x20) {
+        print_newline();
+        w = get_window(win.current_focus_window);
+        if (!w) return;
+        set_focus_text_cursor(w->text_x + 1, w->text_y);
+    }
+    ja_mrsaturn_glyph(eb_glyph_index(eb));
+    if (eb >= 0x60) {
+        uint8_t low = eb & 0x0F;
+        if (low == 3 || low == 5 || low == 7 || low == 10)
+            ja_mrsaturn_glyph(JA_GLYPH_DAKUTEN);
+        else if (low == 11)
+            ja_mrsaturn_glyph(JA_GLYPH_HANDAKUTEN);
+    }
+}
+
 /*
  * PRINT_EB_STRING — Renders EB-encoded characters immediately via VWF.
  *
@@ -3717,17 +3805,21 @@ void print_eb_letter(uint8_t eb) {
     if (text_trace_hook)
         text_trace_hook(TEXT_TRACE_CHAR, win.current_focus_window, eb);
 
-    /* VWF render + flush to VRAM + write to per-window tilemap.
-     * vwf_render_character handles @PRINT_SPECIAL internally for
-     * chars 0x20, 0x22, 0x2F. */
-    vwf_render_character(eb, font_id);
+    if (glyph && font_id == FONT_ID_MRSATURN && locale_is_ja()) {
+        ja_print_mrsaturn_letter(eb);
+    } else {
+        /* VWF render + flush to VRAM + write to per-window tilemap.
+         * vwf_render_character handles @PRINT_SPECIAL internally for
+         * chars 0x20, 0x22, 0x2F. */
+        vwf_render_character(eb, font_id);
 
-    /* Assembly: RENDER_VWF_CHARACTER calls FLUSH_VWF_TILES_TO_VRAM only for
-     * normal chars (>= 0x50).  Special chars (0x20, 0x22, 0x2F) jump to @DONE
-     * without flushing — advance_vwf_tile already handled tile alloc.
-     * Flushing after a special char would allocate an extra stale VWF tile. */
-    if (glyph)
-        vwf_flush_tiles_to_vram();
+        /* Assembly: RENDER_VWF_CHARACTER calls FLUSH_VWF_TILES_TO_VRAM only for
+         * normal chars (>= 0x50).  Special chars (0x20, 0x22, 0x2F) jump to @DONE
+         * without flushing — advance_vwf_tile already handled tile alloc.
+         * Flushing after a special char would allocate an extra stale VWF tile. */
+        if (glyph)
+            vwf_flush_tiles_to_vram();
+    }
 
     /* Update cursor pixel position */
     w = get_window(win.current_focus_window);
@@ -3813,6 +3905,14 @@ void print_number(int value, int min_digits) {
          * advance_vwf_tile() + VWF buffer clear via SET_TEXT_PIXEL_POSITION,
          * which is necessary for correct VWF tile state. */
         int effective = (pad_count > 0) ? pad_count : 0;
+        if (locale_is_ja()) {
+            /* print_number-jp.asm pads with SPACE letters (the Japanese
+             * font's 8 px digits) instead of advancing 6 px a digit */
+            char padded[24];
+            snprintf(padded, sizeof(padded), "%*s%s", effective, "", buf);
+            print_string(padded);
+            return;
+        }
         uint16_t pad_pixels = (uint16_t)(effective * 6);
         set_text_pixel_position(w->text_y, w->cursor_pixel_x + pad_pixels);
     } else if (min_digits > digit_count) {
@@ -3862,52 +3962,28 @@ void clear_window_text(uint16_t window_id) {
  * characters are reordered relative to ASCII.
  */
 
-/* Mother 2's encoding (textTable in mother2.yml): the letters ASCII has.
- * Japanese has no lowercase; 0x25 (the long-vowel bar) stands in for '-',
- * 0x40 (the bullet) for '@' as US 0x70 does, and 0x23 is the '$' that
- * PRINT_CURRENCY_VALUE prints before an amount. */
-static char ja_char_to_ascii(uint8_t c) {
-    if (c >= 0x30 && c <= 0x39) return (char)('0' + (c - 0x30));
-    if (c >= 0x41 && c <= 0x5A) return (char)('A' + (c - 0x41));
+/* Japanese: eb_char_to_ascii and ascii_to_eb_char are one bijection, so a
+ * Mother 2 string survives the char strings the menus are built from
+ * (MenuItem.label, print_string, window titles). Every byte stands for itself
+ * (space, digits and A-Z are where ASCII has them) except two swapped pairs
+ * that let the C formats print Mother 2's marks: ':' <-> 0x5B (its colon) and
+ * '$' <-> 0x23 (the dollar PRINT_CURRENCY_VALUE prints); the codes they
+ * displace, 0x3A '(' and 0x24, become '[' and '#'. So in Japanese these chars
+ * are Mother 2 codes, not readable ASCII, and an English literal must not be
+ * printed (ui_text() gives the Mother 2 string). */
+static uint8_t ja_ascii_swap(uint8_t c) {
     switch (c) {
-    case 0x20: return ' ';
-    case 0x23: return '$';
-    case 0x25: return '-';
-    case 0x28: return '!';
-    case 0x29: return '?';
-    case 0x2F: return '/';
-    case 0x3A: return '(';
-    case 0x3B: return ')';
-    case 0x40: return '@';
+    case ':':  return 0x5B;
     case 0x5B: return ':';
-    case 0x5F: return '.';
-    default:   return '?';
-    }
-}
-
-static uint8_t ascii_to_ja_char(char ascii) {
-    char c = ascii;
-    if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
-    if (c >= '0' && c <= '9') return (uint8_t)(0x30 + (c - '0'));
-    if (c >= 'A' && c <= 'Z') return (uint8_t)(0x41 + (c - 'A'));
-    switch (c) {
-    case '$': return 0x23;
-    case '-': return 0x25;
-    case '!': return 0x28;
-    case '?': return 0x29;
-    case '/': return 0x2F;
-    case '(': return 0x3A;
-    case ')': return 0x3B;
-    case '@': return JA_CHAR_BULLET;
-    case ':': return 0x5B;
-    case '.': return 0x5F;
-    default:  return JA_CHAR_SPACE; /* ' ' and every unmapped character */
+    case '$':  return 0x23;
+    case 0x23: return '$';
+    default:   return c;
     }
 }
 
 char eb_char_to_ascii(uint8_t eb_char) {
     if (eb_char == 0x00) return '\0';
-    if (locale_is_ja()) return ja_char_to_ascii(eb_char);
+    if (locale_is_ja()) return (char)ja_ascii_swap(eb_char);
     if (eb_char < 0x50 || eb_char > 0xAF) return '?';
 
     /* 96-entry table: EB codes 0x50-0xAF → ASCII */
@@ -3930,7 +4006,7 @@ char eb_char_to_ascii(uint8_t eb_char) {
 
 uint8_t ascii_to_eb_char(char ascii) {
     if (ascii == '\0') return 0x00;
-    if (locale_is_ja()) return ascii_to_ja_char(ascii);
+    if (locale_is_ja()) return ja_ascii_swap((uint8_t)ascii);
     return ascii_to_us_eb_char(ascii);
 }
 
@@ -4055,6 +4131,7 @@ void check_text_fits_in_window(uint16_t eb_char) {
     uint16_t total_width = (uint16_t)char_width + character_padding;
 
     uint16_t current_pos = (uint16_t)((w->text_x - 1) * 8 + (vwf_x & 7));
+    if (vwf_next_tile_unclaimed()) current_pos += 8;
     uint16_t end_pos = current_pos + total_width;
     uint16_t max_pixels = (w->width - 2) * 8;  /* Content width = display - 2 */
 
@@ -4084,6 +4161,7 @@ void wordwrap_newline_if_needed(uint16_t str_width) {
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w) return;
     uint16_t current_pos = (uint16_t)((w->text_x - 1) * 8 + (vwf_x & 7));
+    if (vwf_next_tile_unclaimed()) current_pos += 8;
     uint16_t end_pos = str_width + current_pos;
     uint16_t max_pixels = (w->width - 2) * 8;
 
@@ -4295,7 +4373,12 @@ void vwf_render_character(uint8_t eb_char, uint8_t font_id) {
 
     if (!eb_char_is_glyph(eb_char)) return;
 
-    uint8_t char_index = eb_glyph_index(eb_char);
+    vwf_render_glyph(font_id, eb_glyph_index(eb_char));
+}
+
+/* The glyph half of vwf_render_character (RENDER_VWF_CHARACTER @SETUP_GLYPH):
+ * blit glyph `char_index` of `font_id`, width + CHARACTER_PADDING pixels. */
+void vwf_render_glyph(uint8_t font_id, uint8_t char_index) {
     const uint8_t *glyph = font_get_glyph(font_id, char_index);  /* NULL past the table */
     if (!glyph) return;
 
@@ -4368,6 +4451,10 @@ static void upload_vwf_tile_to_vram(uint16_t vwf_tile_index,
  *   4. For each new tile column: alloc upper+lower, upload, write_char_to_window
  *   5. Update pixels_rendered = VWF_X
  */
+bool vwf_next_tile_unclaimed(void) {
+    return locale_is_ja() && text_render_state.upper_vram_position == 0;
+}
+
 void vwf_flush_tiles_to_vram(void) {
     TextRenderState *trs = &text_render_state;
 
@@ -4389,6 +4476,19 @@ void vwf_flush_tiles_to_vram(void) {
 
     /* Allocate and upload new tile columns */
     while (flushed_tile != target_tile) {
+        /* Japanese: a letter ending on a tile edge (every Japanese letter is
+         * 8 px) leaves vwf_x at the start of the next tile, which the loop
+         * claims, empty, for the next letter, as the US asm does. Mother 2
+         * prints whole tiles: its text fills window lines to the last column
+         * and is printed next to text already there (the status window's
+         * numbers and slashes). The claimed tile would wrap a full line and
+         * blank the cell after the text. Leave it for the next letter
+         * (upper_vram_position 0: the next flush claims it). */
+        if (locale_is_ja() && (vwf_x & 7) == 0 &&
+            (flushed_tile + 1) % VWF_BUFFER_TILES == target_tile) {
+            trs->upper_vram_position = 0;
+            break;
+        }
         uint16_t upper_id = alloc_bg2_tilemap_entry();
         trs->upper_vram_position = upper_id;
 
@@ -4656,8 +4756,74 @@ int vwf_render_to_fixed_tiles(const uint8_t *eb_str, int len, uint8_t font_id,
     return (int)tiles_used;
 }
 
+/* Write letter `eb` of the focus window's font at text position (x, y) of the
+ * focus window as one 8 px column of two newly allocated tiles, the way Mother 2
+ * writes every letter (WRITE_TILE_TO_WINDOW, a fixed tile per letter). For
+ * screens that place single letters at fixed columns (the Japanese naming
+ * keyboard): a VWF print there would also allocate the empty column after each
+ * letter. The VWF state is kept; the text cursor moves past the letter. */
+void print_letter_tile_at(uint8_t eb, uint16_t x, uint16_t y) {
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w || !eb_char_is_glyph(eb)) return;
+    uint16_t cw = w->width - 2;
+    uint16_t upper_pos = (uint16_t)(y * cw * 2 + x);
+    uint16_t lower_pos = (uint16_t)(upper_pos + cw);
+    if (x >= cw || lower_pos >= w->content_tilemap_size) return;
+
+    memcpy(vwf_saved_buffer, vwf_buffer, 2 * VWF_TILE_BYTES); /* the glyph fills tiles 0-1 */
+    uint16_t saved_x = vwf_x, saved_tile = vwf_tile, saved_pixels = vwf_pixels_rendered;
+    TextRenderState saved_trs = text_render_state;
+
+    vwf_init();
+    vwf_render_character(eb, (uint8_t)(w->font & 0xFF));
+    uint16_t upper = alloc_bg2_tilemap_entry();
+    uint16_t lower = alloc_bg2_tilemap_entry();
+    upload_vwf_tile_to_vram(0, upper, lower);
+
+    memcpy(vwf_buffer, vwf_saved_buffer, 2 * VWF_TILE_BYTES);
+    vwf_x = saved_x;
+    vwf_tile = saved_tile;
+    vwf_pixels_rendered = saved_pixels;
+    text_render_state = saved_trs;
+
+    w = get_window(win.current_focus_window); /* alloc may close windows on exhaustion */
+    if (!w || lower_pos >= w->content_tilemap_size) return;
+    free_tile_safe(w->content_tilemap[upper_pos]);
+    free_tile_safe(w->content_tilemap[lower_pos]);
+    w->content_tilemap[upper_pos] = upper + w->curr_tile_attributes;
+    w->content_tilemap[lower_pos] = lower + w->curr_tile_attributes;
+    w->text_x = (uint8_t)(x + 1);
+    w->text_y = (uint8_t)y;
+}
+
+/* Japanese window title tiles (RENDER_WINDOW_TITLE's JPN branch,
+ * asm/battle/render_window_title.asm): each title byte is a Mother 2 code whose
+ * 8x8 tile, MOTHER2_ROMAJI_FONT[(code - 32) * 16] (JA/fonts/title.gfx), is copied
+ * to the slot's tiles $02E0 + (slot - 1) * 16 + i; the frame then draws one tile
+ * per byte (RENDER_WINDOW_FRAME @WRITE_TITLE_TILE, render_window_frame-jp.asm).
+ * A slot holds 16 tiles. Returns the tile count. */
+#ifdef EB_HAVE_JA
+static int ja_render_title_to_vram(const char *title, uint8_t title_slot) {
+    const uint8_t *font = ASSET_DATA(ASSET_JA_FONTS_TITLE_GFX);
+    size_t font_size = ASSET_SIZE(ASSET_JA_FONTS_TITLE_GFX);
+    uint32_t base = VRAM_TEXT_LAYER_TILES * 2 + (uint32_t)(0x02E0 + (title_slot - 1) * 16) * 16;
+    int n = 0;
+    for (; n < 16 && title[n] != '\0'; n++) {
+        uint8_t code = ascii_to_eb_char(title[n]);  /* the title is char-mapped like menu labels */
+        size_t src = (size_t)(code < 0x20 ? 0 : code - 0x20) * 16;
+        if (src + 16 <= font_size && base + (uint32_t)n * 16 + 16 <= VRAM_SIZE)
+            memcpy(ppu.vram + base + (uint32_t)n * 16, font + src, 16);
+    }
+    return n;
+}
+#endif
+
 int render_title_to_vram(const char *title, uint8_t title_slot) {
     if (!title || title[0] == '\0' || title_slot == 0) return 0;
+#ifdef EB_HAVE_JA
+    if (locale_is_ja())
+        return ja_render_title_to_vram(title, title_slot);
+#endif
 
     /* Convert ASCII title to EB encoding (US: the TINY font stays US in Japanese) */
     uint8_t eb_str[WINDOW_TITLE_SIZE];

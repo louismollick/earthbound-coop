@@ -12,6 +12,7 @@
 #include "game/display_text_internal.h"
 #include "game/inventory.h"
 #include "game/text.h"
+#include "game/ui_text.h"
 #include "game/window.h"
 
 #include "data/assets.h"
@@ -158,9 +159,11 @@ static void set_target_name_with_article(uint16_t index) {
     /* Asm: the letter is skipped only for letter A when no other enemy of
      * this type holds a letter (FIND_NEXT_ENEMY_LETTER returns 2). */
     if (b->the_flag != 1 || find_next_enemy_letter(b->enemy_type_id) != 2) {
-        target_name[pos++] = EB_CHAR_SPACE;
-        target_name[pos] = (uint8_t)(b->the_flag + EB_CHAR_A_MINUS_1);
-        set_print_attacker_article(1);
+        if (!locale_is_ja()) {
+            target_name[pos++] = EB_CHAR_SPACE;
+            set_print_attacker_article(1);
+        }
+        target_name[pos] = (uint8_t)(b->the_flag + enemy_letter_base());
     }
     set_battle_attacker_name((const char *)target_name, ENEMY_NAME_SIZE + 1);
     set_attacker_enemy_id((int16_t)b->id);
@@ -180,8 +183,8 @@ static void display_battle_target_text(uint16_t row, int16_t enemy_index) {
     /* Create the target text window (WINDOW::BATTLE_TARGET_TEXT = 0x31) */
     create_window(WINDOW_BATTLE_TARGET_TEXT);
 
-    /* Print "To " prefix */
-    print_string("To ");
+    /* Print "To " prefix (Mother 2: "どのてきに?: ") */
+    print_string(ui_text(UI_BATTLE_TO, "To "));
 
     if (enemy_index != -1) {
         /* Assembly: SET_TARGET_NAME_WITH_ARTICLE(row * NUM_BATTLERS_IN_FRONT_ROW
@@ -203,8 +206,9 @@ static void display_battle_target_text(uint16_t row, int16_t enemy_index) {
 
         /* Assembly lines 65-96 (US non-prototype): display affliction indicator tile.
          * Looks up the battler's afflictions via GET_EQUIP_WINDOW_TEXT(mode=0),
-         * then renders the tile at cursor position (17, 0). */
-        set_focus_text_cursor(17, 0);
+         * then renders the tile at cursor position (17, 0); Mother 2 at
+         * (19, 0), after its longer prompt. */
+        set_focus_text_cursor(locale_is_ja() ? 19 : 17, 0);
         uint16_t equip_tile = get_equip_window_text(b->afflictions, 0);
         print_char_with_sound(equip_tile);
     } else {

@@ -23,10 +23,33 @@ JA_PACKED_SUBDIR = "JA"
 
 # Written by extract-ja next to the dialogue so pack-all needs no Mother 2 config.
 JA_TEXT_TABLE_FILE = "text_table.json"
+# ja_locale.yml motherLogic, copied next to the dialogue for pack-all
+MOTHER_LOGIC_FILE = "mother_logic.json"
 
 # Mother 2 glyph codes 0x20-0xFF, one font glyph each.
 JA_FIRST_GLYPH = 0x20
 JA_GLYPH_COUNT = 0x100 - JA_FIRST_GLYPH
+
+# Codes below 0x20 that Mother 2 still draws as glyphs: the naming keyboard's
+# dakuten and handakuten keys (asm/text/text_input_dialog-jp.asm), also Mr.
+# Saturn's marks (asm/text/print_letter-jp.asm). The Japanese fonts append them
+# after the 224 code glyphs, at JA_GLYPH_COUNT + i (src/game/text.h JA_GLYPH_*).
+JA_EXTRA_GLYPH_CODES = (0x1A, 0x1B)
+JA_FONT_GLYPHS = JA_GLYPH_COUNT + len(JA_EXTRA_GLYPH_CODES)
+
+
+class RomRange(BaseModel):
+    """``count`` entries of ``size`` bytes at file offset ``offset`` of the Mother 2 ROM."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    offset: int
+    size: int
+    count: int = 1
+
+    def read(self, rom: bytes) -> list[bytes]:
+        """The entries."""
+        return [rom[self.offset + i * self.size : self.offset + (i + 1) * self.size] for i in range(self.count)]
 
 
 class JaLocaleConfig(BaseModel):
@@ -37,6 +60,12 @@ class JaLocaleConfig(BaseModel):
     romSha1: str
     textTable: dict[int, str] = Field(default_factory=dict)
     labels: dict[str, str] = Field(default_factory=dict)
+    # US labels whose Japanese message is Mother 2's whole message, logic too.
+    motherLogic: list[str] = Field(default_factory=list)
+    # Mother 2 symbol -> (ROM offset, bytes to the next symbol), for the
+    # interface tables (ebtools.ja_interface; regenerate with `ebtools ja-offsets`).
+    romSymbols: dict[str, tuple[int, int]] = Field(default_factory=dict)
+    rom: dict[str, RomRange] = Field(default_factory=dict)
 
 
 def load_ja_locale(path: Path) -> JaLocaleConfig:

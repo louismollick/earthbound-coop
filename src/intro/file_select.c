@@ -1,6 +1,9 @@
 #include "intro/file_select.h"
+#include "intro/file_select_internal.h"
+#include "intro/naming_ja.h"
 #include "game/window.h"
 #include "game/text.h"
+#include "game/ui_text.h"
 #include "game/game_state.h"
 #include "game/display_text.h"
 #include "game/audio.h"
@@ -73,7 +76,7 @@ static void ensure_file_select_assets(void) {
 }
 
 /* Helper: get EB-encoded don't care name at [category][index] */
-static const uint8_t *get_dont_care_name(int category, int index) {
+const uint8_t *get_dont_care_name(int category, int index) {
     ensure_file_select_assets();
     return dont_care_names_data + (category * DONT_CARE_COUNT + index) * DONT_CARE_NAME_SIZE;
 }
@@ -206,7 +209,11 @@ static void fm_add_slot_items(void) {
 
     for (int slot = 0; slot < SAVE_COUNT; slot++) {
         bool occupied = load_game(slot) && game_state.favourite_thing[1] != 0;
-        if (occupied) {
+        if (occupied && locale_is_ja()) {
+            /* The name is printed by fm_print_slot_details (kana) */
+            snprintf(slot_labels[slot], sizeof(slot_labels[slot]), "%d:", slot + 1);
+            save_files_present[slot] = 1;
+        } else if (occupied) {
             char name[6] = {0};
             for (int i = 0; i < 5 && party_characters[0].name[i]; i++) {
                 name[i] = eb_char_to_ascii(party_characters[0].name[i]);
@@ -219,8 +226,8 @@ static void fm_add_slot_items(void) {
             snprintf(slot_labels[slot], sizeof(slot_labels[slot]), "%d:", slot + 1);
             save_files_present[slot] = SAVE_FILE_LOCKED;
         } else {
-            snprintf(slot_labels[slot], sizeof(slot_labels[slot]),
-                     "%d: Start New Game", slot + 1);
+            snprintf(slot_labels[slot], sizeof(slot_labels[slot]), "%d%s",
+                     slot + 1, ui_text(UI_FILE_START_NEW_GAME, ": Start New Game"));
             save_files_present[slot] = 0;
         }
         add_menu_item(slot_labels[slot], (uint16_t)(slot + 1), 0, (uint16_t)slot);
@@ -230,9 +237,13 @@ static void fm_add_slot_items(void) {
 /* Pass 2: per-slot details for occupied slots, after OPEN_WINDOW_AND_PRINT_MENU.
  * Assembly (file_select_menu.asm:115-214) prints Level and Text Speed info at
  * specific cursor positions. A locked slot shows only the other Language's
- * name, in this Language: "Japanese", or えいご ("English") in Japanese. */
+ * name, in this Language: "Japanese", or えいご ("English") in Japanese.
+ * Japanese prints Mother 2's strings where Mother 2 puts them in its one-line
+ * label (file_select_menu-jp.asm: " レベル:" right after the name, the level,
+ * " ひょうじ:", the speed), one column right for the US 5-letter name. */
 static void fm_print_slot_details(void) {
     static const char *speed_names[] EB_NORELOC = {"Fast", "Medium", "Slow"};
+    bool ja = locale_is_ja();
     for (int slot = 0; slot < SAVE_COUNT; slot++) {
         if (save_files_present[slot] == SAVE_FILE_LOCKED) {
             set_focus_text_cursor(3, (uint16_t)slot);
@@ -248,21 +259,29 @@ static void fm_print_slot_details(void) {
 
         load_game(slot);
 
+        if (locale_is_ja()) {
+            /* The name in Mother 2's encoding, after "N: " (4 letters, as the
+               JPN FILE_SELECT_MENU copies sizeof char_struct::name) */
+            set_focus_text_cursor(3, (uint16_t)slot);
+            print_eb_string(party_characters[0].name, 4);
+        }
+
         /* "Level:" at cursor (9, slot) */
-        set_focus_text_cursor(9, (uint16_t)slot);
-        print_string("Level:");
+        set_focus_text_cursor(ja ? 8 : 9, (uint16_t)slot);
+        print_string(ui_text(UI_FILE_LEVEL, "Level:"));
 
         /* Level number at cursor (13, slot) */
         set_focus_text_cursor(13, (uint16_t)slot);
         print_number(party_characters[0].level, 2);
 
         /* "Text Speed: Fast/Medium/Slow" at cursor (16, slot) */
-        set_focus_text_cursor(16, (uint16_t)slot);
+        set_focus_text_cursor(ja ? 15 : 16, (uint16_t)slot);
         int speed_idx = game_state.text_speed - 1;
         if (speed_idx < 0 || speed_idx > 2) speed_idx = 0;
-        char speed_buf[32];
-        snprintf(speed_buf, sizeof(speed_buf), "Text Speed: %s",
-                 speed_names[speed_idx]);
+        char speed_buf[2 * UI_TEXT_SIZE];
+        snprintf(speed_buf, sizeof(speed_buf), ja ? "%s%s" : "%s %s",
+                 ui_text(UI_FILE_TEXT_SPEED, "Text Speed:"),
+                 ui_text((UiText)(UI_FILE_SPEED_FAST + speed_idx), speed_names[speed_idx]));
         print_string(speed_buf);
     }
 }
@@ -307,19 +326,19 @@ static int fm_submenu_build(void) {
     if (!w) return 0;
 
     /* Horizontal layout matching assembly (C1F07E): all at text_y=0 */
-    add_menu_item("Continue", 1, 0, 0);
+    add_menu_item(ui_text(UI_FILE_CONTINUE, "Continue"), 1, 0, 0);
 
     /* Copy is only shown if an empty slot exists to copy to (assembly condition:
        slot != current_save_slot AND SAVE_FILES_PRESENT[slot] == 0) */
     for (int i = 0; i < SAVE_COUNT; i++) {
         if (i != (current_save_slot - 1) && !save_files_present[i]) {
-            add_menu_item("Copy", 2, 6, 0);
+            add_menu_item(ui_text(UI_FILE_COPY, "Copy"), 2, 6, 0);
             break;
         }
     }
 
-    add_menu_item("Delete", 3, 10, 0);
-    add_menu_item("Set Up", 4, 15, 0);
+    add_menu_item(ui_text(UI_FILE_DELETE, "Delete"), 3, 10, 0);
+    add_menu_item(ui_text(UI_FILE_SET_UP, "Set Up"), 4, 15, 0);
 
     /* Assembly (show_file_select_menu.asm:58-62): PRINT_MENU_ITEMS, then (US
      * only) ENABLE_WORD_WRAP = $FF, then SELECTION_MENU directly — no
@@ -345,7 +364,7 @@ static void fm_copy_dialog_build(void) {
      * window; anything else uses the two-choice window. */
     create_window(empty == 1 ? WINDOW_FILE_SELECT_COPY_1 : WINDOW_FILE_SELECT_COPY_2);
     set_instant_printing();
-    print_string("Copy to where?");   /* FILE_SELECT_TEXT_COPY_TO_WHERE, 14 chars */
+    print_string(ui_text(UI_FILE_COPY_TO_WHERE, "Copy to where?"));   /* 14 chars */
 
     /* One-file case: the single item sits at row 1. Two-file case: items fill
      * rows 1, 2, ... (@VIRTUAL04 starts at 1). Both at text_x 0. */
@@ -390,10 +409,10 @@ static void text_speed_menu_display_only(uint8_t selected_speed) {
     if (!w) return;
     w->menu_count = 0;
     set_focus_text_cursor(0, 0);
-    print_string("Please select text speed.");
-    add_menu_item("Fast", 1, 0, 1);
-    add_menu_item("Medium", 2, 0, 2);
-    add_menu_item("Slow", 3, 0, 3);
+    print_string(ui_text(UI_FILE_SELECT_TEXT_SPEED, "Please select text speed."));
+    add_menu_item(ui_text(UI_FILE_SPEED_FAST, "Fast"), 1, 0, 1);
+    add_menu_item(ui_text(UI_FILE_SPEED_MEDIUM, "Medium"), 2, 0, 2);
+    add_menu_item(ui_text(UI_FILE_SPEED_SLOW, "Slow"), 3, 0, 3);
     print_menu_items();
 
     /* Assembly (file_select_text_speed_menu.asm:49-68): highlight with palette 6 */
@@ -406,9 +425,9 @@ static void sound_mode_menu_display_only(uint8_t selected_sound) {
     if (!w) return;
     w->menu_count = 0;
     set_focus_text_cursor(0, 0);
-    print_string("Please select sound setting.");
-    add_menu_item("Stereo", 1, 0, 1);
-    add_menu_item("Mono", 2, 0, 2);
+    print_string(ui_text(UI_FILE_SELECT_SOUND, "Please select sound setting."));
+    add_menu_item(ui_text(UI_FILE_SOUND_STEREO, "Stereo"), 1, 0, 1);
+    add_menu_item(ui_text(UI_FILE_SOUND_MONO, "Mono"), 2, 0, 2);
     print_menu_items();
 
     /* Assembly (file_select_sound_mode_menu.asm:50-69): highlight with palette 6.
@@ -428,11 +447,11 @@ static int fm_textspeed_build(void) {
     w->menu_count = 0; /* Reset for re-entry (back-navigation) */
 
     set_focus_text_cursor(0, 0);
-    print_string("Please select text speed.");
+    print_string(ui_text(UI_FILE_SELECT_TEXT_SPEED, "Please select text speed."));
 
-    add_menu_item("Fast", 1, 0, 1);
-    add_menu_item("Medium", 2, 0, 2);
-    add_menu_item("Slow", 3, 0, 3);
+    add_menu_item(ui_text(UI_FILE_SPEED_FAST, "Fast"), 1, 0, 1);
+    add_menu_item(ui_text(UI_FILE_SPEED_MEDIUM, "Medium"), 2, 0, 2);
+    add_menu_item(ui_text(UI_FILE_SPEED_SLOW, "Slow"), 3, 0, 3);
 
     print_menu_items();
     /* Assembly (file_select_text_speed_menu.asm:75) clears ENABLE_WORD_WRAP
@@ -468,10 +487,10 @@ static int fm_sound_build(void) {
     w->menu_count = 0; /* Reset for re-entry (back-navigation) */
 
     set_focus_text_cursor(0, 0);
-    print_string("Please select sound setting.");
+    print_string(ui_text(UI_FILE_SELECT_SOUND, "Please select sound setting."));
 
-    add_menu_item("Stereo", 1, 0, 1);
-    add_menu_item("Mono", 2, 0, 2);
+    add_menu_item(ui_text(UI_FILE_SOUND_STEREO, "Stereo"), 1, 0, 1);
+    add_menu_item(ui_text(UI_FILE_SOUND_MONO, "Mono"), 2, 0, 2);
 
     print_menu_items();
     return -1;
@@ -518,13 +537,13 @@ static int fm_flavour_build(void) {
     w->menu_count = 0; /* Reset for re-entry (back-navigation) */
 
     set_focus_text_cursor(0, 0);
-    print_string("Which style of windows do you prefer?");
+    print_string(ui_text(UI_FILE_WHICH_STYLE, "Which style of windows do you prefer?"));
 
-    add_menu_item("Plain flavor", 1, 0, 2);
-    add_menu_item("Mint flavor", 2, 0, 3);
-    add_menu_item("Strawberry flavor", 3, 0, 4);
-    add_menu_item("Banana flavor", 4, 0, 5);
-    add_menu_item("Peanut flavor", 5, 0, 6);
+    add_menu_item(ui_text(UI_FILE_FLAVOR_PLAIN, "Plain flavor"), 1, 0, 2);
+    add_menu_item(ui_text(UI_FILE_FLAVOR_MINT, "Mint flavor"), 2, 0, 3);
+    add_menu_item(ui_text(UI_FILE_FLAVOR_STRAWBERRY, "Strawberry flavor"), 3, 0, 4);
+    add_menu_item(ui_text(UI_FILE_FLAVOR_BANANA, "Banana flavor"), 4, 0, 5);
+    add_menu_item(ui_text(UI_FILE_FLAVOR_PEANUT, "Peanut flavor"), 5, 0, 6);
 
     /* Set cursor move callback to preview palette (asm: SET_CURSOR_MOVE_CALLBACK).
      * Set the serializable id alongside the ptr (savestate hardening, D0a). */
@@ -724,14 +743,14 @@ static void kb_build_name_display(uint8_t *display, const uint8_t *eb_name,
    Only called when the name changes (matching assembly's
    RENDER_KEYBOARD_INPUT_CHARACTER which is called per-change, not per-frame).
    Returns the number of tile columns rendered. */
-static int kb_render_name_tiles(const uint8_t *display, int max_len) {
+int kb_render_name_tiles(const uint8_t *display, int max_len) {
     return vwf_render_to_fixed_tiles(display, max_len, FONT_ID_NORMAL, NAME_VRAM_TILE_BASE, 0);
 }
 
 /* Write tilemap entries for the name display at a specific text row.
    Called every frame since render_all_windows() clears the tilemap.
    Matches the @WRITE_CHAR_TO_TILEMAP loop in RENDER_KEYBOARD_INPUT_CHARACTER. */
-static void kb_write_name_tilemap_at(WindowInfo *nw, int num_cols, int text_y) {
+void kb_write_name_tilemap_at(WindowInfo *nw, int num_cols, int text_y) {
     uint16_t *tilemap = (uint16_t *)win.bg2_buffer;
     uint16_t mx = nw->content_x;
     uint16_t my = nw->content_y + (uint16_t)(text_y * 2);
@@ -761,7 +780,7 @@ static void kb_write_name_tilemap(WindowInfo *nw, int num_cols) {
 /* Resolve a NameTargetId to the (stable global) buffer it names. The buffer is
  * only touched on confirm, so a serializable ID rather than a raw pointer keeps
  * the keyboard mode's ModeState plain-old-data. */
-static uint8_t *name_target_buffer(int id) {
+uint8_t *name_target_buffer(int id) {
     switch (id) {
     case NAME_TARGET_PARTY0:    return party_characters[0].name;
     case NAME_TARGET_PARTY1:    return party_characters[1].name;
@@ -769,7 +788,8 @@ static uint8_t *name_target_buffer(int id) {
     case NAME_TARGET_PARTY3:    return party_characters[3].name;
     case NAME_TARGET_PET:       return game_state.pet_name;
     case NAME_TARGET_FOOD:      return game_state.favourite_food;
-    case NAME_TARGET_THING:     return game_state.favourite_thing + 4;
+    case NAME_TARGET_THING:     /* after "PSI ", or Mother 2's "PK" */
+        return game_state.favourite_thing + (locale_is_ja() ? 2 : 4);
     case NAME_TARGET_M2_PLAYER: return game_state.mother2_playername;
     case NAME_TARGET_EB_PLAYER: return game_state.earthbound_playername;
     default:                    return NULL;
@@ -787,7 +807,7 @@ static uint8_t *name_target_buffer(int id) {
  * GAME_MODE_ENTER_NAME, e.g. Tony's call) have no EVENT_787, and a battle's BG
  * state left loaded there must not scroll the screen. The battle-mode branch of
  * RENDER_FRAME_TICK never applies: no keyboard runs in battle. */
-static void text_input_bg_update(void) {
+void text_input_bg_update(void) {
     for (int i = 0; i < g_mode_stack.depth; i++) {
         if (g_mode_stack.mode[i] == GAME_MODE_FILE_MENU) {
             battle_bg_update();
@@ -801,6 +821,8 @@ static void text_input_bg_update(void) {
  * `primed`), acts on it, then renders one frame; the pump owns the single yield.
  * See the mode header in mode_stack.h. */
 StepResult mode_step_text_input(ModeState *st) {
+    if (locale_is_ja())
+        return ja_text_input_step(st);
     TextInputState *s = &st->text_input;
 
     /* Resume after a parked actionscript frame (D4b): the child completed the
@@ -1078,6 +1100,11 @@ void text_input_prepare(ModeState *init, int name_target, int max_len,
                         int naming_index, uint16_t name_display_window_id,
                         int name_text_y, const uint8_t *existing_name)
 {
+    if (locale_is_ja()) {
+        ja_text_input_prepare(init, name_target, max_len, naming_index,
+                              name_display_window_id, name_text_y, existing_name);
+        return;
+    }
     /* Create keyboard window (assembly: TEXT_INPUT_DIALOG line 43) */
     create_window(WINDOW_FILE_SELECT_NAMING_KB);
     win.current_focus_window = WINDOW_FILE_SELECT_NAMING_KB;
@@ -1450,6 +1477,14 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
                create the name box, then the message window + prompt, then the
                initial name display (bullet + dashes), then wait for a button
                via GAME_MODE_NAMING_PROMPT. */
+            int name_tile_cols;
+            if (locale_is_ja()) {
+                /* JPN: the name box shows the current name, and there is no
+                   WINDOW_TICK_WITHOUT_INSTANT_PRINTING: CC_13_14's WINDOW_TICK
+                   is the only RAND. */
+                name_tile_cols = ja_naming_front(i, name_target_buffer(ng_name_targets[i].target));
+                rng_next_byte();
+            } else {
             create_window(WINDOW_FILE_SELECT_NAMING_BOX);
             WindowInfo *msg_w = create_window(WINDOW_FILE_SELECT_NAMING_MSG);
             if (msg_w) {
@@ -1457,7 +1492,6 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
                 print_eb_string(naming_prompts_data + i * NAMING_PROMPT_ENTRY_SIZE,
                                 NAMING_PROMPT_ENTRY_SIZE);
             }
-            int name_tile_cols;
             {
                 uint8_t empty_name[16];
                 uint8_t display[16];
@@ -1472,6 +1506,7 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             rng_next_byte();
             rng_next_byte();
             rng_next_byte();
+            }
             memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
             g_mode_push_init.naming_prompt.name_tile_cols = (int16_t)name_tile_cols;
             st->phase = NGN_PROMPT_DONE;
@@ -1482,6 +1517,11 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             /* name_a_character() step 5: the on-screen keyboard. Name display
                goes in the name box window at text row 0. */
             int i = st->char_i;
+            if (locale_is_ja())
+                ja_text_input_prepare(&g_mode_push_init, ng_name_targets[i].target,
+                                      ja_naming_max_len(i), i, WINDOW_FILE_SELECT_NAMING_BOX, 0,
+                                      name_target_buffer(ng_name_targets[i].target));
+            else
             text_input_prepare(&g_mode_push_init, ng_name_targets[i].target,
                                ng_name_targets[i].max_len, i,
                                WINDOW_FILE_SELECT_NAMING_BOX, 0, NULL);
@@ -1519,6 +1559,17 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             continue;
 
         case NGN_CONFIRM_BUILD: {
+            if (locale_is_ja()) {
+                /* JPN: no default names (an empty name can't be confirmed) and
+                   no prefix before the confirmation ("PK" is set at the start) */
+                ja_naming_confirm_build();
+                create_file_select_party_sprites();
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.selection_menu.phase        = SM_SETUP;
+                g_mode_push_init.selection_menu.allow_cancel = 1;
+                st->phase = NGN_CONFIRM_DONE;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
+            }
             /* Set default names for any empty slots (first name in each group).
              * Names are already EB-encoded in the ROM data — copy directly. */
             for (int c = 0; c < 4; c++) {
@@ -1579,23 +1630,23 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             /* Favorite food — label on row 0, right-justified value on row 1 */
             create_window(WINDOW_FILE_SELECT_CONFIRM_FOOD);
             set_focus_text_cursor(0, 0);
-            print_string("Favorite food:");
+            print_string(ui_text(UI_FILE_FAVORITE_FOOD, "Favorite food:"));
             print_right_justified_name(game_state.favourite_food, 6, WINDOW_FILE_SELECT_CONFIRM_FOOD);
 
             /* Favorite thing — same layout as food */
             create_window(WINDOW_FILE_SELECT_CONFIRM_THING);
             set_focus_text_cursor(0, 0);
-            print_string("Coolest thing:");
+            print_string(ui_text(UI_FILE_COOLEST_THING, "Coolest thing:"));
             print_right_justified_name(game_state.favourite_thing + 4, 6, WINDOW_FILE_SELECT_CONFIRM_THING);
 
             /* Are you sure? */
             WindowInfo *mw = create_window(WINDOW_FILE_SELECT_CONFIRM_MSG);
             if (mw) {
                 set_focus_text_cursor(0, 0);
-                print_string("Are you sure?");
+                print_string(ui_text(UI_FILE_ARE_YOU_SURE, "Are you sure?"));
                 /* Horizontal layout: Yep at text_x=14, Nope at text_x=18. */
-                add_menu_item("Yep", 1, 14, 0);
-                add_menu_item("Nope", 0, 18, 0);
+                add_menu_item(ui_text(UI_FILE_YEP, "Yep"), 1, 14, 0);
+                add_menu_item(ui_text(UI_FILE_NOPE, "Nope"), 0, 18, 0);
             }
 
             /* PRINT_MENU_ITEMS then CREATE_FILE_SELECT_PARTY_SPRITES — no
@@ -1703,11 +1754,17 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
     }
 
     /* Assembly lines 604-612: Prepend "PSI " to favourite_thing.
-       The naming screen fills favourite_thing+4 onward; we set the prefix here. */
+       The naming screen fills favourite_thing+4 onward; we set the prefix here.
+       JPN (file_select_menu_loop-jp.asm): "PK", the name from +2. */
+    if (locale_is_ja()) {
+        game_state.favourite_thing[0] = 0x50; /* CHAR::P (JPN) */
+        game_state.favourite_thing[1] = 0x4B; /* CHAR::K (JPN) */
+    } else {
     game_state.favourite_thing[0] = ascii_to_eb_char('P'); /* CHAR::P */
     game_state.favourite_thing[1] = ascii_to_eb_char('S'); /* CHAR::S_ */
     game_state.favourite_thing[2] = ascii_to_eb_char('I'); /* CHAR::I */
     game_state.favourite_thing[3] = eb_char_space();       /* CHAR::SPACE */
+    }
 
     /* Assembly line 644-645: unknownC3 = 1 */
     game_state.unknownC3 = 1;
@@ -1902,27 +1959,41 @@ StepResult mode_step_file_menu(ModeState *ms) {
                 if (dw) {
                     set_instant_printing();
                     set_window_number_padding(0);
-                    set_focus_text_cursor(0, 0);
-                    print_string("Are you sure you want to delete?");  /* 32 chars */
+                    if (locale_is_ja()) {
+                        /* confirm_file_delete-jp.asm: "N: <name> レベル:NN" on
+                         * row 0, then "を けします。いいですか?" on row 1 */
+                        print_number(current_save_slot, 0);
+                        print_string(": ");
+                        print_eb_string(party_characters[0].name,
+                                        (int)sizeof(party_characters[0].name));
+                        print_string(ui_text(UI_FILE_LEVEL, ""));
+                        set_window_number_padding(1);
+                        print_number(party_characters[0].level, 0);
+                        set_focus_text_cursor(0, 1);
+                        print_string(ui_text(UI_FILE_DELETE_CONFIRM, ""));
+                    } else {
+                        set_focus_text_cursor(0, 0);
+                        print_string("Are you sure you want to delete?");  /* 32 chars */
 
-                    set_text_pixel_position(1, 0);
-                    set_focus_text_cursor(0, 1);
-                    print_number(current_save_slot, 0);
-                    print_string(":");                 /* PRINT_LETTER CHAR::COLON */
+                        set_text_pixel_position(1, 0);
+                        set_focus_text_cursor(0, 1);
+                        print_number(current_save_slot, 0);
+                        print_string(":");                 /* PRINT_LETTER CHAR::COLON */
 
-                    /* PRINT_CHARACTER_NAME(1): party member 1's name */
-                    set_focus_text_cursor(2, 1);
-                    print_eb_string(party_characters[0].name,
-                                    (int)sizeof(party_characters[0].name));
+                        /* PRINT_CHARACTER_NAME(1): party member 1's name */
+                        set_focus_text_cursor(2, 1);
+                        print_eb_string(party_characters[0].name,
+                                        (int)sizeof(party_characters[0].name));
 
-                    set_focus_text_cursor(8, 1);
-                    print_string("Level:");            /* FILE_SELECT_TEXT_LEVEL, 6 chars */
+                        set_focus_text_cursor(8, 1);
+                        print_string("Level:");            /* FILE_SELECT_TEXT_LEVEL, 6 chars */
 
-                    set_focus_text_cursor(12, 1);
-                    print_number(party_characters[0].level, 0);
+                        set_focus_text_cursor(12, 1);
+                        print_number(party_characters[0].level, 0);
+                    }
 
-                    add_menu_item("No", 0, 0, 2);
-                    add_menu_item("Yes", 1, 0, 3);
+                    add_menu_item(ui_text(UI_FILE_DELETE_NO, "No"), 0, 0, 2);
+                    add_menu_item(ui_text(UI_FILE_DELETE_YES, "Yes"), 1, 0, 3);
                 }
                 print_menu_items();
                 return fm_push_selection(st, FM_DELETE_RESULT, 1);

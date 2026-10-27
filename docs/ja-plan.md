@@ -37,11 +37,12 @@ Play the C port in Japanese, with the text, fonts and graphics of the user's Mot
 
 ## J2 Japanese interface
 
-- [ ] Name tables: items, enemies, PSI, teleport destinations, phone contacts, store and status text, window titles.
-- [ ] The strings hardcoded in C (file select, battle commands, equip and Goods menus) come from the Mother 2 ROM in Japanese.
-- [ ] Battle grammar: enemy suffixes and articles.
-- [ ] Kana naming keyboard and the Mother 2 Don't Care names.
-- [ ] Mr. Saturn's Japanese font.
+- [x] Name tables: items, enemies, PSI, teleport destinations, phone contacts, store and status text. 
+- [x] The strings hardcoded in C (file select, battle commands, equip and Goods menus) come from the Mother 2 ROM in Japanese.
+- [x] Battle grammar: enemy suffixes and articles.
+- [x] Kana naming keyboard and the Mother 2 Don't Care names.
+- [x] Mr. Saturn's Japanese font.
+- [x] Window titles in Mother 2's 8x8 title font.
 
 ## J3 Japanese graphics and cinematics
 
@@ -62,5 +63,11 @@ Play the C port in Japanese, with the text, fonts and graphics of the user's Mot
 - J1: the Locale is folded into the savestate layout id (no format change); a locked slot reads `Japanese` in English and `えいご` in Japanese.
 - J1: `$` is 0x23 in Mother 2's encoding (0x24 is the `00` tile).
 - J1: pack-all skips the Japanese Locale (with a warning) when its dialogue lacks a US label or a message's logic drifted from the US; English always builds.
+- J2: **Interface tables** (`ebtools/ja_interface.py`): a Japanese table keeps the US table's layout and bytes, with only the name fields replaced by Mother 2's (null-padded to the US size) and packed to `JA/<US path>`, so gameplay data stays the US data and `ASSET_DATA` serves it. Mother 2 offsets are `ja_locale.yml` `romSymbols`, regenerated from `build/mother2.map` by `ebtools ja-offsets`. The enemy table also takes Mother 2's encounter and death message choices (the US added encounter verbs Mother 2 has no text for) and clears `the_flag`, so English articles print nothing.
+- J2: **UI strings**: C literals go through `ui_text(UI_X, "English")` (`src/game/ui_text.h`), which returns the literal in English and the Mother 2 string from `JA/text/ui_strings.bin` in Japanese.
+- J2: **Encoding round trip**: in Japanese `eb_char_to_ascii` / `ascii_to_eb_char` are one bijection (identity but `:`/0x5B and `$`/0x23 swapped), so names survive the char strings of menu labels and `print_string`; no English literal reaches them in Japanese.
+- J2: **Mother 2 logic exception**: `ja_locale.yml` `motherLogic` lists US labels whose Japanese message is Mother 2's whole message. Only the Goods Give messages (`MSG_SYS_ITEM_TRANSFER*`), which the US keeps as unused copies; Japanese Give runs Mother 2's flow (`open_menu-jp.asm`) with them.
+- J2: **Japanese layouts**: where Mother 2's text doesn't fit the US positions, the Japanese path uses Mother 2's (status window, file select details, delete confirmation, equip menu and stats, battle target text, PP cost, `PRINT_CURRENCY_VALUE` with its `00` sign, number padding with spaces), and a few windows take Mother 2's size (`ja_window_configs` in `window.c`). The VWF renderer doesn't claim the empty tile after a Japanese letter (they all end on a tile edge), so text can fill a line and print next to other text.
+- J2: **Naming screens and titles**: ported from the JPN asm (`src/intro/naming_ja.c`): the kana keyboard re-reads its layout message and keeps the name in its own buffer (Mother 2 reads both back from the tilemap); titles draw Mother 2's 8x8 title glyphs, one tile per byte; the naming windows take Mother 2's sizes.
 
 ## Blocked

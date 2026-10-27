@@ -6,8 +6,11 @@ Writes ``<assets>/ja/`` only (docs/adr/0003-japanese-locale.md):
   is the US logic ops with Mother 2's presentation ops (``text_dsl.splice``).
 - ``inline_strings.json``: US inline markup -> Japanese inline markup.
 - ``fonts/main.json`` + ``main.png``: the 224 Mother 2 text glyphs (codes
-  0x20-0xFF) in the US main-font format.
+  0x20-0xFF) and the two marks below them (``JA_EXTRA_GLYPH_CODES``) in the US
+  main-font format.
+- the naming data and the Mr. Saturn and title fonts (``ebtools.ja_naming``).
 - ``text_table.json``: the Japanese text table, for pack-all.
+- ``names/*.json``, ``ui_strings.json``: the interface (``ebtools.ja_interface``).
 """
 
 import difflib
@@ -22,11 +25,15 @@ from typing import Annotated
 from cyclopts import Parameter
 
 from ebtools.config import DEFAULT_ASSETS_DIR, CommonData, DumpDoc, load_common_data, load_dump_doc
+from ebtools.ja_interface import extract_name_tables, extract_ui_texts, write_interface_json
 from ebtools.ja_locale import (
     JA_ASSETS_SUBDIR,
+    JA_EXTRA_GLYPH_CODES,
     JA_FIRST_GLYPH,
+    JA_FONT_GLYPHS,
     JA_GLYPH_COUNT,
     JA_TEXT_TABLE_FILE,
+    MOTHER_LOGIC_FILE,
     ja_text_table,
     load_ja_locale,
     write_text_table,
@@ -35,6 +42,7 @@ from ebtools.text_dsl.splice import (
     falls_through,
     is_presentation,
     label_args,
+    map_label_args,
     match_logic,
     splice,
     splice_chain,
@@ -110,12 +118,16 @@ def extract_ja(
     from ebtools.text_dsl.yaml_io import serialize_dialogue_file
 
     ja_msgs = splice_dialogue(list(us_msgs.items()), jp_msgs, jp_next, us2jp, jp2us, jp_label_to_us)
+    for label in config.motherLogic:
+        ja_msgs[label] = mother_logic_message(label, us_msgs, jp_msgs, us2jp, jp_label_to_us)
     written = set()
     for path, msgs in us_files:
         (dialogue_out / path.name).write_text(
             serialize_dialogue_file({label: ja_msgs[label] for label in msgs}), encoding="utf-8"
         )
         written.add(path.name)
+    # pack-all checks every other message still runs its US logic
+    (out_dir / MOTHER_LOGIC_FILE).write_text(json.dumps(sorted(config.motherLogic), indent=1) + "\n", encoding="utf-8")
     for stale in dialogue_out.glob("*.y*ml"):
         if stale.name not in written:
             stale.unlink()
@@ -125,11 +137,50 @@ def extract_ja(
         json.dumps(inline, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
     )
 
+    if not config.romSymbols:
+        raise SystemExit(f"error: {ja_config} has no romSymbols (run `ebtools ja-offsets`)")
+    jp_addr_label = _addr_to_label(m2_doc)
+
+    def us_label_of(jp_addr: int) -> str | None:
+        label = jp_addr_label.get(jp_addr)
+        if label is None:
+            return None
+        return jp2us.get(label, label if label in us_msgs else None)
+
+    names = extract_name_tables(rom, config.romSymbols, table, us_label_of)
+    ui = extract_ui_texts(rom, config.romSymbols, table)
+    write_interface_json(out_dir, names, ui)
+
     write_text_table(out_dir / JA_TEXT_TABLE_FILE, table)
     font_stats = export_ja_font(rom, m2_doc, out_dir / "fonts")
+    from ebtools.ja_naming import extract_interface
+
+    interface_stats = extract_interface(rom, config, table, font_stats["glyphs"], out_dir)
+    print(f"Interface: naming data, Mr. Saturn font ({interface_stats['mrsaturn_glyphs']} of his own glyphs), titles")
 
     _report(us_msgs, jp_msgs, us2jp, ja_msgs, stats, inline_stats, font_stats, unresolved_presentation_labels)
+    print(f"Interface: {len(names)} name tables, {len(ui)} UI strings")
     print(f"Wrote {len(written)} dialogue files, {len(inline)} inline strings and the font to {out_dir}")
+
+
+def mother_logic_message(
+    label: str,
+    us_msgs: Messages,
+    jp_msgs: Messages,
+    us2jp: dict[str, str],
+    jp_label_to_us: Callable[[object], object],
+) -> list[dict]:
+    """Mother 2's whole message for US ``label`` (``ja_locale.yml`` ``motherLogic``).
+
+    Its label arguments name US labels; it must end (or fall through) as the
+    US message does, since it keeps the US message's place.
+    """
+    if label not in us2jp:
+        raise SystemExit(f"error: ja_locale.yml motherLogic: {label} has no Mother 2 message")
+    ops = [map_label_args(op, jp_label_to_us) for op in jp_msgs[us2jp[label]]]
+    if falls_through(ops) != falls_through(us_msgs[label]):
+        raise SystemExit(f"error: ja_locale.yml motherLogic: {label} ends unlike its US message")
+    return ops
 
 
 def _load_us_dialogue(dialogue_dir: Path) -> list[tuple[Path, Messages]]:
@@ -407,7 +458,7 @@ def export_ja_font(rom: bytes, doc: DumpDoc, fonts_dir: Path) -> dict:
 
     out = bytearray()
     eighth_column: list[int] = []
-    for code in range(JA_FIRST_GLYPH, JA_FIRST_GLYPH + JA_GLYPH_COUNT):
+    for code in [*range(JA_FIRST_GLYPH, JA_FIRST_GLYPH + JA_GLYPH_COUNT), *JA_EXTRA_GLYPH_CODES]:
         top = (code & 0xF0) * 2 + (code & 0x0F)
         rows = []
         for tile in (top, top + 16):
@@ -419,9 +470,9 @@ def export_ja_font(rom: bytes, doc: DumpDoc, fonts_dir: Path) -> dict:
         out.extend(rows)
         out.extend(b"\xff" * 16)
 
-    widths = bytes([7] * JA_GLYPH_COUNT)
-    export_font_png(bytes(out), widths, "main", 32, fonts_dir, glyph_count=JA_GLYPH_COUNT)
-    return {"eighth_column": eighth_column}
+    widths = bytes([7] * JA_FONT_GLYPHS)
+    export_font_png(bytes(out), widths, "main", 32, fonts_dir, glyph_count=JA_FONT_GLYPHS)
+    return {"eighth_column": eighth_column, "glyphs": bytes(out)}
 
 
 # --- Report --------------------------------------------------------------------
@@ -480,5 +531,5 @@ def _report(
     for s in inline_stats["silent"][:20]:
         print(f"    silent: {s}")
     cols = font_stats["eighth_column"]
-    print(f"Font: {JA_GLYPH_COUNT} glyphs, {len(cols)} use the 8th pixel column (the advance must stay 8 px)")
+    print(f"Font: {JA_FONT_GLYPHS} glyphs, {len(cols)} use the 8th pixel column (the advance must stay 8 px)")
     sys.stdout.flush()

@@ -7,7 +7,11 @@ Called by ``pack-all`` after the US packers.  Writes ``<output>/JA/``:
 - ``text/xlat.bin``: ``(u32 us_addr, u32 ja_addr)`` pairs sorted by
   ``us_addr``: every US dialogue label address and US inline string offset to
   its Japanese address.
-- ``fonts/main.gfx`` / ``fonts/main.bin``: the 224 Mother 2 glyphs.
+- ``fonts/main.gfx`` / ``fonts/main.bin``: the 224 Mother 2 glyphs and the
+  two marks (``JA_EXTRA_GLYPH_CODES``).
+- The interface (``ebtools.ja_interface``): every US name table with the
+  Mother 2 names, at the US table's path, and ``text/ui_strings.bin``.
+- the naming data and the Mr. Saturn and title fonts (``ebtools.ja_naming``).
 
 Without ``<assets>/ja/`` it removes a stale ``<output>/JA/`` and writes nothing.
 """
@@ -25,6 +29,7 @@ from ebtools.ja_locale import (
     JA_INLINE_BASE,
     JA_PACKED_SUBDIR,
     JA_TEXT_TABLE_FILE,
+    MOTHER_LOGIC_FILE,
     read_text_table,
 )
 from ebtools.text_dsl.string_table import StringTableBuilder
@@ -36,6 +41,7 @@ def pack_ja(
     common_data: CommonData,
     us_label_addrs: dict[str, int],
     us_inline: StringTableBuilder,
+    bin_dir: Path,
 ) -> int:
     """Pack ``<assets_dir>/ja/`` to ``<output_dir>/JA/``; return the asset groups packed.
 
@@ -45,6 +51,8 @@ def pack_ja(
         US dialogue label -> address, as ``_pack_dialogue`` assigned them.
     us_inline
         The US inline string table, fully built (its offsets are final).
+    bin_dir
+        The US extracted binaries (the US tables pack-all doesn't pack).
     """
     from ebtools.cli.pack_all import _compile_dialogue
     from ebtools.parsers.font import pack_font
@@ -57,6 +65,22 @@ def pack_ja(
     if out.exists():
         shutil.rmtree(out)
     if not ja_dir.is_dir():
+        return 0
+    if not us_label_addrs:
+        # No US dialogue packed (nothing for xlat or the tables' text pointers)
+        print("Warning: skipping the Japanese Locale, no US dialogue was packed", file=sys.stderr)
+        return 0
+
+    from ebtools.ja_interface import interface_is_current as names_are_current
+    from ebtools.ja_naming import interface_is_current
+
+    # A Japanese extraction from an older ebtools must not break the English build
+    if not (ja_dir / JA_TEXT_TABLE_FILE).exists() or not interface_is_current(ja_dir) or not names_are_current(ja_dir):
+        print(
+            "Warning: skipping the Japanese Locale, its text table, names, UI strings, naming data or fonts "
+            "are missing or stale (rerun `ebtools extract-ja`)",
+            file=sys.stderr,
+        )
         return 0
 
     reverse_table = {char: code for code, char in read_text_table(ja_dir / JA_TEXT_TABLE_FILE).items()}
@@ -79,12 +103,17 @@ def pack_ja(
     # Every Japanese message must still run its US message's logic: a US edit after
     # `extract-ja` would otherwise give the two Languages different game logic.
     ja_ops = {label: ops for _f, msgs in all_dialogue for label, ops in msgs.items()}
+    # ja_locale.yml motherLogic: messages that take Mother 2's logic on purpose
+    mother_logic_path = ja_dir / MOTHER_LOGIC_FILE
+    mother_logic = (
+        set(json.loads(mother_logic_path.read_text(encoding="utf-8"))) if mother_logic_path.exists() else set()
+    )
     us_dialogue = sorted((assets_dir / "dialogue").glob("*.yaml")) + sorted((assets_dir / "dialogue").glob("*.yml"))
     drifted = [
         label
         for f in us_dialogue
         for label, ops in deserialize_dialogue_file(f.read_text(encoding="utf-8")).items()
-        if strip_presentation(ops) != strip_presentation(ja_ops[label])
+        if label not in mother_logic and strip_presentation(ops) != strip_presentation(ja_ops[label])
     ]
     if drifted:
         print(
@@ -120,13 +149,35 @@ def pack_ja(
     _write(out / "fonts" / "main.gfx", gfx)
     _write(out / "fonts" / "main.bin", widths)
 
+    from ebtools.ja_interface import pack_interface
+    from ebtools.ja_naming import pack_interface as pack_naming
+
+    def us_table(rel: str) -> bytes:
+        packed = output_dir / rel
+        return packed.read_bytes() if packed.exists() else (bin_dir / rel).read_bytes()
+
+    try:
+        interface = pack_interface(ja_dir, us_table, reverse_table, us_label_addrs)
+        for rel, data in interface.items():
+            _write(out / rel, data)
+        naming_files = pack_naming(ja_dir, out, reverse_table)
+    except (ValueError, KeyError, OSError) as exc:
+        # e.g. a name table pointing at a US label deleted after extract-ja
+        shutil.rmtree(out, ignore_errors=True)
+        print(
+            f"Warning: skipping the Japanese Locale, its interface data is stale (rerun `ebtools extract-ja`): {exc}",
+            file=sys.stderr,
+        )
+        return 0
+
     print(
         f"  Packed Japanese Locale: dialogue {len(blob)} bytes, inline strings {len(inline_blob)} bytes, "
-        f"xlat {len(xlat)} entries, font {len(widths)} glyphs"
+        f"xlat {len(xlat)} entries, font {len(widths)} glyphs, {len(interface)} interface tables, "
+        f"{naming_files} naming files"
     )
     if stale:
         print(f"  Warning: {stale} US inline strings missing from ja/inline_strings.json print nothing")
-    return 4
+    return 4 + len(interface)
 
 
 def _write(path: Path, data: bytes) -> None:

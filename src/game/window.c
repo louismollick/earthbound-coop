@@ -1,5 +1,6 @@
 #include "game/window.h"
 #include "game/text.h"
+#include "game/ui_text.h"
 #include "game/display_text.h"
 #include "game/audio.h"
 #include "game/battle.h"
@@ -94,6 +95,44 @@ static const uint16_t window_configs[][4] = {
 };
 #define WINDOW_CONFIG_COUNT (sizeof(window_configs) / sizeof(window_configs[0]))
 
+/* Japanese: Mother 2's place and size (WINDOW_CONFIGURATION_TABLE, JPN) for
+ * the windows whose Japanese text needs more room than the US window gives
+ * (its font is 8 px a letter), and for the naming screens, whose Japanese
+ * layout is drawn from the JPN asm (src/intro/naming_ja.c). Every other window
+ * keeps the US layout. */
+static const struct { uint8_t id; uint16_t config[4]; } ja_window_configs[] = {
+    { 0x03, {  1 + WINDOW_X_NUDGE,  1,  7, 10 } },  /* Inventory menu (せつめい) */
+    { 0x0A, {  1 + WINDOW_X_NUDGE, 10,  9,  4 } },  /* Carried money ($99999 and the 00 sign) */
+    { 0x15, {  9, 16, 13,  8 } },                   /* Copy menu, 2 choices (どこに うつしますか?) */
+    { 0x16, {  9, 16, 13,  6 } },                   /* Copy menu, 1 choice */
+    { 0x2D, {  2, 11, 16,  6 } },                   /* Equipment stats */
+    { 0x31, {  9,  4, 22,  4 } },                   /* Battle target text (どのてきに?:) */
+    { 0x1A, {  5,  2,  9,  4 } },                   /* Naming Box */
+    { 0x1B, { 14,  2, 16,  4 } },                   /* "Name This Friend" */
+    { 0x1C, {  1,  7, 30, 20 } },                   /* Name input box: 9 text rows (keys, pages, buttons) */
+    { 0x1D, {  7,  3,  6,  4 } },                   /* Ness's Name */
+    { 0x1E, {  7,  7,  6,  4 } },                   /* Paula's Name */
+    { 0x1F, {  7, 11,  6,  4 } },                   /* Jeff's Name */
+    { 0x20, {  7, 15,  6,  4 } },                   /* Poo's Name */
+    { 0x21, { 20,  3,  8,  4 } },                   /* King's Name */
+    { 0x22, { 14,  7, 14,  6 } },                   /* Favourite Food */
+    { 0x23, { 14, 13, 14,  6 } },                   /* Favourite Thing */
+    { 0x24, {  4, 21, 24,  4 } },                   /* "Are you sure?" */
+    { 0x27, {  3,  1, 26,  6 } },                   /* Naming prompt */
+};
+
+/* The {x, y, width, height} window_id opens with, or NULL for the default. */
+static const uint16_t *window_config(uint16_t window_id) {
+    if (locale_is_ja()) {
+        for (size_t i = 0; i < sizeof(ja_window_configs) / sizeof(ja_window_configs[0]); i++)
+            if (ja_window_configs[i].id == window_id)
+                return ja_window_configs[i].config;
+    }
+    if (window_id < WINDOW_CONFIG_COUNT && window_configs[window_id][2] > 0)
+        return window_configs[window_id];
+    return NULL;
+}
+
 /* windows[], titled_windows[], and menu_backup_* now in WindowSystemState win. */
 WindowSystemState win = {
     .current_focus_window = WINDOW_ID_NONE,
@@ -177,11 +216,12 @@ WindowInfo *create_window(uint16_t window_id) {
         w->active = true;
         w->id = window_id;
 
-        if (window_id < WINDOW_CONFIG_COUNT && window_configs[window_id][2] > 0) {
-            w->x = window_configs[window_id][0];
-            w->y = window_configs[window_id][1];
-            w->width = window_configs[window_id][2];
-            w->height = window_configs[window_id][3];
+        const uint16_t *config = window_config(window_id);
+        if (config) {
+            w->x = config[0];
+            w->y = config[1];
+            w->width = config[2];
+            w->height = config[3];
         } else {
             w->x = 2; w->y = 2; w->width = 28; w->height = 8;
         }
@@ -685,7 +725,8 @@ void open_window_and_print_menu(uint16_t columns, uint16_t start_index) {
      * Selecting it cycles through pages. */
     MenuItem *oi = needs_pagination ? alloc_menu_item(w) : NULL;
     if (oi) {
-        strncpy(oi->label, "...", MENU_LABEL_SIZE - 1);
+        /* Mother 2 prints MENU_OVERFLOW_TEXT ("そのた") */
+        strncpy(oi->label, ui_text(UI_MENU_OVERFLOW, "..."), MENU_LABEL_SIZE - 1);
         oi->label[MENU_LABEL_SIZE - 1] = '\0';
         oi->userdata = 0;
         oi->type = 2;
@@ -3330,8 +3371,35 @@ void set_hppp_window_mode_item(uint16_t item_id) {
  * Saves/restores cursor position and VWF_INDENT_NEW_LINE.
  * Places tile 36 at the rightmost column as a visual separator.
  */
+/* PRINT_CURRENCY_VALUE (asm/text/print_currency_value.asm), Mother 2's
+ * print_money_in_window: '$' (0x23), the digits and the 00 sign (0x24),
+ * ending on the last column, in the window's 8 px letters; the cursor goes
+ * back where it was. */
+static void print_currency_value(uint32_t amount) {
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w) return;
+    uint8_t text[12];
+    int digits = snprintf((char *)text + 1, sizeof(text) - 2, "%u", (unsigned)amount);
+    text[0] = 0x23;
+    text[digits + 1] = 0x24;
+    for (int i = 1; i <= digits; i++)
+        text[i] = ascii_to_eb_char((char)text[i]);
+    uint16_t saved_x = w->text_x, saved_y = w->text_y;
+    int col = (w->width - 2) - 2 - digits;  /* window_stats::width is the content width */
+    set_focus_text_cursor(col > 0 ? (uint16_t)col : 0, saved_y);
+    print_eb_string(text, digits + 2);
+    if (dt_lq_pending())
+        dt_lq_push_op(LQ_OP_SET_CURSOR, (uint8_t)saved_x, (uint8_t)saved_y);
+    else
+        set_focus_text_cursor(saved_x, saved_y);
+}
+
 void print_money_in_window(uint32_t amount) {
     if (win.current_focus_window == WINDOW_ID_NONE) return;
+    if (locale_is_ja()) {
+        print_currency_value(amount);
+        return;
+    }
 
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w) return;

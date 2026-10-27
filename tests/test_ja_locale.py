@@ -119,7 +119,10 @@ needs_ja = pytest.mark.skipif(
 def _load(dialogue_dir: Path) -> dict[str, list[tuple[str, list[dict]]]]:
     from ebtools.text_dsl.yaml_io import deserialize_dialogue_file
 
-    return {p.name: list(deserialize_dialogue_file(p.read_text()).items()) for p in sorted(dialogue_dir.glob("*.yml"))}
+    return {
+        p.name: list(deserialize_dialogue_file(p.read_text(encoding="utf-8")).items())
+        for p in sorted(dialogue_dir.glob("*.yml"))
+    }
 
 
 @cache
@@ -137,13 +140,20 @@ def test_same_labels_files_and_order():
 
 @needs_ja
 def test_logic_invariant():
-    """With presentation ops stripped, every Japanese message is its US message."""
+    """With presentation ops stripped, every Japanese message is its US message.
+
+    Except ja_locale.yml's motherLogic labels, unused US copies of Mother 2's
+    messages that the Japanese interface runs with Mother 2's logic.
+    """
+    from ebtools.ja_locale import load_ja_locale
+
+    mother_logic = set(load_ja_locale(ROOT / "ja_locale.yml").motherLogic)
     us, ja = _dialogue()
     bad = [
         label
         for name in us
         for (label, us_ops), (_, ja_ops) in zip(us[name], ja[name])
-        if strip_presentation(us_ops) != strip_presentation(ja_ops)
+        if label not in mother_logic and strip_presentation(us_ops) != strip_presentation(ja_ops)
     ]
     assert not bad, bad[:10]
 
@@ -158,10 +168,10 @@ def _packed() -> tuple[Path, dict]:
     seen: dict = {}
     real = pack_ja_mod.pack_ja
 
-    def spy(assets_dir, output_dir, common_data, us_label_addrs, us_inline):
+    def spy(assets_dir, output_dir, common_data, us_label_addrs, us_inline, bin_dir):
         seen["labels"] = dict(us_label_addrs)
         seen["inline"] = us_inline.entries()
-        return real(assets_dir, output_dir, common_data, us_label_addrs, us_inline)
+        return real(assets_dir, output_dir, common_data, us_label_addrs, us_inline, bin_dir)
 
     with mock.patch.object(pack_ja_mod, "pack_ja", spy), contextlib.redirect_stdout(io.StringIO()):
         pack_all(
@@ -206,19 +216,19 @@ def test_xlat_covers_every_label_and_inline_string(packed):
 
 
 def test_font_and_glyph_range(packed):
-    from ebtools.ja_locale import JA_FIRST_GLYPH, JA_GLYPH_COUNT, read_text_table
+    from ebtools.ja_locale import JA_FIRST_GLYPH, JA_FONT_GLYPHS, JA_GLYPH_COUNT, read_text_table
     from ebtools.text_dsl.inline import parse_inline_to_ops
 
     ja_dir, _ = packed
-    assert (ja_dir / "fonts" / "main.gfx").stat().st_size == JA_GLYPH_COUNT * 32
-    assert (ja_dir / "fonts" / "main.bin").stat().st_size == JA_GLYPH_COUNT
+    assert (ja_dir / "fonts" / "main.gfx").stat().st_size == JA_FONT_GLYPHS * 32
+    assert (ja_dir / "fonts" / "main.bin").stat().st_size == JA_FONT_GLYPHS
 
     table = read_text_table(JA / "text_table.json")
     reverse = {char: code for code, char in table.items()}
     font = range(JA_FIRST_GLYPH, JA_FIRST_GLYPH + JA_GLYPH_COUNT)
     assert all(code in font for code in table)
 
-    inline = json.loads((JA / "inline_strings.json").read_text())
+    inline = json.loads((JA / "inline_strings.json").read_text(encoding="utf-8"))
     messages = [ops for files in _dialogue()[1].values() for _, ops in files]
     messages += [parse_inline_to_ops(text) for text in inline.values()]
     for ops in messages:
@@ -227,3 +237,66 @@ def test_font_and_glyph_range(packed):
                 assert all(ch in reverse for ch in op["value"]), op
             elif op["op"] == "load_string_to_memory":
                 assert all(b in font for b in op["payload"]["text"]), op
+
+
+# --- Interface (naming data, Mr. Saturn and title fonts) -----------------------
+
+
+def test_interface_text_round_trip():
+    from ebtools.ja_naming import _decode, _encode
+
+    table = {0x60: "あ", 0x62: "か", 0x20: " "}
+    reverse = {v: k for k, v in table.items()}
+    raw = bytes([0x62, 0x20, 0x60, 0, 0])
+    assert _decode(raw, table) == "か あ"
+    assert _encode("か あ", 5, reverse) == raw
+    with pytest.raises(ValueError):
+        _encode("かかかかかか", 5, reverse)
+    with pytest.raises(ValueError):
+        _decode(bytes([0x60, 0, 0x60]), table)
+
+
+def test_interface_is_current_needs_every_file(tmp_path):
+    from ebtools.ja_naming import interface_is_current
+
+    assert not interface_is_current(tmp_path)
+
+
+@needs_ja
+def test_naming_data_from_the_rom():
+    naming = json.loads((JA / "naming.json").read_text(encoding="utf-8"))
+    assert len(naming["prompts"]) == 7
+    assert [g[0] for g in naming["dont_care_names"]] == [
+        "ネス",
+        "ポーラ",
+        "ジェフ",
+        "プー",
+        "チビ",
+        "ハンバーグ",
+        "キアイ",
+    ]
+    assert naming["yep"] == "はい" and naming["nope"] == "いいえ"
+    assert sorted(naming["transliteration"]) == [chr(c) for c in range(0x41, 0x5B)]
+
+
+def test_interface_packed(packed):
+    from ebtools.ja_locale import JA_FONT_GLYPHS
+
+    ja_dir, _ = packed
+    sizes = {
+        "data/naming_prompts.bin": 7 * 15,
+        "data/dont_care_names.bin": 49 * 6,
+        "data/naming_confirm.bin": 9 + 11 + 12 + 3 + 4,
+        "data/name_registry_request_string.bin": 11,
+        "data/consonant_vowel_transliteration_pairs.bin": 26 * 5 * 2,
+        "fonts/mrsaturn.gfx": JA_FONT_GLYPHS * 32,
+        "fonts/mrsaturn.bin": JA_FONT_GLYPHS,
+        "fonts/title.gfx": 224 * 16,
+    }
+    for rel, size in sizes.items():
+        assert (ja_dir / rel).stat().st_size == size, rel
+    # Mr. Saturn's own glyphs (kana, his space and marks) have a width; the
+    # codes Mother 2 prints with the normal font have 0.
+    widths = (ja_dir / "fonts" / "mrsaturn.bin").read_bytes()
+    assert widths[0x60 - 0x20] and widths[0x20 - 0x20] and widths[-2] and widths[-1]
+    assert widths[0x41 - 0x20] == 0

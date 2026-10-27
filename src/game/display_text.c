@@ -917,8 +917,19 @@ static void bind_status_window_text(void) {
     status_equip_text_data = ASSET_DATA(ASSET_DATA_STATUS_EQUIP_TEXT_BIN);
 }
 
+/* Put the text cursor where a status number goes: US pixel x `us_x` on `row`;
+ * Japanese at text column `ja_col`, where display_status_window-jp.asm puts
+ * it (Mother 2's labels sit at other places and its font is 8 px a letter). */
+static void status_number_at(uint16_t row, uint16_t us_x, uint16_t ja_col) {
+    if (locale_is_ja())
+        set_focus_text_cursor(ja_col, row);
+    else
+        set_text_pixel_position(row, us_x);
+}
+
 void display_status_window(uint16_t char_id) {
     uint16_t char_index = char_id - 1;
+    bool ja = locale_is_ja();
     if (char_index >= TOTAL_PARTY_COUNT) return;
     CharStruct *c = &party_characters[char_index];
 
@@ -957,57 +968,62 @@ void display_status_window(uint16_t char_id) {
 
     /* Assembly lines 43-53: Level (row 0, pixel 38, padding 1) */
     set_window_number_padding(1);
-    set_text_pixel_position(0, 38);
+    status_number_at(0, 38, 5);
     print_number((int)c->level, 1);
 
-    /* Assembly lines 54-97: HP / PP with slash separator (padding 2) */
+    /* Assembly lines 54-97: HP / PP with slash separator (padding 2). The
+     * Japanese labels carry the slash (STATUS_WINDOW_TEXT, JPN). */
     set_window_number_padding(2);
 
     /* Current HP */
-    set_text_pixel_position(3, 94);
+    status_number_at(3, 94, 9);
     print_number((int)c->current_hp, 2);
-    /* Slash (EB char 0x5F = '/') */
-    set_text_pixel_position(3, 114);
-    print_string("/");
+    if (!ja) {
+        /* Slash (EB char 0x5F = '/') */
+        set_text_pixel_position(3, 114);
+        print_string("/");
+    }
     /* Max HP */
-    set_text_pixel_position(3, 121);
+    status_number_at(3, 121, 13);
     print_number((int)c->max_hp, 2);
 
     /* Current PP */
-    set_text_pixel_position(4, 94);
+    status_number_at(4, 94, 9);
     print_number((int)c->current_pp, 2);
-    /* Slash (EB char 0x5F = '/') */
-    set_text_pixel_position(4, 114);
-    print_string("/");
+    if (!ja) {
+        /* Slash (EB char 0x5F = '/') */
+        set_text_pixel_position(4, 114);
+        print_string("/");
+    }
     /* Max PP */
-    set_text_pixel_position(4, 121);
+    status_number_at(4, 121, 13);
     print_number((int)c->max_pp, 2);
 
     /* Assembly lines 98-167: combat stats (rows 0-6 at pixel 199, padding 2) */
-    set_text_pixel_position(0, 199);
+    status_number_at(0, 199, 25);
     print_number((int)c->offense, 1);
-    set_text_pixel_position(1, 199);
+    status_number_at(1, 199, 25);
     print_number((int)c->defense, 1);
-    set_text_pixel_position(2, 199);
+    status_number_at(2, 199, 25);
     print_number((int)c->speed, 1);
-    set_text_pixel_position(3, 199);
+    status_number_at(3, 199, 25);
     print_number((int)c->guts, 1);
-    set_text_pixel_position(4, 199);
+    status_number_at(4, 199, 25);
     print_number((int)c->vitality, 1);
-    set_text_pixel_position(5, 199);
+    status_number_at(5, 199, 25);
     print_number((int)c->iq, 1);
-    set_text_pixel_position(6, 199);
+    status_number_at(6, 199, 25);
     print_number((int)c->luck, 1);
 
     /* Assembly lines 168-197: EXP + required EXP (padding 6) */
     set_window_number_padding(6);
-    set_text_pixel_position(5, 97);
+    status_number_at(5, 97, 9);
     {
         uint32_t exp = c->exp;
         if (exp > EXP_LIMIT) exp = EXP_LIMIT;
         print_number((int)exp, 6);
     }
-    set_text_pixel_position(6, 10);
+    status_number_at(6, 10, 9);
     print_number((int)get_required_exp(char_id), 6);
 
     dt.force_left_text_alignment = 0;
@@ -1050,7 +1066,7 @@ void display_status_window(uint16_t char_id) {
     /* Assembly lines 264-275: equipment/affliction display tile.
      * GET_EQUIP_WINDOW_TEXT(afflictions, mode=0) → tile code from TEXT_2 table.
      * PRINT_CHAR_WITH_SOUND writes the tile-level character to the window. */
-    set_focus_text_cursor(11, 1);
+    set_focus_text_cursor(ja ? 10 : 11, 1);
     {
         uint16_t equip_tile = get_equip_window_text(c->afflictions, 0);
         print_char_with_sound(equip_tile);
@@ -1059,7 +1075,10 @@ void display_status_window(uint16_t char_id) {
     /* Assembly lines 276-287: PSI info text (skip for Jeff, char_index == 2) */
     if (char_index != 2 && status_equip_text_data) {
         dt.force_left_text_alignment = 1;
-        set_text_pixel_position(7, 36);
+        if (ja)
+            set_focus_text_cursor(1, 7);  /* display_status_window-jp.asm */
+        else
+            set_text_pixel_position(7, 36);
         const uint8_t *psi_text = status_equip_text_data + STATUS_TEXT4_OFFSET;
         int len = 0;
         while (len < 35 && psi_text[len] != 0x00) len++;
@@ -1570,7 +1589,7 @@ void check_text_word_wrap(ScriptReader *reader) {
      *           if text_x == 0, pos = VWF_X & 7 */
     uint16_t current_pos;
     if (w->text_x > 0)
-        current_pos = (uint16_t)((w->text_x - 1) * 8 + (vwf_x & 7));
+        current_pos = (uint16_t)((w->text_x - 1) * 8 + (vwf_x & 7) + (vwf_next_tile_unclaimed() ? 8 : 0));
     else
         current_pos = vwf_x & 7;
     uint16_t total = current_pos + accumulated_width;

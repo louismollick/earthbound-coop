@@ -314,7 +314,7 @@ static struct {
 } tt_pos[MAX_WINDOWS];
 
 /* Transcript: the line currently being printed, echoed as TEXT when done */
-static char said_line[160];
+static char said_line[480]; /* up to 3 bytes a letter (put_letter) */
 static int said_len;
 static int said_slot = -1, said_y = -1, said_last_x;
 static uint8_t said_window_id;
@@ -322,6 +322,23 @@ static unsigned text_chars_printed;
 #define UNTIL_SAID_KEEP 512
 static char until_said[2048];
 static int until_said_len;
+
+/* Write a captured letter (eb_char_to_ascii's char) to `out` (room for 3):
+ * itself in English. In Japanese, space, digits and A-Z as ASCII and any
+ * other code as U+E000 + code in UTF-8, which pt.py turns into the letter
+ * through the Japanese text table (src/assets/ja/text_table.json). */
+static int put_letter(char *out, char c) {
+    if (!locale_is_ja())
+        return out[0] = c, 1;
+    uint8_t eb = ascii_to_eb_char(c);
+    if (eb == ' ' || (eb >= '0' && eb <= '9') || (eb >= 'A' && eb <= 'Z'))
+        return out[0] = (char)eb, 1;
+    unsigned cp = 0xE000u + eb;
+    out[0] = (char)(0xE0 | (cp >> 12));
+    out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    out[2] = (char)(0x80 | (cp & 0x3F));
+    return 3;
+}
 
 static int window_slot(uint16_t window_id) {
     for (int i = 0; i < MAX_WINDOWS; i++)
@@ -419,8 +436,8 @@ static void text_trace(int event, uint16_t window_id, uint8_t eb_char) {
         said_line[said_len++] = ' ';
         said_line[said_len++] = ' ';
     }
-    if (said_len < (int)sizeof(said_line) - 1)
-        said_line[said_len++] = c;
+    if (said_len < (int)sizeof(said_line) - 3)
+        said_len += put_letter(&said_line[said_len], c);
     said_slot = slot;
     said_y = y;
     said_window_id = (uint8_t)window_id;
@@ -460,17 +477,30 @@ static bool glyph_visible(const WindowInfo *w, int y, int x) {
 static void line_text(const WindowInfo *w, int y, const TextLine *ln, char *out, size_t cap) {
     size_t n = 0;
     int prev_x = -1;
-    for (int i = 0; i < ln->n && n + 3 < cap; i++) {
+    for (int i = 0; i < ln->n && n + 6 < cap; i++) {
         if (!glyph_visible(w, y, ln->g[i].x))
             continue;
         if (prev_x >= 0 && ln->g[i].x > prev_x + 14)
             out[n++] = ' ', out[n++] = ' ';
-        out[n++] = ln->g[i].c;
+        n += (size_t)put_letter(&out[n], ln->g[i].c);
         prev_x = ln->g[i].x;
     }
     while (n > 0 && out[n - 1] == ' ')
         n--;
     out[n] = '\0';
+}
+
+/* A menu label or window title (eb_char_to_ascii chars) as output text
+ * (put_letter); two static buffers, so two can be used in one printf. */
+static const char *letters_text(const char *s) {
+    static char bufs[2][3 * 64 + 1];
+    static int which;
+    char *out = bufs[which ^= 1];
+    size_t n = 0;
+    for (; *s && n + 3 < sizeof(bufs[0]); s++)
+        n += (size_t)put_letter(&out[n], *s);
+    out[n] = '\0';
+    return out;
 }
 
 static void print_windows(void) {
@@ -487,18 +517,18 @@ static void print_windows(void) {
             if (!buf[0])
                 continue;
             printf("WIN w%u%s%s%s%s| %s\n", w->id, w->id == win.current_focus_window ? "*" : "",
-                   w->title[0] ? " [" : "", w->title, w->title[0] ? "]" : "", buf);
+                   w->title[0] ? " [" : "", letters_text(w->title), w->title[0] ? "]" : "", buf);
             any = true;
         }
         if (!any && w->title[0])
-            printf("WIN w%u| [%s]\n", w->id, w->title);
+            printf("WIN w%u| [%s]\n", w->id, letters_text(w->title));
     }
     /* The focused menu (if a menu is being driven) */
     WindowInfo *f = win.current_focus_window != WINDOW_ID_NONE ? get_window(win.current_focus_window) : NULL;
     if (f && f->menu_count > 0) {
         printf("MENU w%u|", f->id);
         for (int i = 0; i < f->menu_count && i < 24; i++)
-            printf(" %s%s%s", i == f->current_option ? ">[" : "[", window_menu_item(f, i)->label, "]");
+            printf(" %s%s%s", i == f->current_option ? ">[" : "[", letters_text(window_menu_item(f, i)->label), "]");
         printf("\n");
     }
     fflush(stdout);
@@ -566,8 +596,10 @@ static bool waiting_for_input(void) {
 }
 
 static void print_eb(const uint8_t *s, int max) {
-    for (int i = 0; i < max && s[i]; i++)
-        putchar(eb_char_to_ascii(s[i]));
+    for (int i = 0; i < max && s[i]; i++) {
+        char buf[3] = {0};
+        fwrite(buf, 1, (size_t)put_letter(buf, eb_char_to_ascii(s[i])), stdout);
+    }
 }
 
 /* Affliction names by group (0-based) and value; NULL = print the number */

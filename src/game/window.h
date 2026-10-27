@@ -16,8 +16,9 @@
 /* Per-window content tilemap max size.
  * Each entry is a 16-bit SNES tilemap word (tile index + attributes).
  * Content area = (width-2) columns × (height-2) tile rows.
- * Largest window (0x08 Status) = 28 × 16 = 448 entries. */
-#define WINDOW_TILEMAP_MAX 450
+ * Largest window: the Japanese naming keyboard (0x1C, JPN 30 x 20) = 28 × 18
+ * = 504 entries; in English, 0x08 Status = 28 × 16 = 448. */
+#define WINDOW_TILEMAP_MAX 504
 
 /* Shared tilemap pool size (in uint16_t entries).
  * Empirical high-water mark is 936 entries. 1100 gives ~17% headroom. */
