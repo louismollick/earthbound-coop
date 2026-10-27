@@ -31,6 +31,7 @@ commands; ``do``/``stop``/``history``/``replay``/``video`` work the same on it.
 
 import argparse
 import errno
+import json
 import os
 import re
 import shutil
@@ -257,6 +258,28 @@ def parse_crop(text):
     return w, int(m.group(2) or w)
 
 
+_JA_TABLE: dict[int, str] | None = None
+
+
+def ja_letters(text: str) -> str:
+    """Turn the game's U+E000 + code letters (Japanese window text) into kana.
+
+    The game writes a Mother 2 letter it can't show as ASCII that way; the
+    Japanese text table (src/assets/ja/text_table.json, `ebtools extract-ja`)
+    names it.
+    """
+    global _JA_TABLE
+    if not any("\ue000" <= ch <= "\ue0ff" for ch in text):
+        return text
+    if _JA_TABLE is None:
+        path = HERE.parent / "src" / "assets" / "ja" / "text_table.json"
+        _JA_TABLE = {int(k, 16): v for k, v in json.loads(path.read_text()).items()} if path.exists() else {}
+    return "".join(
+        _JA_TABLE.get(ord(ch) - 0xE000, f"{{{ord(ch) - 0xE000:02X}}}") if "\ue000" <= ch <= "\ue0ff" else ch
+        for ch in text
+    )
+
+
 def do(name, cmds, shot=True, sheet=False, scale=1, timeout=300.0, quiet=False, crop=None, zoom=1, tag=None):
     d = session_dir(name)
     pid = read_pid(d)
@@ -291,7 +314,7 @@ def do(name, cmds, shot=True, sheet=False, scale=1, timeout=300.0, quiet=False, 
         while True:
             with log.open("rb") as f:
                 f.seek(start)
-                buf = f.read().decode(errors="replace")
+                buf = ja_letters(f.read().decode(errors="replace"))
             if marker in buf:
                 break
             if read_pid(d) is None:
