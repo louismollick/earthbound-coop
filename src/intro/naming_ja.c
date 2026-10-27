@@ -346,7 +346,7 @@ StepResult ja_text_input_step(ModeState *st) {
         return STEP_RESULT_CONTINUE();
     }
 
-    WindowInfo *kw = get_window(WINDOW_FILE_SELECT_NAMING_KB);
+    const WindowInfo *kw = get_window(WINDOW_FILE_SELECT_NAMING_KB);
     WindowInfo *nw = get_window(s->name_display_window_id);
     if (!kw || !nw) {
         close_window(WINDOW_FILE_SELECT_NAMING_KB);
@@ -483,14 +483,17 @@ void ja_naming_confirm_build(void) {
         print_eb_string(game_state.pet_name, (int)sizeof game_state.pet_name);
 
     const uint8_t *text = ja_confirm_text();
+    // cppcheck-suppress knownConditionTrueFalse ; NULL only without the Japanese assets
     if (text && create_window(WINDOW_FILE_SELECT_CONFIRM_FOOD)) {
         print_eb_string(text + JA_CONFIRM_FOOD, 9);
         ja_print_right_aligned(game_state.favourite_food, 6, 6);
     }
+    // cppcheck-suppress knownConditionTrueFalse ; NULL only without the Japanese assets
     if (text && create_window(WINDOW_FILE_SELECT_CONFIRM_THING)) {
         print_eb_string(text + JA_CONFIRM_THING, 11);
         ja_print_right_aligned(game_state.favourite_thing + 2, 6, 7);
     }
+    // cppcheck-suppress knownConditionTrueFalse ; NULL only without the Japanese assets
     if (text && create_window(WINDOW_FILE_SELECT_CONFIRM_MSG)) {
         print_eb_string(text + JA_CONFIRM_SURE, 12);
         /* はい / いいえ at text_x 13 / 17 */
@@ -581,6 +584,7 @@ StepResult ja_enter_name_step(ModeState *st) {
 
     s->result = (uint16_t)mode_child_result();
     const uint8_t *pairs = ja_transliteration_pairs();
+    // cppcheck-suppress knownConditionTrueFalse ; NULL only without the Japanese assets
     if (s->param == 0 && pairs) {
         /* PROCESS_NAME_INPUT_STRING into TEMPORARY_TEXT_BUFFER, then MEMCPY16 of
          * sizeof mother2_playername */
