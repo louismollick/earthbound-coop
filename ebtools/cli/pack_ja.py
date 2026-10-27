@@ -113,7 +113,7 @@ def pack_ja(
         packed = output_dir / rel
         return packed.read_bytes() if packed.exists() else (bin_dir / rel).read_bytes()
 
-    interface = pack_interface(ja_dir, us_table, reverse_table)
+    interface = pack_interface(ja_dir, us_table, reverse_table, us_label_addrs)
     for rel, data in interface.items():
         _write(out / rel, data)
 

@@ -128,7 +128,15 @@ def extract_ja(
 
     if not config.romSymbols:
         raise SystemExit(f"error: {ja_config} has no romSymbols (run `ebtools ja-offsets`)")
-    names = extract_name_tables(rom, config.romSymbols, table)
+    jp_addr_label = _addr_to_label(m2_doc)
+
+    def us_label_of(jp_addr: int) -> str | None:
+        label = jp_addr_label.get(jp_addr)
+        if label is None:
+            return None
+        return jp2us.get(label, label if label in us_msgs else None)
+
+    names = extract_name_tables(rom, config.romSymbols, table, us_label_of)
     ui = extract_ui_texts(rom, config.romSymbols, table)
     write_interface_json(out_dir, names, ui)
 

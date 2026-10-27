@@ -18,6 +18,7 @@ from a Mother 2 linker map by ``ebtools ja-offsets``) and the layouts below.
 
 import json
 import re
+import struct
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,18 +46,39 @@ class NameField:
 
 
 @dataclass(frozen=True)
+class TextField:
+    """``count`` text pointers (u32 SNES addresses of dialogue labels).
+
+    US at ``us_off + i * us_stride``, Mother 2 at ``symbol + m2_off + i *
+    m2_stride``. Japanese takes the message Mother 2 points to, by its US
+    label (the dialogue's Japanese text for it): the US gave many enemies
+    encounter messages Mother 2 lacks, which print nothing in Japanese.
+    """
+
+    key: str
+    count: int
+    us_off: int
+    us_stride: int
+    symbol: str
+    m2_off: int
+    m2_stride: int
+
+
+@dataclass(frozen=True)
 class NameTable:
     """A US table with names.
 
     ``us_path`` is its pack output (or extracted binary) path; ``clear`` lists
     bytes zeroed in Japanese as ``(offset, stride, count)`` (enemy_data::the_flag,
-    which only drives English articles).
+    which only drives English articles); ``texts`` are text pointers Japanese
+    takes from Mother 2.
     """
 
     name: str
     us_path: str
     fields: tuple[NameField, ...]
     clear: tuple[tuple[int, int, int], ...] = ()
+    texts: tuple[TextField, ...] = ()
 
 
 def _one(key: str, us_len: int, symbol: str, m2_len: int, us_off: int = 0, count: int = 1) -> NameField:
@@ -79,6 +101,11 @@ NAME_TABLES: tuple[NameTable, ...] = (
         "data/enemy_configuration_table.bin",
         (NameField("names", 231, 1, 94, 25, "ENEMY_CONFIGURATION_TABLE", 0, 77, 10),),
         clear=((0, 94, 231),),
+        # encounter_text_ptr, death_text_ptr: US offsets 45, 49; Mother 2 17 lower
+        texts=(
+            TextField("encounter_texts", 231, 45, 94, "ENEMY_CONFIGURATION_TABLE", 28, 77),
+            TextField("death_texts", 231, 49, 94, "ENEMY_CONFIGURATION_TABLE", 32, 77),
+        ),
     ),
     NameTable("psi_names", "data/psi_name_table.bin", (_one("names", 25, "PSI_NAME_TABLE", 10, count=17),)),
     NameTable("psi_suffixes", "data/psi_suffixes.bin", (_one("suffixes", 2, "PSI_SUFFIXES", 2, count=5),)),
@@ -301,10 +328,16 @@ def _symbol_bytes(rom: bytes, symbols: dict[str, tuple[int, int]], name: str, of
     return rom[base + off : base + off + length]
 
 
-def extract_name_tables(rom: bytes, symbols: dict[str, tuple[int, int]], table: dict[int, str]) -> dict[str, dict]:
+def extract_name_tables(
+    rom: bytes,
+    symbols: dict[str, tuple[int, int]],
+    table: dict[int, str],
+    us_label_of: Callable[[int], str | None],
+) -> dict[str, dict]:
     """Return ``{table name: {field key: names}}`` for NAME_TABLES and the status window.
 
-    A field of one string holds the string, others a list.
+    A field of one string holds the string, others a list. A text field holds
+    US labels: ``us_label_of(Mother 2 address)``, or None to keep the US pointer.
     """
     out: dict[str, dict] = {}
     for t in NAME_TABLES:
@@ -319,6 +352,13 @@ def extract_name_tables(rom: bytes, symbols: dict[str, tuple[int, int]], table: 
                 for i in range(f.count)
             ]
             fields[f.key] = names[0] if f.count == 1 else names
+        for tf in t.texts:
+            fields[tf.key] = [
+                us_label_of(
+                    struct.unpack("<I", _symbol_bytes(rom, symbols, tf.symbol, tf.m2_off + i * tf.m2_stride, 4))[0]
+                )
+                for i in range(tf.count)
+            ]
         out[t.name] = fields
     out[STATUS_WINDOW_TABLE] = {"labels": _status_window_labels(rom, symbols, table)}
     return out
@@ -373,10 +413,18 @@ def _encode(text: str, reverse: dict[str, int], size: int, where: str) -> bytes:
     return data + bytes(size - len(data))
 
 
-def pack_name_table(t: NameTable, us: bytes, fields: dict[str, str | list[str]], reverse: dict[str, int]) -> bytes:
+def pack_name_table(
+    t: NameTable,
+    us: bytes,
+    fields: dict,
+    reverse: dict[str, int],
+    label_addrs: dict[str, int] | None = None,
+) -> bytes:
     """Return the US table ``us`` with the Japanese names.
 
-    Its ``clear`` bytes are zeroed; it grows if a field ends past it.
+    Its ``clear`` bytes are zeroed; it grows if a field ends past it. Text
+    fields write ``label_addrs[label]`` (the US dialogue address, which the
+    Japanese text resolves through xlat); a null label keeps the US pointer.
     """
     end = max([len(us)] + [f.us_off + (f.count - 1) * f.us_stride + f.us_len for f in t.fields])
     out = bytearray(us) + bytes(end - len(us))
@@ -390,6 +438,16 @@ def pack_name_table(t: NameTable, us: bytes, fields: dict[str, str | list[str]],
     for off, stride, count in t.clear:
         for i in range(count):
             out[off + i * stride] = 0
+    for tf in t.texts:
+        labels = fields[tf.key]
+        if len(labels) != tf.count:
+            raise ValueError(f"ja/names/{t.name}.json {tf.key}: {len(labels)} entries, expected {tf.count}")
+        for i, label in enumerate(labels):
+            if label is None:
+                continue
+            if label_addrs is None or label not in label_addrs:
+                raise ValueError(f"ja/names/{t.name}.json {tf.key}[{i}]: no US label {label}")
+            struct.pack_into("<I", out, tf.us_off + i * tf.us_stride, label_addrs[label])
     return bytes(out)
 
 
@@ -415,17 +473,23 @@ def pack_ui_texts(ui: dict[str, str], reverse: dict[str, int]) -> bytes:
     return b"".join(_encode(ui[name], reverse, UI_TEXT_SIZE - 1, name) + b"\0" for name, _, _, _ in UI_TEXTS)
 
 
-def pack_interface(ja_dir: Path, us_table: Callable[[str], bytes], reverse: dict[str, int]) -> dict[str, bytes]:
+def pack_interface(
+    ja_dir: Path,
+    us_table: Callable[[str], bytes],
+    reverse: dict[str, int],
+    label_addrs: dict[str, int],
+) -> dict[str, bytes]:
     """Every interface table: ``{packed path under JA/: bytes}``.
 
-    ``us_table(path)`` returns the US table at ``path`` (packed or extracted).
+    ``us_table(path)`` returns the US table at ``path`` (packed or extracted);
+    ``label_addrs`` maps a US dialogue label to its packed US address.
     """
     out: dict[str, bytes] = {}
     names_dir = ja_dir / "names"
     for t in NAME_TABLES:
         fields = json.loads((names_dir / f"{t.name}.json").read_text())
         path = t.us_path.removeprefix("US/")
-        out[path] = pack_name_table(t, us_table(t.us_path), fields, reverse)
+        out[path] = pack_name_table(t, us_table(t.us_path), fields, reverse, label_addrs)
     labels = json.loads((names_dir / f"{STATUS_WINDOW_TABLE}.json").read_text())["labels"]
     out[STATUS_WINDOW_US_PATH] = pack_status_window(us_table(STATUS_WINDOW_US_PATH), labels, reverse)
     ui = json.loads((ja_dir / "ui_strings.json").read_text())
