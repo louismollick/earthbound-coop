@@ -1,6 +1,7 @@
 #include "intro/file_select.h"
 #include "game/window.h"
 #include "game/text.h"
+#include "game/ui_text.h"
 #include "game/game_state.h"
 #include "game/display_text.h"
 #include "game/audio.h"
@@ -219,8 +220,8 @@ static void fm_add_slot_items(void) {
             snprintf(slot_labels[slot], sizeof(slot_labels[slot]), "%d:", slot + 1);
             save_files_present[slot] = SAVE_FILE_LOCKED;
         } else {
-            snprintf(slot_labels[slot], sizeof(slot_labels[slot]),
-                     "%d: Start New Game", slot + 1);
+            snprintf(slot_labels[slot], sizeof(slot_labels[slot]), "%d%s",
+                     slot + 1, ui_text(UI_FILE_START_NEW_GAME, ": Start New Game"));
             save_files_present[slot] = 0;
         }
         add_menu_item(slot_labels[slot], (uint16_t)(slot + 1), 0, (uint16_t)slot);
@@ -230,9 +231,13 @@ static void fm_add_slot_items(void) {
 /* Pass 2: per-slot details for occupied slots, after OPEN_WINDOW_AND_PRINT_MENU.
  * Assembly (file_select_menu.asm:115-214) prints Level and Text Speed info at
  * specific cursor positions. A locked slot shows only the other Language's
- * name, in this Language: "Japanese", or えいご ("English") in Japanese. */
+ * name, in this Language: "Japanese", or えいご ("English") in Japanese.
+ * Japanese prints Mother 2's strings where Mother 2 puts them in its one-line
+ * label (file_select_menu-jp.asm: " レベル:" right after the name, the level,
+ * " ひょうじ:", the speed), one column right for the US 5-letter name. */
 static void fm_print_slot_details(void) {
     static const char *speed_names[] EB_NORELOC = {"Fast", "Medium", "Slow"};
+    bool ja = locale_is_ja();
     for (int slot = 0; slot < SAVE_COUNT; slot++) {
         if (save_files_present[slot] == SAVE_FILE_LOCKED) {
             set_focus_text_cursor(3, (uint16_t)slot);
@@ -249,20 +254,21 @@ static void fm_print_slot_details(void) {
         load_game(slot);
 
         /* "Level:" at cursor (9, slot) */
-        set_focus_text_cursor(9, (uint16_t)slot);
-        print_string("Level:");
+        set_focus_text_cursor(ja ? 8 : 9, (uint16_t)slot);
+        print_string(ui_text(UI_FILE_LEVEL, "Level:"));
 
         /* Level number at cursor (13, slot) */
         set_focus_text_cursor(13, (uint16_t)slot);
         print_number(party_characters[0].level, 2);
 
         /* "Text Speed: Fast/Medium/Slow" at cursor (16, slot) */
-        set_focus_text_cursor(16, (uint16_t)slot);
+        set_focus_text_cursor(ja ? 15 : 16, (uint16_t)slot);
         int speed_idx = game_state.text_speed - 1;
         if (speed_idx < 0 || speed_idx > 2) speed_idx = 0;
-        char speed_buf[32];
-        snprintf(speed_buf, sizeof(speed_buf), "Text Speed: %s",
-                 speed_names[speed_idx]);
+        char speed_buf[2 * UI_TEXT_SIZE];
+        snprintf(speed_buf, sizeof(speed_buf), ja ? "%s%s" : "%s %s",
+                 ui_text(UI_FILE_TEXT_SPEED, "Text Speed:"),
+                 ui_text((UiText)(UI_FILE_SPEED_FAST + speed_idx), speed_names[speed_idx]));
         print_string(speed_buf);
     }
 }
@@ -307,19 +313,19 @@ static int fm_submenu_build(void) {
     if (!w) return 0;
 
     /* Horizontal layout matching assembly (C1F07E): all at text_y=0 */
-    add_menu_item("Continue", 1, 0, 0);
+    add_menu_item(ui_text(UI_FILE_CONTINUE, "Continue"), 1, 0, 0);
 
     /* Copy is only shown if an empty slot exists to copy to (assembly condition:
        slot != current_save_slot AND SAVE_FILES_PRESENT[slot] == 0) */
     for (int i = 0; i < SAVE_COUNT; i++) {
         if (i != (current_save_slot - 1) && !save_files_present[i]) {
-            add_menu_item("Copy", 2, 6, 0);
+            add_menu_item(ui_text(UI_FILE_COPY, "Copy"), 2, 6, 0);
             break;
         }
     }
 
-    add_menu_item("Delete", 3, 10, 0);
-    add_menu_item("Set Up", 4, 15, 0);
+    add_menu_item(ui_text(UI_FILE_DELETE, "Delete"), 3, 10, 0);
+    add_menu_item(ui_text(UI_FILE_SET_UP, "Set Up"), 4, 15, 0);
 
     /* Assembly (show_file_select_menu.asm:58-62): PRINT_MENU_ITEMS, then (US
      * only) ENABLE_WORD_WRAP = $FF, then SELECTION_MENU directly — no
@@ -345,7 +351,7 @@ static void fm_copy_dialog_build(void) {
      * window; anything else uses the two-choice window. */
     create_window(empty == 1 ? WINDOW_FILE_SELECT_COPY_1 : WINDOW_FILE_SELECT_COPY_2);
     set_instant_printing();
-    print_string("Copy to where?");   /* FILE_SELECT_TEXT_COPY_TO_WHERE, 14 chars */
+    print_string(ui_text(UI_FILE_COPY_TO_WHERE, "Copy to where?"));   /* 14 chars */
 
     /* One-file case: the single item sits at row 1. Two-file case: items fill
      * rows 1, 2, ... (@VIRTUAL04 starts at 1). Both at text_x 0. */
@@ -390,10 +396,10 @@ static void text_speed_menu_display_only(uint8_t selected_speed) {
     if (!w) return;
     w->menu_count = 0;
     set_focus_text_cursor(0, 0);
-    print_string("Please select text speed.");
-    add_menu_item("Fast", 1, 0, 1);
-    add_menu_item("Medium", 2, 0, 2);
-    add_menu_item("Slow", 3, 0, 3);
+    print_string(ui_text(UI_FILE_SELECT_TEXT_SPEED, "Please select text speed."));
+    add_menu_item(ui_text(UI_FILE_SPEED_FAST, "Fast"), 1, 0, 1);
+    add_menu_item(ui_text(UI_FILE_SPEED_MEDIUM, "Medium"), 2, 0, 2);
+    add_menu_item(ui_text(UI_FILE_SPEED_SLOW, "Slow"), 3, 0, 3);
     print_menu_items();
 
     /* Assembly (file_select_text_speed_menu.asm:49-68): highlight with palette 6 */
@@ -406,9 +412,9 @@ static void sound_mode_menu_display_only(uint8_t selected_sound) {
     if (!w) return;
     w->menu_count = 0;
     set_focus_text_cursor(0, 0);
-    print_string("Please select sound setting.");
-    add_menu_item("Stereo", 1, 0, 1);
-    add_menu_item("Mono", 2, 0, 2);
+    print_string(ui_text(UI_FILE_SELECT_SOUND, "Please select sound setting."));
+    add_menu_item(ui_text(UI_FILE_SOUND_STEREO, "Stereo"), 1, 0, 1);
+    add_menu_item(ui_text(UI_FILE_SOUND_MONO, "Mono"), 2, 0, 2);
     print_menu_items();
 
     /* Assembly (file_select_sound_mode_menu.asm:50-69): highlight with palette 6.
@@ -428,11 +434,11 @@ static int fm_textspeed_build(void) {
     w->menu_count = 0; /* Reset for re-entry (back-navigation) */
 
     set_focus_text_cursor(0, 0);
-    print_string("Please select text speed.");
+    print_string(ui_text(UI_FILE_SELECT_TEXT_SPEED, "Please select text speed."));
 
-    add_menu_item("Fast", 1, 0, 1);
-    add_menu_item("Medium", 2, 0, 2);
-    add_menu_item("Slow", 3, 0, 3);
+    add_menu_item(ui_text(UI_FILE_SPEED_FAST, "Fast"), 1, 0, 1);
+    add_menu_item(ui_text(UI_FILE_SPEED_MEDIUM, "Medium"), 2, 0, 2);
+    add_menu_item(ui_text(UI_FILE_SPEED_SLOW, "Slow"), 3, 0, 3);
 
     print_menu_items();
     /* Assembly (file_select_text_speed_menu.asm:75) clears ENABLE_WORD_WRAP
@@ -468,10 +474,10 @@ static int fm_sound_build(void) {
     w->menu_count = 0; /* Reset for re-entry (back-navigation) */
 
     set_focus_text_cursor(0, 0);
-    print_string("Please select sound setting.");
+    print_string(ui_text(UI_FILE_SELECT_SOUND, "Please select sound setting."));
 
-    add_menu_item("Stereo", 1, 0, 1);
-    add_menu_item("Mono", 2, 0, 2);
+    add_menu_item(ui_text(UI_FILE_SOUND_STEREO, "Stereo"), 1, 0, 1);
+    add_menu_item(ui_text(UI_FILE_SOUND_MONO, "Mono"), 2, 0, 2);
 
     print_menu_items();
     return -1;
@@ -518,13 +524,13 @@ static int fm_flavour_build(void) {
     w->menu_count = 0; /* Reset for re-entry (back-navigation) */
 
     set_focus_text_cursor(0, 0);
-    print_string("Which style of windows do you prefer?");
+    print_string(ui_text(UI_FILE_WHICH_STYLE, "Which style of windows do you prefer?"));
 
-    add_menu_item("Plain flavor", 1, 0, 2);
-    add_menu_item("Mint flavor", 2, 0, 3);
-    add_menu_item("Strawberry flavor", 3, 0, 4);
-    add_menu_item("Banana flavor", 4, 0, 5);
-    add_menu_item("Peanut flavor", 5, 0, 6);
+    add_menu_item(ui_text(UI_FILE_FLAVOR_PLAIN, "Plain flavor"), 1, 0, 2);
+    add_menu_item(ui_text(UI_FILE_FLAVOR_MINT, "Mint flavor"), 2, 0, 3);
+    add_menu_item(ui_text(UI_FILE_FLAVOR_STRAWBERRY, "Strawberry flavor"), 3, 0, 4);
+    add_menu_item(ui_text(UI_FILE_FLAVOR_BANANA, "Banana flavor"), 4, 0, 5);
+    add_menu_item(ui_text(UI_FILE_FLAVOR_PEANUT, "Peanut flavor"), 5, 0, 6);
 
     /* Set cursor move callback to preview palette (asm: SET_CURSOR_MOVE_CALLBACK).
      * Set the serializable id alongside the ptr (savestate hardening, D0a). */
@@ -1579,23 +1585,23 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             /* Favorite food — label on row 0, right-justified value on row 1 */
             create_window(WINDOW_FILE_SELECT_CONFIRM_FOOD);
             set_focus_text_cursor(0, 0);
-            print_string("Favorite food:");
+            print_string(ui_text(UI_FILE_FAVORITE_FOOD, "Favorite food:"));
             print_right_justified_name(game_state.favourite_food, 6, WINDOW_FILE_SELECT_CONFIRM_FOOD);
 
             /* Favorite thing — same layout as food */
             create_window(WINDOW_FILE_SELECT_CONFIRM_THING);
             set_focus_text_cursor(0, 0);
-            print_string("Coolest thing:");
+            print_string(ui_text(UI_FILE_COOLEST_THING, "Coolest thing:"));
             print_right_justified_name(game_state.favourite_thing + 4, 6, WINDOW_FILE_SELECT_CONFIRM_THING);
 
             /* Are you sure? */
             WindowInfo *mw = create_window(WINDOW_FILE_SELECT_CONFIRM_MSG);
             if (mw) {
                 set_focus_text_cursor(0, 0);
-                print_string("Are you sure?");
+                print_string(ui_text(UI_FILE_ARE_YOU_SURE, "Are you sure?"));
                 /* Horizontal layout: Yep at text_x=14, Nope at text_x=18. */
-                add_menu_item("Yep", 1, 14, 0);
-                add_menu_item("Nope", 0, 18, 0);
+                add_menu_item(ui_text(UI_FILE_YEP, "Yep"), 1, 14, 0);
+                add_menu_item(ui_text(UI_FILE_NOPE, "Nope"), 0, 18, 0);
             }
 
             /* PRINT_MENU_ITEMS then CREATE_FILE_SELECT_PARTY_SPRITES — no
@@ -1902,27 +1908,41 @@ StepResult mode_step_file_menu(ModeState *ms) {
                 if (dw) {
                     set_instant_printing();
                     set_window_number_padding(0);
-                    set_focus_text_cursor(0, 0);
-                    print_string("Are you sure you want to delete?");  /* 32 chars */
+                    if (locale_is_ja()) {
+                        /* confirm_file_delete-jp.asm: "N: <name> レベル:NN" on
+                         * row 0, then "を けします。いいですか?" on row 1 */
+                        print_number(current_save_slot, 0);
+                        print_string(": ");
+                        print_eb_string(party_characters[0].name,
+                                        (int)sizeof(party_characters[0].name));
+                        print_string(ui_text(UI_FILE_LEVEL, ""));
+                        set_window_number_padding(1);
+                        print_number(party_characters[0].level, 0);
+                        set_focus_text_cursor(0, 1);
+                        print_string(ui_text(UI_FILE_DELETE_CONFIRM, ""));
+                    } else {
+                        set_focus_text_cursor(0, 0);
+                        print_string("Are you sure you want to delete?");  /* 32 chars */
 
-                    set_text_pixel_position(1, 0);
-                    set_focus_text_cursor(0, 1);
-                    print_number(current_save_slot, 0);
-                    print_string(":");                 /* PRINT_LETTER CHAR::COLON */
+                        set_text_pixel_position(1, 0);
+                        set_focus_text_cursor(0, 1);
+                        print_number(current_save_slot, 0);
+                        print_string(":");                 /* PRINT_LETTER CHAR::COLON */
 
-                    /* PRINT_CHARACTER_NAME(1): party member 1's name */
-                    set_focus_text_cursor(2, 1);
-                    print_eb_string(party_characters[0].name,
-                                    (int)sizeof(party_characters[0].name));
+                        /* PRINT_CHARACTER_NAME(1): party member 1's name */
+                        set_focus_text_cursor(2, 1);
+                        print_eb_string(party_characters[0].name,
+                                        (int)sizeof(party_characters[0].name));
 
-                    set_focus_text_cursor(8, 1);
-                    print_string("Level:");            /* FILE_SELECT_TEXT_LEVEL, 6 chars */
+                        set_focus_text_cursor(8, 1);
+                        print_string("Level:");            /* FILE_SELECT_TEXT_LEVEL, 6 chars */
 
-                    set_focus_text_cursor(12, 1);
-                    print_number(party_characters[0].level, 0);
+                        set_focus_text_cursor(12, 1);
+                        print_number(party_characters[0].level, 0);
+                    }
 
-                    add_menu_item("No", 0, 0, 2);
-                    add_menu_item("Yes", 1, 0, 3);
+                    add_menu_item(ui_text(UI_FILE_DELETE_NO, "No"), 0, 0, 2);
+                    add_menu_item(ui_text(UI_FILE_DELETE_YES, "Yes"), 1, 0, 3);
                 }
                 print_menu_items();
                 return fm_push_selection(st, FM_DELETE_RESULT, 1);

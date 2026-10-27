@@ -8,6 +8,8 @@ Called by ``pack-all`` after the US packers.  Writes ``<output>/JA/``:
   ``us_addr``: every US dialogue label address and US inline string offset to
   its Japanese address.
 - ``fonts/main.gfx`` / ``fonts/main.bin``: the 224 Mother 2 glyphs.
+- The interface (``ebtools.ja_interface``): every US name table with the
+  Mother 2 names, at the US table's path, and ``text/ui_strings.bin``.
 
 Without ``<assets>/ja/`` it removes a stale ``<output>/JA/`` and writes nothing.
 """
@@ -36,6 +38,7 @@ def pack_ja(
     common_data: CommonData,
     us_label_addrs: dict[str, int],
     us_inline: StringTableBuilder,
+    bin_dir: Path,
 ) -> int:
     """Pack ``<assets_dir>/ja/`` to ``<output_dir>/JA/``; return the asset groups packed.
 
@@ -45,6 +48,8 @@ def pack_ja(
         US dialogue label -> address, as ``_pack_dialogue`` assigned them.
     us_inline
         The US inline string table, fully built (its offsets are final).
+    bin_dir
+        The US extracted binaries (the US tables pack-all doesn't pack).
     """
     from ebtools.cli.pack_all import _compile_dialogue
     from ebtools.parsers.font import pack_font
@@ -57,6 +62,10 @@ def pack_ja(
     if out.exists():
         shutil.rmtree(out)
     if not ja_dir.is_dir():
+        return 0
+    if not us_label_addrs:
+        # No US dialogue packed (nothing for xlat or the tables' text pointers)
+        print("Warning: skipping the Japanese Locale, no US dialogue was packed", file=sys.stderr)
         return 0
 
     reverse_table = {char: code for code, char in read_text_table(ja_dir / JA_TEXT_TABLE_FILE).items()}
@@ -120,13 +129,23 @@ def pack_ja(
     _write(out / "fonts" / "main.gfx", gfx)
     _write(out / "fonts" / "main.bin", widths)
 
+    from ebtools.ja_interface import pack_interface
+
+    def us_table(rel: str) -> bytes:
+        packed = output_dir / rel
+        return packed.read_bytes() if packed.exists() else (bin_dir / rel).read_bytes()
+
+    interface = pack_interface(ja_dir, us_table, reverse_table, us_label_addrs)
+    for rel, data in interface.items():
+        _write(out / rel, data)
+
     print(
         f"  Packed Japanese Locale: dialogue {len(blob)} bytes, inline strings {len(inline_blob)} bytes, "
-        f"xlat {len(xlat)} entries, font {len(widths)} glyphs"
+        f"xlat {len(xlat)} entries, font {len(widths)} glyphs, {len(interface)} interface tables"
     )
     if stale:
         print(f"  Warning: {stale} US inline strings missing from ja/inline_strings.json print nothing")
-    return 4
+    return 4 + len(interface)
 
 
 def _write(path: Path, data: bytes) -> None:

@@ -137,12 +137,15 @@ void clear_window_text(uint16_t window_id);
 enum { TEXT_TRACE_CHAR, TEXT_TRACE_SCROLL, TEXT_TRACE_CLEAR, TEXT_TRACE_CLOSE };
 extern void (*text_trace_hook)(int event, uint16_t window_id, uint8_t eb_char);
 
-/* Convert a text byte of the running Locale's encoding to ASCII ('?' for a
- * letter ASCII lacks, such as kana). */
+/* Convert a text byte of the running Locale's encoding to the char the C
+ * strings (menu labels, print_string) carry. English: ASCII ('?' for a code
+ * ASCII lacks). Japanese: a lossless byte for byte mapping, ascii_to_eb_char's
+ * inverse, where only space, digits, A-Z, ':' and '$' read as ASCII (text.c). */
 char eb_char_to_ascii(uint8_t eb_char);
 
-/* Convert ASCII to the running Locale's encoding. Japanese has no lowercase
- * (folded to uppercase) and fewer punctuation marks (the rest become spaces). */
+/* Convert a C string char to the running Locale's encoding (the inverse of
+ * eb_char_to_ascii in Japanese, so ASCII text other than space, digits, A-Z,
+ * ':' and '$' doesn't print as Japanese). */
 uint8_t ascii_to_eb_char(char ascii);
 
 /* ascii_to_eb_char's US table, whatever the Locale: for the fonts that stay US
@@ -213,6 +216,12 @@ void vwf_render_character(uint8_t eb_char, uint8_t font_id);
  * Called after each vwf_render_character(). Allocates VRAM tiles for new
  * VWF tile columns, uploads tile data, writes to per-window content_tilemap. */
 void vwf_flush_tiles_to_vram(void);
+
+/* Japanese: whether the next letter has no tile yet, so it goes at the focus
+ * window's text_x, not text_x - 1 as the line-fit tests (from the asm) assume:
+ * Japanese doesn't claim the empty tile after a letter that ends on a tile
+ * edge (vwf_flush_tiles_to_vram). Always false in English. */
+bool vwf_next_tile_unclaimed(void);
 
 /* ADVANCE_VWF_TILE: Port of asm/text/vwf/advance_vwf_tile.asm.
  * Advances VWF state to the next tile boundary.  Clears

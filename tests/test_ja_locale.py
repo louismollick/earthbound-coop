@@ -137,13 +137,20 @@ def test_same_labels_files_and_order():
 
 @needs_ja
 def test_logic_invariant():
-    """With presentation ops stripped, every Japanese message is its US message."""
+    """With presentation ops stripped, every Japanese message is its US message.
+
+    Except ja_locale.yml's motherLogic labels, unused US copies of Mother 2's
+    messages that the Japanese interface runs with Mother 2's logic.
+    """
+    from ebtools.ja_locale import load_ja_locale
+
+    mother_logic = set(load_ja_locale(ROOT / "ja_locale.yml").motherLogic)
     us, ja = _dialogue()
     bad = [
         label
         for name in us
         for (label, us_ops), (_, ja_ops) in zip(us[name], ja[name])
-        if strip_presentation(us_ops) != strip_presentation(ja_ops)
+        if label not in mother_logic and strip_presentation(us_ops) != strip_presentation(ja_ops)
     ]
     assert not bad, bad[:10]
 
@@ -158,10 +165,10 @@ def _packed() -> tuple[Path, dict]:
     seen: dict = {}
     real = pack_ja_mod.pack_ja
 
-    def spy(assets_dir, output_dir, common_data, us_label_addrs, us_inline):
+    def spy(assets_dir, output_dir, common_data, us_label_addrs, us_inline, bin_dir):
         seen["labels"] = dict(us_label_addrs)
         seen["inline"] = us_inline.entries()
-        return real(assets_dir, output_dir, common_data, us_label_addrs, us_inline)
+        return real(assets_dir, output_dir, common_data, us_label_addrs, us_inline, bin_dir)
 
     with mock.patch.object(pack_ja_mod, "pack_ja", spy), contextlib.redirect_stdout(io.StringIO()):
         pack_all(
