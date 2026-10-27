@@ -45,9 +45,9 @@ Play the C port in Japanese, with the text, fonts and graphics of the user's Mot
 
 ## J3 Japanese graphics and cinematics
 
-- [ ] Town map labels, the sound stone, attract mode text.
-- [ ] Flyovers, the coffee and tea breaks and Lumine Hall, with the cinematic font's kanji.
-- [ ] Staff credits and cast names.
+- [x] Town map labels, the sound stone, attract mode text.
+- [x] Flyovers, the coffee and tea breaks and Lumine Hall, with the cinematic font's kanji.
+- [x] Staff credits and cast names.
 
 ## J4 Kanji
 
@@ -68,5 +68,8 @@ Play the C port in Japanese, with the text, fonts and graphics of the user's Mot
 - J2: **Mother 2 logic exception**: `ja_locale.yml` `motherLogic` lists US labels whose Japanese message is Mother 2's whole message. Only the Goods Give messages (`MSG_SYS_ITEM_TRANSFER*`), which the US keeps as unused copies; Japanese Give runs Mother 2's flow (`open_menu-jp.asm`) with them.
 - J2: **Japanese layouts**: where Mother 2's text doesn't fit the US positions, the Japanese path uses Mother 2's (status window, file select details, delete confirmation, equip menu and stats, battle target text, PP cost, `PRINT_CURRENCY_VALUE` with its `00` sign, number padding with spaces), and a few windows take Mother 2's size (`ja_window_configs` in `window.c`). The VWF renderer doesn't claim the empty tile after a Japanese letter (they all end on a tile edge), so text can fill a line and print next to other text.
 - J2: **Window titles** (TINY font) and the naming screen are separate work; a title's chars are `eb_char_to_ascii` chars like menu labels.
+- J3: **Graphics and cinematics** (`ebtools/ja_graphics.py`): Mother 2's bytes for an asset go to `src/assets/ja/bin/<US path>` and are packed as they are to `JA/<US path>`. Where the format and meaning match the US asset there is no C change: the town map labels, maps 2 and 4 and icon spritemaps (the pointer table rebased to the US address the C subtracts), the sound stone, the attract mode's gas station ("MOTHER 2 GYIYG STRIKES BACK!") and Nintendo logo, the staff credits font, the map tilesets' graphics and arrangements (their signs). The map chunks stay US (two blocks the US moved; block ids carry collision), and so do the map palettes (same colours, only an embedded pointer moved). The text window graphics stay US but for Mother 2's "YOU WIN!" tiles, patched in by pack-all.
+- J3: **Mother 2 formats behind `locale_is_ja()`**, ported from the JPN asm: the flyovers and the coffee and tea breaks (two-byte glyph codes, the 12x12 cinematic font with its kanji, 18 px lines, `flyover.c`), the "TO BE CONTINUED..." animation (one frame; the US event script plays it), the staff text (the player's name codes as they are, the smaller font), Lumine Hall's wall text (3 + name + 97 codes, 8 px each), the cast names (text codes on Mother 2's text window tiles, redrawn half a tile right when odd, `ending.c`).
+- J3: the title screen stays US ("EarthBound"): Mother 2's is another design (two BG layers, its own letter sprites and event scripts 792-798 with JP-only callroutines), a port of its own. Mother 2's 55 differing overworld sprites stay US (the port loads them from prepacked banks, not checked for words), and battle sprite 62 (five tiles, no words).
 
 ## Blocked
