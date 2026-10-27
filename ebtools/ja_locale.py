@@ -23,6 +23,8 @@ JA_PACKED_SUBDIR = "JA"
 
 # Written by extract-ja next to the dialogue so pack-all needs no Mother 2 config.
 JA_TEXT_TABLE_FILE = "text_table.json"
+# ja_locale.yml motherLogic, copied next to the dialogue for pack-all
+MOTHER_LOGIC_FILE = "mother_logic.json"
 
 # Mother 2 glyph codes 0x20-0xFF, one font glyph each.
 JA_FIRST_GLYPH = 0x20

@@ -33,6 +33,7 @@ from ebtools.ja_locale import (
     JA_FONT_GLYPHS,
     JA_GLYPH_COUNT,
     JA_TEXT_TABLE_FILE,
+    MOTHER_LOGIC_FILE,
     ja_text_table,
     load_ja_locale,
     write_text_table,
@@ -125,6 +126,8 @@ def extract_ja(
             serialize_dialogue_file({label: ja_msgs[label] for label in msgs}), encoding="utf-8"
         )
         written.add(path.name)
+    # pack-all checks every other message still runs its US logic
+    (out_dir / MOTHER_LOGIC_FILE).write_text(json.dumps(sorted(config.motherLogic), indent=1) + "\n", encoding="utf-8")
     for stale in dialogue_out.glob("*.y*ml"):
         if stale.name not in written:
             stale.unlink()

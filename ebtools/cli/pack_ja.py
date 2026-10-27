@@ -29,6 +29,7 @@ from ebtools.ja_locale import (
     JA_INLINE_BASE,
     JA_PACKED_SUBDIR,
     JA_TEXT_TABLE_FILE,
+    MOTHER_LOGIC_FILE,
     read_text_table,
 )
 from ebtools.text_dsl.string_table import StringTableBuilder
@@ -99,12 +100,17 @@ def pack_ja(
     # Every Japanese message must still run its US message's logic: a US edit after
     # `extract-ja` would otherwise give the two Languages different game logic.
     ja_ops = {label: ops for _f, msgs in all_dialogue for label, ops in msgs.items()}
+    # ja_locale.yml motherLogic: messages that take Mother 2's logic on purpose
+    mother_logic_path = ja_dir / MOTHER_LOGIC_FILE
+    mother_logic = (
+        set(json.loads(mother_logic_path.read_text(encoding="utf-8"))) if mother_logic_path.exists() else set()
+    )
     us_dialogue = sorted((assets_dir / "dialogue").glob("*.yaml")) + sorted((assets_dir / "dialogue").glob("*.yml"))
     drifted = [
         label
         for f in us_dialogue
         for label, ops in deserialize_dialogue_file(f.read_text(encoding="utf-8")).items()
-        if strip_presentation(ops) != strip_presentation(ja_ops[label])
+        if label not in mother_logic and strip_presentation(ops) != strip_presentation(ja_ops[label])
     ]
     if drifted:
         print(
