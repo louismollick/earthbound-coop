@@ -23,6 +23,7 @@
  * WINDOW_TICK; the input tick frames follow, the cursor blinking every 9).
  */
 #include "intro/naming_ja.h"
+#include "game/ui_text.h"
 #include "intro/file_select.h"
 #include "intro/file_select_internal.h"
 #include "game/window.h"
@@ -492,10 +493,9 @@ void ja_naming_confirm_build(void) {
     }
     if (text && create_window(WINDOW_FILE_SELECT_CONFIRM_MSG)) {
         print_eb_string(text + JA_CONFIRM_SURE, 12);
-        /* The menu labels are ASCII (MenuItem::label) until the menus take
-         * Mother 2 text; はい / いいえ at text_x 13 / 17. */
-        add_menu_item("Yep", 1, 13, 0);
-        add_menu_item("Nope", 0, 17, 0);
+        /* はい / いいえ at text_x 13 / 17 */
+        add_menu_item(ui_text(UI_FILE_YEP, "Yep"), 1, 13, 0);
+        add_menu_item(ui_text(UI_FILE_NOPE, "Nope"), 0, 17, 0);
     }
     print_menu_items();
 }
