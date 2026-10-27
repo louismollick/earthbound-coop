@@ -9,6 +9,10 @@ description = "EarthBound/Mother 2 ROM asset extractor"
 requires-python = ">=3.10"
 dependencies = ["pyyaml>=6.0", "cyclopts>=3.6", "Pillow>=9.0", "pydantic>=2.0"]
 
+[project.optional-dependencies]
+# `ebtools check-kanji` compares a kanji script's readings with the kana (docs/ja-plan.md J4)
+kanji = ["sudachipy>=0.6", "sudachidict_core"]
+
 [tool.hatch.version]
 source = "vcs"
 

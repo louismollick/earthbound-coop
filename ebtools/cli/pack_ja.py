@@ -15,7 +15,9 @@ Called by ``pack-all`` after the US packers.  Writes ``<output>/JA/``:
 - graphics and cinematics (``ebtools.ja_graphics``): Mother 2 data at the US
   asset's path, and Japanese-only fonts and tables.
 
-Without ``<assets>/ja/`` it removes a stale ``<output>/JA/`` and writes nothing.
+With a kanji script in ``<custom>/ja_kanji/`` it also writes
+``<output>/JA_KANJI/`` (``ebtools.ja_kanji``).  Without ``<assets>/ja/`` it
+removes a stale ``<output>/JA/`` and ``JA_KANJI/`` and writes nothing.
 """
 
 import json
@@ -44,6 +46,7 @@ def pack_ja(
     us_label_addrs: dict[str, int],
     us_inline: StringTableBuilder,
     bin_dir: Path,
+    custom_dir: Path,
 ) -> int:
     """Pack ``<assets_dir>/ja/`` to ``<output_dir>/JA/``; return the asset groups packed.
 
@@ -55,7 +58,14 @@ def pack_ja(
         The US inline string table, fully built (its offsets are final).
     bin_dir
         The US extracted binaries (the US tables pack-all doesn't pack).
+    custom_dir
+        The authored assets (``src/custom_assets``): the kanji script and font.
     """
+    from ebtools.ja_kanji import KANJI_PACKED_SUBDIR
+
+    kanji_out = output_dir / KANJI_PACKED_SUBDIR
+    if kanji_out.exists():
+        shutil.rmtree(kanji_out)
     from ebtools.cli.pack_all import _compile_dialogue
     from ebtools.parsers.font import pack_font
     from ebtools.text_dsl.compiler import build_reverse_names
@@ -190,7 +200,22 @@ def pack_ja(
     )
     if stale:
         print(f"  Warning: {stale} US inline strings missing from ja/inline_strings.json print nothing")
-    return 4 + len(interface) + len(graphics)
+
+    from ebtools.ja_kanji import KANJI_FONT_BDF, KANJI_OVERRIDE_SUBDIR, pack_kanji
+
+    kanji_files = pack_kanji(
+        custom_dir / KANJI_OVERRIDE_SUBDIR,
+        custom_dir / KANJI_FONT_BDF,
+        kanji_out,
+        all_dialogue,
+        reverse_table,
+        build_reverse_names(common_data),
+        us_label_addrs,
+        us_inline.entries(),
+        ja_inline_map,
+        ja_dir,
+    )
+    return 4 + len(interface) + len(graphics) + kanji_files
 
 
 def _write(path: Path, data: bytes) -> None:

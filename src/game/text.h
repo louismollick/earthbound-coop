@@ -79,6 +79,34 @@ static inline uint8_t eb_glyph_index(uint8_t c) {
     return c == JA_CHAR_DAKUTEN ? JA_GLYPH_DAKUTEN : c == JA_CHAR_HANDAKUTEN ? JA_GLYPH_HANDAKUTEN : 0xFF;
 }
 
+/* ---- Kanji (Japanese kanji Locale, docs/ja-plan.md J4) ----
+ * A kanji script's text has the characters Mother 2's table lacks as three
+ * bytes: JA_KANJI_PREFIX, then two digits 0x20-0xFF, index = (d1 - 0x20) * 224
+ * + (d2 - 0x20) into the kanji glyph table (JA_KANJI/fonts/kanji*.bin, built by
+ * pack-all from the characters the script uses; ebtools/text_dsl/kanji.py).
+ * 0x15 (the US compressed-text prefix) never occurs in the port's text
+ * otherwise, and the digits are >= 0x20, so a scanner that skips 0x15 as a
+ * one-byte op and the digits as letters stays in step. Only the text engine
+ * reads it, and only while ja_kanji_enabled(). */
+#define JA_KANJI_PREFIX     0x15
+#define JA_KANJI_DIGIT_BASE 0x20
+#define JA_KANJI_DIGITS     224
+
+static inline uint16_t ja_kanji_index(uint8_t d1, uint8_t d2) {
+    return (uint16_t)((d1 - JA_KANJI_DIGIT_BASE) * JA_KANJI_DIGITS + (d2 - JA_KANJI_DIGIT_BASE));
+}
+
+/* True while the kanji font is bound (the Locale is LOCALE_JA_KANJI). */
+bool ja_kanji_enabled(void);
+/* Pixel width of kanji `index` (CHARACTER_PADDING not included). */
+uint8_t ja_kanji_width(uint16_t index);
+/* Unicode code point of kanji `index` (0 past the table), for the playtest
+ * harness's window text. */
+uint16_t ja_kanji_codepoint(uint16_t index);
+/* print_eb_letter for a kanji: render glyph `index` of the kanji font into the
+ * focus window (PRINT_LETTER minus sound and delay). */
+void print_kanji_letter(uint16_t index);
+
 /* Initialize the text rendering system.
    Loads fonts from extracted assets and sets up VRAM for text display. */
 void text_system_init(void);
@@ -152,8 +180,9 @@ void clear_window_text(uint16_t window_id);
  * CHAR fires before each character is drawn (the focus window's text_y and
  * cursor_pixel_x are its position); SCROLL/CLEAR/CLOSE fire as a window's text
  * scrolls up a line, is cleared, or the window closes. */
-enum { TEXT_TRACE_CHAR, TEXT_TRACE_SCROLL, TEXT_TRACE_CLEAR, TEXT_TRACE_CLOSE };
-extern void (*text_trace_hook)(int event, uint16_t window_id, uint8_t eb_char);
+/* TEXT_TRACE_CHAR passes the letter's code, TEXT_TRACE_KANJI a kanji index. */
+enum { TEXT_TRACE_CHAR, TEXT_TRACE_SCROLL, TEXT_TRACE_CLEAR, TEXT_TRACE_CLOSE, TEXT_TRACE_KANJI };
+extern void (*text_trace_hook)(int event, uint16_t window_id, uint16_t letter);
 
 /* Convert a text byte of the running Locale's encoding to the char the C
  * strings (menu labels, print_string) carry. English: ASCII ('?' for a code

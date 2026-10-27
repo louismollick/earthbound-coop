@@ -698,6 +698,18 @@ static bool display_text_load_ja_text(void) {
     ja_inline_strings_size = ASSET_SIZE(ASSET_JA_TEXT_INLINE_STRINGS_BIN);
     ja_xlat = ASSET_DATA(ASSET_JA_TEXT_XLAT_BIN);
     ja_xlat_count = ASSET_SIZE(ASSET_JA_TEXT_XLAT_BIN) / 8;
+#ifdef EB_HAVE_JA_KANJI
+    /* Japanese kanji: the kanji script's text, at the same address ranges
+     * (its labels sit elsewhere, so it has its own xlat). */
+    if (locale_get() == LOCALE_JA_KANJI) {
+        ja_dialogue_blob = ASSET_DATA(ASSET_JA_KANJI_TEXT_DIALOGUE_BIN);
+        ja_dialogue_blob_size = ASSET_SIZE(ASSET_JA_KANJI_TEXT_DIALOGUE_BIN);
+        ja_inline_strings = ASSET_DATA(ASSET_JA_KANJI_TEXT_INLINE_STRINGS_BIN);
+        ja_inline_strings_size = ASSET_SIZE(ASSET_JA_KANJI_TEXT_INLINE_STRINGS_BIN);
+        ja_xlat = ASSET_DATA(ASSET_JA_KANJI_TEXT_XLAT_BIN);
+        ja_xlat_count = ASSET_SIZE(ASSET_JA_KANJI_TEXT_XLAT_BIN) / 8;
+    }
+#endif
     return ja_dialogue_blob != NULL && ja_xlat != NULL;
 #else
     return true;
@@ -1564,6 +1576,15 @@ void check_text_word_wrap(ScriptReader *reader) {
             ch = text_source_base(peek.source)[peek.ptr_off++];
         }
 
+        /* A kanji is one letter of the word (text.h) */
+        if (ch == JA_KANJI_PREFIX && ja_kanji_enabled()) {
+            uint8_t d1 = script_read_byte(&peek);
+            uint8_t d2 = script_read_byte(&peek);
+            dt.upcoming_word_length++;
+            accumulated_width += ja_kanji_width(ja_kanji_index(d1, d2)) + character_padding;
+            continue;
+        }
+
         /* Word boundary: space (US 0x50, Japanese 0x20) or control code (< 0x20) */
         if (ch == eb_char_space()) break;
         if (ch < 0x20) break;
@@ -1690,6 +1711,16 @@ void dt_lq_push_op(uint8_t op, uint8_t a, uint8_t b) {
  * SELECTED_TEXT_SPEED+1, doubled for the direct-tile letters (0x20, 0x2F,
  * EQUIPPED), whose RENDER_VWF_CHARACTER goes through PRINT_CHAR_WITH_SOUND and
  * its own identical delay loop first. 0 when instant or no window is open. */
+/* PRINT_LETTER's sound test (assembly lines 36-66): mode 2 always plays, mode
+ * 3 never, otherwise it plays while dt.blinking_triangle_flag == 0. */
+static bool dt_letter_sound(void) {
+    if (dt.text_sound_mode == 2)
+        return true;
+    if (dt.text_sound_mode == 3)
+        return false;
+    return dt.blinking_triangle_flag == 0;
+}
+
 static uint16_t dt_print_letter(uint8_t byte) {
     /* PRINT_LETTER early-out: if no window is open (CURRENT_FOCUS_WINDOW ==
      * -1), the routine RETURNs immediately — no VWF render and, crucially, no
@@ -1711,19 +1742,8 @@ static uint16_t dt_print_letter(uint8_t byte) {
     if (dt.instant_printing)
         return 0;
 
-    /* Sound logic (assembly lines 36-66):
-     * Mode 2: always play. Mode 3: never play.
-     * Default: play if dt.blinking_triangle_flag == 0.
-     * Skip for byte 0x20 and CHAR::SPACE (0x50). */
-    bool play_sound;
-    if (dt.text_sound_mode == 2) {
-        play_sound = true;
-    } else if (dt.text_sound_mode == 3) {
-        play_sound = false;
-    } else {
-        play_sound = (dt.blinking_triangle_flag == 0);
-    }
-    if (play_sound && byte != 0x20 && byte != eb_char_space()) {
+    /* Sound (skipped for byte 0x20 and CHAR::SPACE (0x50)) and delay. */
+    if (dt_letter_sound() && byte != 0x20 && byte != eb_char_space()) {
         play_sfx(7);  /* SFX::TEXT_PRINT */
     }
 
@@ -1732,6 +1752,18 @@ static uint16_t dt_print_letter(uint8_t byte) {
     if (eb_char_is_direct_tile(byte))
         delay *= 2;  /* PRINT_CHAR_WITH_SOUND's delay loop, then this one */
     return delay;
+}
+
+/* dt_print_letter for a kanji (text.h): a letter like any other glyph. */
+static uint16_t dt_print_kanji(uint16_t index) {
+    if (win.current_focus_window == WINDOW_ID_NONE)
+        return 0;
+    print_kanji_letter(index);
+    if (dt.instant_printing)
+        return 0;
+    if (dt_letter_sound())
+        play_sfx(7);  /* SFX::TEXT_PRINT */
+    return (uint16_t)(dt.selected_text_speed + 1);
 }
 
 /* Run the next queued letter or op. Returns the delay frames it owes. */
@@ -2280,6 +2312,17 @@ static StepResult step_display_text_run(DisplayTextModeState *st) {
             if (delay)
                 return dt_letter_delay(st, delay);
             continue;  /* instant printing / no window: no yield */
+        }
+
+        /* A kanji: the prefix and two digits (text.h), read in one step so
+         * the reader never rests inside one. */
+        if (byte == JA_KANJI_PREFIX && ja_kanji_enabled()) {
+            uint8_t d1 = script_read_byte(r);
+            uint8_t d2 = script_read_byte(r);
+            uint16_t delay = dt_print_kanji(ja_kanji_index(d1, d2));
+            if (delay)
+                return dt_letter_delay(st, delay);
+            continue;
         }
 
         /* END_BLOCK (CC_02): Script terminator.

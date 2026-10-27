@@ -91,6 +91,12 @@ file(GLOB_RECURSE ASSET_SOURCE_FILES CONFIGURE_DEPENDS "${ASSETS_DIR}/*")
 # Authored map overrides packed by pack-all (e.g. maps/gutter_overrides.json)
 file(GLOB_RECURSE CUSTOM_MAP_SOURCE_FILES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/custom_assets/maps/*.json")
+# The local kanji script (custom_assets/ja_kanji/, gitignored) and the kanji font
+file(GLOB_RECURSE CUSTOM_KANJI_SOURCE_FILES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/custom_assets/ja_kanji/*.yml"
+    "${CMAKE_CURRENT_SOURCE_DIR}/custom_assets/ja_kanji/*.yaml"
+    "${CMAKE_CURRENT_SOURCE_DIR}/custom_assets/ja_kanji/*.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/custom_assets/fonts/*.bdf")
 
 # pack-all's output also depends on the asset layout (earthbound.yml,
 # commondefs.yml), the extracted originals it reads with -b (asm/bin, whose
@@ -105,13 +111,18 @@ set(PACK_ALL_TOOL_DEPS
     ${EBTOOLS_PY_SOURCES})
 
 # pack-all writes packed_assets/JA/ only while assets/ja/ (ebtools extract-ja)
-# exists. Its files are in ASSET_SOURCE_FILES; this file changes when the
-# directory comes or goes, so deleting it reruns pack-all (which removes JA/).
+# exists, and JA_KANJI/ only with a kanji script. Their files are dependencies;
+# this file changes when the directory or a script file comes or goes, so
+# deleting one reruns pack-all (which removes JA/ or JA_KANJI/).
 set(JA_ASSETS_STATE "${CMAKE_CURRENT_BINARY_DIR}/ja_assets.state")
 set(_ja_state "none")
 if(EXISTS "${ASSETS_DIR}/ja")
     set(_ja_state "ja")
 endif()
+# Likewise the kanji script's files: one removed reruns pack-all too.
+foreach(_kanji_file ${CUSTOM_KANJI_SOURCE_FILES})
+    string(APPEND _ja_state " ${_kanji_file}")
+endforeach()
 set(_ja_old_state "")
 if(EXISTS ${JA_ASSETS_STATE})
     file(READ ${JA_ASSETS_STATE} _ja_old_state)
@@ -130,7 +141,7 @@ add_custom_command(
         -y ${PROJECT_ROOT}/earthbound.yml
         -c ${PROJECT_ROOT}/commondefs.yml
     COMMAND ${CMAKE_COMMAND} -E touch ${PACK_ALL_STAMP}
-    DEPENDS ${ASSET_SOURCE_FILES} ${CUSTOM_MAP_SOURCE_FILES} ${PACK_ALL_TOOL_DEPS}
+    DEPENDS ${ASSET_SOURCE_FILES} ${CUSTOM_MAP_SOURCE_FILES} ${CUSTOM_KANJI_SOURCE_FILES} ${PACK_ALL_TOOL_DEPS}
     COMMENT "Packing all human-friendly assets to binary"
 )
 

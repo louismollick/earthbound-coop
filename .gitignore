@@ -51,3 +51,9 @@ playtest/out/
 
 # Online co-op launcher settings (port/unix/net/launcher.c)
 online.cfg
+
+# A local kanji script (docs/ja-plan.md J4): game text, never committed
+src/custom_assets/ja_kanji/*
+!src/custom_assets/ja_kanji/README.md
+# The kanji font's manual and license
+!src/custom_assets/fonts/k8x12/k8x12.txt

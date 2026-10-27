@@ -228,7 +228,8 @@ static bool scan_run(Scan *s, uint32_t start) {
             return stop(s, COOP_LOOK_OVERRUN, at, 0, 0);
         uint8_t cc = p[off];
         /* Letters, and 15-17, which the runtime treats as 1-byte no-ops
-         * (dictionary substitution isn't wired up; cc_skip_args) */
+         * (dictionary substitution isn't wired up; cc_skip_args). A kanji
+         * (15 and two digits >= 0x20, text.h) passes as three letters. */
         if (cc >= 0x20 || (cc >= 0x15 && cc <= 0x17)) {
             off++;
             continue;
