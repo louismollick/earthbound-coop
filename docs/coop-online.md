@@ -13,8 +13,9 @@ Start the game in a window with no options. A launcher comes up before the game:
 - **Play** starts the game as usual.
 - **Host online** asks for the relay's URL (paste it with Ctrl+V, or Cmd+V on a Mac). The game remembers it. Enter opens a room, and the invite (for example `earthbound-coop-relay.you.workers.dev/K7QF2M`) goes to the clipboard. Send it to your friends. The room code stays in the top-left corner until someone joins.
 - **Join online** asks for the invite. If you copied one, it's already filled in, otherwise it's the last one you used. Enter joins.
+- **Language** (only in a build with the Japanese assets) picks English or Japanese with left/right. `--lang` overrides it.
 
-If something goes wrong (a wrong URL, a closed room, a different build), the launcher says why and you can try again. The relay and the last invite are kept in `online.cfg` in the working directory.
+If something goes wrong (a wrong URL, a closed room, a different build), the launcher says why and you can try again. The relay, the last invite and the Language are kept in `online.cfg` in the working directory.
 
 The same from the command line:
 
@@ -116,8 +117,9 @@ A desync is a bug, usually game state that lives outside the savestate. Please s
   - the viewport size (`EB_VIEWPORT_WIDTH`/`HEIGHT`);
   - the build options that change game logic: audio, ROM verification, the battle letterbox and B-opens-menu (the smooth camera and frame skip don't matter);
   - the game revision: the git commit, plus a hash of any local changes under `src/`, `port/unix/` and `cmake/` (shown as `+dirty.<hash>`);
-  - the game data: a hash of every embedded asset, so the ROM and any edited assets must match;
-  - the savestate layout.
+  - the game data: a hash of every embedded asset, so the ROM and any edited assets must match (in English the Japanese assets are left out, so a build without them can join);
+  - the savestate layout;
+  - the Language: every machine plays in the Host's (`the Host plays in Japanese and this machine in English`).
 
   The same commit built on macOS, Linux and Windows is compatible (checked Linux against Windows: 4 Players, 6000 frames, no desync).
 - Only the Host's save file is used. Clients keep a temporary save for the Session, so their own `earthbound.srm` is never touched. `--save` is ignored when joining.

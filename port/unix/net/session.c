@@ -44,8 +44,8 @@
  * old connection is gone, by its BYE or by 10 s of silence.
  *
  * Compatibility. HELLO carries this build's fingerprint (savestate layout,
- * viewport, simulation build options, game revision, a hash of the game data); the
- * Host turns away any difference and names it.
+ * viewport, simulation build options, game revision, a hash of the game data, the
+ * Locale); the Host turns away any difference and names it.
  *
  * Wire format: little-endian; every datagram starts 'E' 'N' version type, then the
  * u32 connection nonce.
@@ -61,6 +61,7 @@
 #include <unistd.h>
 
 #include "coop/coop.h"
+#include "core/locale.h"
 #include "core/math.h"
 #include "core/state_dump.h"
 #include "embedded_assets.h"
@@ -120,14 +121,15 @@ enum {
     MSG_BYE,        /* both  leaving */
 };
 /* report = u8 present, then u32 frame, u8 n, n x u32 section hash
- * fingerprint = u32 layout, u16 width, u16 height, u32 options, u32 assets, u8 n, n x revision char
+ * fingerprint = u32 layout, u16 width, u16 height, u32 options, u32 assets, u8 locale, u8 n, n x revision char
  * Pings. The Host stamps WELCOME and FRAMES with its clock (u16 ms, never 0); a
  * client echoes the latest stamp it got (ping echo = u16 stamp, u16 ms it held it;
  * 0 0 before the first), so the Host measures every round trip and sends each
  * client its own in FRAMES. */
 
-/* STOP_BUSY (REJECT only): this endpoint still has an open connection; retry */
-enum { STOP_DESYNC = 1, STOP_KICKED, STOP_FULL, STOP_BUILD, STOP_BUSY };
+/* STOP_BUSY (REJECT only): this endpoint still has an open connection; retry.
+ * STOP_LOCALE (REJECT only, + u8 the Host's Locale): the client plays in another Language */
+enum { STOP_DESYNC = 1, STOP_KICKED, STOP_FULL, STOP_BUILD, STOP_BUSY, STOP_LOCALE };
 enum { EV_NONE = 0, EV_CAPTURE, EV_JOIN, EV_LEAVE, EV_END };
 
 typedef struct {
@@ -230,7 +232,8 @@ typedef struct {
     uint32_t layout;      /* savestate layout id (state_layout.h) */
     uint16_t width, height; /* EB_VIEWPORT_WIDTH x HEIGHT: changes the PPU state, which is hashed */
     uint32_t options;     /* FP_OPT_*: compile-time options that change the game state */
-    uint32_t assets;      /* FNV-1a over every embedded asset (size + bytes), in registry order */
+    uint32_t assets;      /* FNV-1a over the Locale's embedded assets (size + bytes), in registry order */
+    uint8_t locale;       /* Locale: a Session runs in one Language */
     char revision[64];    /* NET_GAME_REVISION: git commit, "+dirty.<hash>" with local changes */
 } Fingerprint;
 
@@ -240,9 +243,14 @@ enum { FP_OPT_AUDIO = 1, FP_OPT_VERIFY = 2, FP_OPT_LETTERBOX = 4, FP_OPT_B_MENU 
 
 static Fingerprint my_fp;
 
+/* English skips the Japanese assets (JA/), so a build without them hashes the same. */
 static uint32_t asset_hash(void) {
     uint32_t h = 2166136261u;
     for (int i = 0; i < ASSET_COUNT; i++) {
+#ifdef EB_HAVE_JA
+        if (asset_is_ja[i] && !locale_is_ja())
+            continue;
+#endif
         const AssetEntry *e = &embedded_assets[i];
         uint32_t size = e->size_ptr ? *e->size_ptr : 0;
         for (int k = 0; k < 4; k++)
@@ -271,6 +279,7 @@ static void fingerprint_init(void) {
     my_fp.options |= FP_OPT_B_MENU;
 #endif
     my_fp.assets = asset_hash();
+    my_fp.locale = (uint8_t)locale_get();
     snprintf(my_fp.revision, sizeof my_fp.revision, "%s", NET_GAME_REVISION);
 }
 
@@ -280,6 +289,7 @@ static void put_fp(Pkt *p, const Fingerprint *f) {
     put16(p, f->height);
     put32(p, f->options);
     put32(p, f->assets);
+    put8(p, f->locale);
     size_t len = strlen(f->revision);
     put8(p, (uint32_t)len);
     putn(p, f->revision, len);
@@ -292,6 +302,7 @@ static void get_fp(Rd *r, Fingerprint *f) {
     f->height = (uint16_t)get16(r);
     f->options = get32(r);
     f->assets = get32(r);
+    f->locale = (uint8_t)get8(r);
     uint32_t len = get8(r);
     for (uint32_t i = 0; i < len; i++) {
         uint32_t c = get8(r);
@@ -1014,6 +1025,8 @@ static void host_reject(const NetAddr *to, uint32_t nonce, int reason) {
     put8(&pk, (uint32_t)reason);
     if (reason == STOP_BUILD)
         put_fp(&pk, &my_fp);
+    if (reason == STOP_LOCALE)
+        put8(&pk, my_fp.locale);
     send_pkt(to, &pk);
 }
 
@@ -1033,6 +1046,11 @@ static void host_hello(const NetAddr *from, uint32_t nonce, Rd *r, uint64_t t) {
             n.peer[s].last_recv = t;
             host_send_welcome(s, from);
         }
+        return;
+    }
+    if (fp.locale != my_fp.locale) { /* before fp_diff: the asset hashes differ too */
+        say("REJECT %s plays in %s", tp_addr_str(from), locale_name((Locale)fp.locale));
+        host_reject(from, nonce, STOP_LOCALE);
         return;
     }
     const char *diff = fp_diff(&my_fp, &fp, "client");
@@ -1273,6 +1291,7 @@ static const char *stop_reason(int reason) {
     case STOP_KICKED: return "the Host dropped this machine from the Session";
     case STOP_FULL:   return "the Session has no room for this machine's Players (4 at most)";
     case STOP_BUILD:  return "the Host runs an incompatible build (both need the same commit, viewport, build options and ROM)";
+    case STOP_LOCALE: return "the Host plays in another Language";
     default:          return "stopped by the Host";
     }
 }
@@ -1765,6 +1784,12 @@ bool net_start(const NetConfig *cfg) {
                     get_fp(&r, &host_fp);
                     const char *diff = r.ok ? fp_diff(&host_fp, &my_fp, "this machine") : "";
                     return fail("%s%s%s", stop_reason(reason), *diff ? ". " : "", diff);
+                }
+                if (reason == STOP_LOCALE) {
+                    Locale host = (Locale)get8(&r);
+                    if (r.ok)
+                        return fail("the Host plays in %s and this machine in %s (both need the same Language)",
+                                    locale_name(host), locale_name(locale_get()));
                 }
                 return fail("%s", stop_reason(reason));
             }

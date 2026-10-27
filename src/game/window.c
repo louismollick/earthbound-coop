@@ -3344,7 +3344,8 @@ void print_money_in_window(uint32_t amount) {
     uint16_t saved_text_x = w->text_x;
     uint16_t saved_text_y = w->text_y;
 
-    /* Format the money string */
+    /* Format the money string ('$' is CHAR::DOLLAR 0x54, or Mother 2's 0x23, the
+     * PRINT_CURRENCY_VALUE prefix, through ascii_to_eb_char) */
     char money_buf[16];
     snprintf(money_buf, sizeof(money_buf), "$%u", (unsigned)amount);
 
@@ -3353,7 +3354,7 @@ void print_money_in_window(uint32_t amount) {
     uint16_t total_pixel_width = 0;
     for (int c = 0; money_buf[c]; c++) {
         uint8_t eb = ascii_to_eb_char(money_buf[c]);
-        uint8_t glyph_idx = (eb - 0x50) & 0x7F;
+        uint8_t glyph_idx = eb_glyph_index(eb);
         total_pixel_width += font_get_width(w->font, glyph_idx) + character_padding;
     }
     total_pixel_width += character_padding;  /* Extra trailing padding (asm lines 114-120) */
@@ -3394,7 +3395,7 @@ void print_money_in_window(uint32_t amount) {
             } else {
                 play_sound = (dt.blinking_triangle_flag == 0);
             }
-            if (play_sound && eb != 0x20 && eb != 0x50) {
+            if (play_sound && eb != 0x20 && eb != eb_char_space()) {
                 play_sfx(7);  /* SFX::TEXT_PRINT */
             }
         }

@@ -36,6 +36,7 @@ typedef struct {
     size_t   glyph_size;  /* total glyph data size */
     uint8_t  height;      /* pixel rows per glyph */
     uint8_t  bytes_per_glyph; /* bytes per glyph in data */
+    uint8_t  char_count;  /* glyphs in the table: FONT_CHAR_COUNT, or JA_FONT_CHAR_COUNT */
     bool     loaded;
 } FontData;
 
@@ -74,8 +75,11 @@ TextRenderState text_render_state;
 
 /* --- Font loading --- */
 
+/* Bind font slot `font_id` to a glyph/width asset pair. `char_count` is the
+ * number of glyphs in the table (FONT_CHAR_COUNT for the US fonts,
+ * JA_FONT_CHAR_COUNT for the Japanese one). */
 static bool load_font(uint8_t font_id, AssetId gfx_id, AssetId width_id,
-                      uint8_t height) {
+                      uint8_t height, uint8_t char_count) {
     if (font_id >= 5) return false;
 
     FontData *f = &fonts[font_id];
@@ -95,20 +99,21 @@ static bool load_font(uint8_t font_id, AssetId gfx_id, AssetId width_id,
     }
 
     f->height = height;
-    f->bytes_per_glyph = (uint8_t)(f->glyph_size / FONT_CHAR_COUNT);
+    f->char_count = char_count;
+    f->bytes_per_glyph = (uint8_t)(f->glyph_size / char_count);
     f->loaded = true;
     return true;
 }
 
 const uint8_t *font_get_glyph(uint8_t font_id, uint8_t char_index) {
     if (font_id >= 5 || !fonts[font_id].loaded) return NULL;
-    if (char_index >= FONT_CHAR_COUNT) return NULL;
+    if (char_index >= fonts[font_id].char_count) return NULL;
     return fonts[font_id].glyph_data + (size_t)char_index * fonts[font_id].bytes_per_glyph;
 }
 
 uint8_t font_get_width(uint8_t font_id, uint8_t char_index) {
     if (font_id >= 5 || !fonts[font_id].loaded) return 8;
-    if (char_index >= FONT_CHAR_COUNT) return 8;
+    if (char_index >= fonts[font_id].char_count) return 8;
     return fonts[font_id].width_data[char_index];
 }
 
@@ -144,19 +149,30 @@ void text_system_init(void) {
 
     /* Load fonts from extracted assets */
     /* main.gfx: 3072 bytes = 96 chars x 32 bytes (1bpp, 16px tall interleaved) */
-    load_font(FONT_ID_NORMAL, ASSET_FONTS_MAIN_GFX, ASSET_FONTS_MAIN_BIN, 16);
+    load_font(FONT_ID_NORMAL, ASSET_FONTS_MAIN_GFX, ASSET_FONTS_MAIN_BIN, 16, FONT_CHAR_COUNT);
 
     /* tiny.gfx: 768 bytes = 96 chars x 8 bytes (1bpp, 8px tall) */
-    load_font(FONT_ID_TINY, ASSET_FONTS_TINY_GFX, ASSET_FONTS_TINY_BIN, 8);
+    load_font(FONT_ID_TINY, ASSET_FONTS_TINY_GFX, ASSET_FONTS_TINY_BIN, 8, FONT_CHAR_COUNT);
 
     /* battle.gfx: 1536 bytes = 96 chars x 16 bytes (1bpp, 16px tall) */
-    load_font(FONT_ID_BATTLE, ASSET_FONTS_BATTLE_GFX, ASSET_FONTS_BATTLE_BIN, 16);
+    load_font(FONT_ID_BATTLE, ASSET_FONTS_BATTLE_GFX, ASSET_FONTS_BATTLE_BIN, 16, FONT_CHAR_COUNT);
 
     /* large.gfx: 3072 bytes = 96 chars x 32 bytes */
-    load_font(FONT_ID_LARGE, ASSET_FONTS_LARGE_GFX, ASSET_FONTS_LARGE_BIN, 16);
+    load_font(FONT_ID_LARGE, ASSET_FONTS_LARGE_GFX, ASSET_FONTS_LARGE_BIN, 16, FONT_CHAR_COUNT);
 
     /* mrsaturn.gfx: 3072 bytes = 96 chars x 32 bytes */
-    load_font(FONT_ID_MRSATURN, ASSET_FONTS_MRSATURN_GFX, ASSET_FONTS_MRSATURN_BIN, 16);
+    load_font(FONT_ID_MRSATURN, ASSET_FONTS_MRSATURN_GFX, ASSET_FONTS_MRSATURN_BIN, 16, FONT_CHAR_COUNT);
+
+#ifdef EB_HAVE_JA
+    /* Japanese: Mother 2's 8x16 glyphs (JA/fonts/main.gfx: 224 chars x 32 bytes,
+     * codes 0x20-0xFF, width 7 + CHARACTER_PADDING) in every variable-width slot
+     * the text uses. TINY (window titles) and MRSATURN keep the US data for now. */
+    if (locale_is_ja()) {
+        load_font(FONT_ID_NORMAL, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_CHAR_COUNT);
+        load_font(FONT_ID_BATTLE, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_CHAR_COUNT);
+        load_font(FONT_ID_LARGE, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_CHAR_COUNT);
+    }
+#endif
 
     /* Cursor arrow tiles (0x41/0x51 and 0x28D/0x29D) come from the
        TEXT_WINDOW_GFX asset uploaded by text_load_window_gfx(). */
@@ -302,10 +318,9 @@ void text_load_window_gfx(void) {
              * bypassing RENDER_VWF_CHARACTER. */
             for (int i = 0; i < 5 && party_characters[char_idx].name[i]; i++) {
                 uint8_t eb_char = party_characters[char_idx].name[i];
-                if (eb_char < 0x50) continue;
-                uint8_t char_index = (eb_char - 0x50) & 0x7F;
-                if (char_index >= FONT_CHAR_COUNT) continue;
-                const uint8_t *glyph = font_get_glyph(FONT_ID_BATTLE, char_index);
+                if (!eb_char_is_glyph(eb_char)) continue;
+                uint8_t char_index = eb_glyph_index(eb_char);
+                const uint8_t *glyph = font_get_glyph(FONT_ID_BATTLE, char_index); /* NULL past the table */
                 if (!glyph) continue;
                 blit_vwf_glyph(glyph, font_height, 6);
             }
@@ -3680,11 +3695,13 @@ void print_eb_letter(uint8_t eb) {
 
     /* Word-wrap indent handling (RENDER_VWF_CHARACTER lines 42-61).
      * Only applies to normal chars (>= 0x50); special chars (0x20, 0x22,
-     * 0x2F) bypass indent via the @PRINT_SPECIAL path (lines 20-30). */
-    if (eb >= 0x50 && vwf_indent_new_line) {
-        if (eb == 0x50) return;  /* skip spaces after word-wrap */
+     * 0x2F) bypass indent via the @PRINT_SPECIAL path (lines 20-30).
+     * (eb_char_is_glyph etc. follow the Locale's encoding: see text.h.) */
+    bool glyph = eb_char_is_glyph(eb);
+    if (glyph && vwf_indent_new_line) {
+        if (eb == eb_char_space()) return;  /* skip spaces after word-wrap */
         w->text_x = 0;
-        if (eb != 0x70) {  /* not BULLET */
+        if (eb != eb_char_bullet()) {  /* not BULLET */
             set_text_pixel_position(w->text_y, 6);
             w = get_window(win.current_focus_window);
             if (!w) return;
@@ -3694,7 +3711,7 @@ void print_eb_letter(uint8_t eb) {
     }
 
     /* Assembly: STA LAST_PRINTED_CHARACTER at @SETUP_GLYPH (normal path only) */
-    if (eb >= 0x50)
+    if (glyph)
         dt.last_printed_character = eb;
 
     if (text_trace_hook)
@@ -3709,7 +3726,7 @@ void print_eb_letter(uint8_t eb) {
      * normal chars (>= 0x50).  Special chars (0x20, 0x22, 0x2F) jump to @DONE
      * without flushing — advance_vwf_tile already handled tile alloc.
      * Flushing after a special char would allocate an extra stale VWF tile. */
-    if (eb >= 0x50)
+    if (glyph)
         vwf_flush_tiles_to_vram();
 
     /* Update cursor pixel position */
@@ -3845,8 +3862,52 @@ void clear_window_text(uint16_t window_id) {
  * characters are reordered relative to ASCII.
  */
 
+/* Mother 2's encoding (textTable in mother2.yml): the letters ASCII has.
+ * Japanese has no lowercase; 0x25 (the long-vowel bar) stands in for '-',
+ * 0x40 (the bullet) for '@' as US 0x70 does, and 0x23 is the '$' that
+ * PRINT_CURRENCY_VALUE prints before an amount. */
+static char ja_char_to_ascii(uint8_t c) {
+    if (c >= 0x30 && c <= 0x39) return (char)('0' + (c - 0x30));
+    if (c >= 0x41 && c <= 0x5A) return (char)('A' + (c - 0x41));
+    switch (c) {
+    case 0x20: return ' ';
+    case 0x23: return '$';
+    case 0x25: return '-';
+    case 0x28: return '!';
+    case 0x29: return '?';
+    case 0x2F: return '/';
+    case 0x3A: return '(';
+    case 0x3B: return ')';
+    case 0x40: return '@';
+    case 0x5B: return ':';
+    case 0x5F: return '.';
+    default:   return '?';
+    }
+}
+
+static uint8_t ascii_to_ja_char(char ascii) {
+    char c = ascii;
+    if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+    if (c >= '0' && c <= '9') return (uint8_t)(0x30 + (c - '0'));
+    if (c >= 'A' && c <= 'Z') return (uint8_t)(0x41 + (c - 'A'));
+    switch (c) {
+    case '$': return 0x23;
+    case '-': return 0x25;
+    case '!': return 0x28;
+    case '?': return 0x29;
+    case '/': return 0x2F;
+    case '(': return 0x3A;
+    case ')': return 0x3B;
+    case '@': return JA_CHAR_BULLET;
+    case ':': return 0x5B;
+    case '.': return 0x5F;
+    default:  return JA_CHAR_SPACE; /* ' ' and every unmapped character */
+    }
+}
+
 char eb_char_to_ascii(uint8_t eb_char) {
     if (eb_char == 0x00) return '\0';
+    if (locale_is_ja()) return ja_char_to_ascii(eb_char);
     if (eb_char < 0x50 || eb_char > 0xAF) return '?';
 
     /* 96-entry table: EB codes 0x50-0xAF → ASCII */
@@ -3868,6 +3929,12 @@ char eb_char_to_ascii(uint8_t eb_char) {
 }
 
 uint8_t ascii_to_eb_char(char ascii) {
+    if (ascii == '\0') return 0x00;
+    if (locale_is_ja()) return ascii_to_ja_char(ascii);
+    return ascii_to_us_eb_char(ascii);
+}
+
+uint8_t ascii_to_us_eb_char(char ascii) {
     if (ascii == '\0') return 0x00;
 
     uint8_t c = (uint8_t)ascii;
@@ -3982,7 +4049,7 @@ void check_text_fits_in_window(uint16_t eb_char) {
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w) return;
 
-    uint8_t glyph_index = (eb_char - 0x50) & 0x7F;
+    uint8_t glyph_index = eb_glyph_index((uint8_t)eb_char);
     /* Assembly always uses FONT_PTR_TABLE[0] = NORMAL font */
     uint8_t char_width = font_get_width(FONT_ID_NORMAL, glyph_index);
     uint16_t total_width = (uint16_t)char_width + character_padding;
@@ -4004,7 +4071,7 @@ uint16_t get_string_pixel_width(const uint8_t *str, int16_t max_len) {
     uint8_t font_id = (uint8_t)(w->font & 0xFF);
     uint16_t total = 0;
     for (int i = 0; (max_len < 0 || i < max_len) && str[i] != 0x00; i++) {
-        uint8_t glyph_index = (str[i] - 0x50) & 0x7F;
+        uint8_t glyph_index = eb_glyph_index(str[i]);
         uint8_t char_width = font_get_width(font_id, glyph_index);
         total += char_width + character_padding;
     }
@@ -4057,9 +4124,10 @@ void print_text_with_word_splitting(const uint8_t *str, int16_t max_len) {
         word_buf[buf_pos] = ch;
         buf_pos++;
 
-        if (ch == 0x50 || ch == 0x00) {
+        uint8_t space = eb_char_space();
+        if (ch == space || ch == 0x00) {
             /* Space or null = word boundary */
-            if (ch == 0x50) {
+            if (ch == space) {
                 /* Include space, then null-terminate after it */
                 word_buf[buf_pos] = 0x00;
             }
@@ -4217,7 +4285,7 @@ void vwf_render_character(uint8_t eb_char, uint8_t font_id) {
      * direct tilemap tiles via PRINT_CHAR_WITH_SOUND + ADVANCE_VWF_TILE,
      * bypassing VWF glyph rendering.
      * Only active when rendering into a focus window. */
-    if (eb_char == 0x2F || eb_char == EB_CHAR_EQUIPPED || eb_char == 0x20) {
+    if (eb_char_is_direct_tile(eb_char)) {  /* Japanese: EQUIPPED only */
         if (win.current_focus_window != WINDOW_ID_NONE) {
             print_char_with_sound((uint16_t)eb_char);
             advance_vwf_tile();
@@ -4225,12 +4293,10 @@ void vwf_render_character(uint8_t eb_char, uint8_t font_id) {
         return;
     }
 
-    if (eb_char < 0x50) return;
+    if (!eb_char_is_glyph(eb_char)) return;
 
-    uint8_t char_index = (eb_char - 0x50) & 0x7F;
-    if (char_index >= FONT_CHAR_COUNT) return;
-
-    const uint8_t *glyph = font_get_glyph(font_id, char_index);
+    uint8_t char_index = eb_glyph_index(eb_char);
+    const uint8_t *glyph = font_get_glyph(font_id, char_index);  /* NULL past the table */
     if (!glyph) return;
 
     uint8_t char_width = font_get_width(font_id, char_index);
@@ -4548,7 +4614,9 @@ int vwf_render_to_fixed_tiles(const uint8_t *eb_str, int len, uint8_t font_id,
         }
         /* RENDER_TINY_FONT_STRING: every character goes straight to
          * BLIT_VWF_GLYPH with a fixed advance (LDA #6), glyph index
-         * (char - CHAR::SPACE) & $7F, no width table or padding. */
+         * (char - CHAR::SPACE) & $7F, no width table or padding. Its only
+         * caller is the window title, US-encoded for the TINY font, which stays
+         * US in Japanese too, so this keeps the US index. */
         uint8_t char_index = (uint8_t)((eb_str[i] - EB_CHAR_SPACE) & 0x7F);
         if (char_index >= FONT_CHAR_COUNT) continue;
         const uint8_t *glyph = font_get_glyph(font_id, char_index);
@@ -4591,11 +4659,11 @@ int vwf_render_to_fixed_tiles(const uint8_t *eb_str, int len, uint8_t font_id,
 int render_title_to_vram(const char *title, uint8_t title_slot) {
     if (!title || title[0] == '\0' || title_slot == 0) return 0;
 
-    /* Convert ASCII title to EB encoding */
+    /* Convert ASCII title to EB encoding (US: the TINY font stays US in Japanese) */
     uint8_t eb_str[WINDOW_TITLE_SIZE];
     int len = 0;
     for (int i = 0; title[i] != '\0' && i < WINDOW_TITLE_SIZE - 1; i++) {
-        eb_str[len++] = ascii_to_eb_char(title[i]);
+        eb_str[len++] = ascii_to_us_eb_char(title[i]);
     }
 
     /* Save VWF state — set_window_title can be called while other windows

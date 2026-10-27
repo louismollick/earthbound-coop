@@ -88,6 +88,18 @@ static size_t inline_string_table_size = 0;
 static const uint8_t *dialogue_blob = NULL;
 static size_t dialogue_blob_size = 0;
 
+/* Japanese text (bound only in Japanese, from JA/text/): its dialogue blob and
+ * inline strings, in their own address ranges, and xlat, the table that turns a
+ * US text address into the Japanese one. */
+#define JA_DIALOGUE_BASE       0x200000
+#define JA_INLINE_STRINGS_BASE 0x300000
+static const uint8_t *ja_dialogue_blob = NULL;
+static size_t ja_dialogue_blob_size = 0;
+static const uint8_t *ja_inline_strings = NULL;
+static size_t ja_inline_strings_size = 0;
+static const uint8_t *ja_xlat = NULL;  /* (u32 us_addr, u32 ja_addr) LE pairs, sorted by us_addr */
+static size_t ja_xlat_count = 0;
+
 /* Status window text asset (forward-declared here; assigned lazily near its first
  * use). Referenced by the TextSource helpers below. */
 static const uint8_t *status_window_text_data;
@@ -102,26 +114,36 @@ static const uint8_t *text_prefix_base = NULL;
  * is re-derived on each read. */
 static const uint8_t *text_source_base(uint8_t source) {
     switch ((TextSource)source) {
-    case TEXT_SRC_DIALOGUE:       return dialogue_blob;
-    case TEXT_SRC_INLINE_STRINGS: return inline_string_table;
-    case TEXT_SRC_STATUS_WINDOW:  return status_window_text_data;
-    default:                      return NULL;
+    case TEXT_SRC_DIALOGUE:          return dialogue_blob;
+    case TEXT_SRC_INLINE_STRINGS:    return inline_string_table;
+    case TEXT_SRC_STATUS_WINDOW:     return status_window_text_data;
+    case TEXT_SRC_JA_DIALOGUE:       return ja_dialogue_blob;
+    case TEXT_SRC_JA_INLINE_STRINGS: return ja_inline_strings;
+    default:                         return NULL;
+    }
+}
+
+static size_t text_source_size(uint8_t source) {
+    switch ((TextSource)source) {
+    case TEXT_SRC_DIALOGUE:          return dialogue_blob_size;
+    case TEXT_SRC_INLINE_STRINGS:    return inline_string_table_size;
+    case TEXT_SRC_STATUS_WINDOW:     return status_window_text_size;
+    case TEXT_SRC_JA_DIALOGUE:       return ja_dialogue_blob_size;
+    case TEXT_SRC_JA_INLINE_STRINGS: return ja_inline_strings_size;
+    default:                         return 0;
     }
 }
 
 /* Classify which TextSource a raw script pointer falls within (used only at the
  * few display_text() entry points, where the buffer comes from a known asset).
- * The three text assets are distinct, non-overlapping buffers, so the range check
+ * The text assets are distinct, non-overlapping buffers, so the range check
  * is unambiguous; falls back to dialogue if somehow unmatched. */
 static uint8_t text_classify_source(const uint8_t *p) {
-    if (dialogue_blob && p >= dialogue_blob && p < dialogue_blob + dialogue_blob_size)
-        return TEXT_SRC_DIALOGUE;
-    if (inline_string_table && p >= inline_string_table &&
-        p < inline_string_table + inline_string_table_size)
-        return TEXT_SRC_INLINE_STRINGS;
-    if (status_window_text_data && p >= status_window_text_data &&
-        p < status_window_text_data + status_window_text_size)
-        return TEXT_SRC_STATUS_WINDOW;
+    for (uint8_t src = 0; src < TEXT_SRC_COUNT; src++) {
+        const uint8_t *base = text_source_base(src);
+        if (base && p >= base && p < base + text_source_size(src))
+            return src;
+    }
     return TEXT_SRC_DIALOGUE;
 }
 
@@ -508,41 +530,72 @@ uint32_t get_cnum(void) {
 typedef struct {
     const uint8_t *data;
     size_t   size;
+    uint8_t  source;  /* TextSource */
 } TextBlock;
 
+/* Byte `offset` of text source `source`, or NULL past its end. */
+static const uint8_t *text_block_at(uint8_t source, uint32_t offset, TextBlock **out_block) {
+    static TextBlock block;
+    const uint8_t *data = text_source_base(source);
+    size_t size = text_source_size(source);
+    if (!data || offset >= size)
+        return NULL;
+    block.data = data;
+    block.size = size;
+    block.source = source;
+    if (out_block) *out_block = &block;
+    return data + offset;
+}
+
+/* Japanese: the Japanese text address of US text address `addr` (a dialogue
+ * label or an inline string), by binary search of xlat. A miss logs once per
+ * address and returns `addr` itself, so the US bytes print instead. */
+static uint32_t ja_translate_addr(uint32_t addr) {
+    size_t lo = 0, hi = ja_xlat_count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        uint32_t us = read_u32_le(ja_xlat + mid * 8);
+        if (us == addr)
+            return read_u32_le(ja_xlat + mid * 8 + 4);
+        if (us < addr)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    static uint32_t logged[64];
+    static int n_logged;
+    for (int i = 0; i < n_logged; i++)
+        if (logged[i] == addr)
+            return addr;
+    if (n_logged < (int)(sizeof logged / sizeof logged[0]))
+        logged[n_logged++] = addr;
+    LOG_WARN("ja: no Japanese text for US text address 0x%06X; printing the US text\n", addr);
+    return addr;
+}
 
 /* Resolve a text address to a byte pointer.
  *
  * Address ranges:
  *   0x000000 .. 0x0FFFFF  — inline string table (item/enemy descriptions)
  *   0x100000 .. 0xBFFFFF  — dialogue blob (compiled from YAML)
+ * and in Japanese (where a US address is first translated through xlat):
+ *   0x200000 .. 0x2FFFFF  — Japanese dialogue blob
+ *   0x300000 ..           — Japanese inline strings
  *
  * *out_block receives the data source for size-remaining calculation.
  * Returns NULL if the address cannot be resolved. */
 static const uint8_t *resolve_text_addr(uint32_t addr, TextBlock **out_block) {
-    static TextBlock dialogue_block = {0};
-    static TextBlock string_table_block = {0};
-
-    /* Dialogue blob */
-    if (addr >= DIALOGUE_BLOB_BASE && dialogue_blob != NULL) {
-        uint32_t offset = addr - DIALOGUE_BLOB_BASE;
-        if (offset < dialogue_blob_size) {
-            dialogue_block.data = dialogue_blob;
-            dialogue_block.size = dialogue_blob_size;
-            if (out_block) *out_block = &dialogue_block;
-            return dialogue_blob + offset;
-        }
+    if (locale_is_ja()) {
+        if (addr < JA_DIALOGUE_BASE)
+            addr = ja_translate_addr(addr);
+        if (addr >= JA_INLINE_STRINGS_BASE)
+            return text_block_at(TEXT_SRC_JA_INLINE_STRINGS, addr - JA_INLINE_STRINGS_BASE, out_block);
+        if (addr >= JA_DIALOGUE_BASE)
+            return text_block_at(TEXT_SRC_JA_DIALOGUE, addr - JA_DIALOGUE_BASE, out_block);
     }
-
-    /* Inline string table */
-    if (addr < DIALOGUE_BLOB_BASE && inline_string_table != NULL && addr < inline_string_table_size) {
-        string_table_block.data = inline_string_table;
-        string_table_block.size = inline_string_table_size;
-        if (out_block) *out_block = &string_table_block;
-        return inline_string_table + addr;
-    }
-
-    return NULL;
+    if (addr >= DIALOGUE_BLOB_BASE)
+        return text_block_at(TEXT_SRC_DIALOGUE, addr - DIALOGUE_BLOB_BASE, out_block);
+    return text_block_at(TEXT_SRC_INLINE_STRINGS, addr, out_block);
 }
 
 /* Print a PSI name given a PSI name ID.
@@ -633,6 +686,24 @@ static bool display_text_load_dialogue_blob(void) {
     return dialogue_blob != NULL;
 }
 
+/* Japanese: bind the Japanese dialogue, inline strings and xlat. The US text
+ * stays bound too: an address xlat lacks prints its US bytes. */
+static bool display_text_load_ja_text(void) {
+#ifdef EB_HAVE_JA
+    if (!locale_is_ja())
+        return true;
+    ja_dialogue_blob = ASSET_DATA(ASSET_JA_TEXT_DIALOGUE_BIN);
+    ja_dialogue_blob_size = ASSET_SIZE(ASSET_JA_TEXT_DIALOGUE_BIN);
+    ja_inline_strings = ASSET_DATA(ASSET_JA_TEXT_INLINE_STRINGS_BIN);
+    ja_inline_strings_size = ASSET_SIZE(ASSET_JA_TEXT_INLINE_STRINGS_BIN);
+    ja_xlat = ASSET_DATA(ASSET_JA_TEXT_XLAT_BIN);
+    ja_xlat_count = ASSET_SIZE(ASSET_JA_TEXT_XLAT_BIN) / 8;
+    return ja_dialogue_blob != NULL && ja_xlat != NULL;
+#else
+    return true;
+#endif
+}
+
 static void bind_status_window_text(void);
 
 bool display_text_init(void) {
@@ -642,6 +713,7 @@ bool display_text_init(void) {
     bool ok = true;
     if (!display_text_load_inline_strings()) ok = false;
     if (!display_text_load_dialogue_blob()) ok = false;
+    if (!display_text_load_ja_text()) ok = false;
     bind_status_window_text();
     display_text_menus_bind_asset_tables();
     return ok;
@@ -707,9 +779,7 @@ void resolve_text_jump(ScriptReader *r, uint32_t addr) {
     TextBlock *blk = NULL;
     const uint8_t *ptr = resolve_text_addr(addr, &blk);
     if (ptr && blk) {
-        /* resolve_text_addr only resolves dialogue-blob / inline-string addresses,
-         * split on DIALOGUE_BLOB_BASE — matching its own range check. */
-        r->source  = (addr >= DIALOGUE_BLOB_BASE) ? TEXT_SRC_DIALOGUE : TEXT_SRC_INLINE_STRINGS;
+        r->source  = blk->source;
         r->ptr_off = (uint32_t)(ptr - blk->data);
         r->end_off = (uint32_t)blk->size;
     } else {
@@ -1395,7 +1465,7 @@ void print_enemy_article(uint16_t mode) {
             return;
     }
     /* Print "The " at start of line, "the " otherwise */
-    if (dt.last_printed_character == 0x70)
+    if (dt.last_printed_character == eb_char_bullet())
         print_string("The ");
     else
         print_string("the ");
@@ -1475,8 +1545,8 @@ void check_text_word_wrap(ScriptReader *reader) {
             ch = text_source_base(peek.source)[peek.ptr_off++];
         }
 
-        /* Word boundary: space (0x50) or control code (< 0x20) */
-        if (ch == 0x50) break;
+        /* Word boundary: space (US 0x50, Japanese 0x20) or control code (< 0x20) */
+        if (ch == eb_char_space()) break;
         if (ch < 0x20) break;
 
         /* Count this character as part of the word */
@@ -1485,10 +1555,11 @@ void check_text_word_wrap(ScriptReader *reader) {
         /* Measure character width */
         uint16_t char_width;
         if (ch == 0x2F) {
-            /* Assembly hardcodes width 8 for character 0x2F */
+            /* Assembly hardcodes width 8 for character 0x2F (Japanese '/' is a
+             * glyph, whose 7 + padding is 8 as well) */
             char_width = 8;
         } else {
-            uint8_t glyph_index = (ch - 0x50) & 0x7F;
+            uint8_t glyph_index = eb_glyph_index(ch);
             char_width = font_get_width(w->font, glyph_index) + character_padding;
         }
         accumulated_width += char_width;
@@ -1633,13 +1704,13 @@ static uint16_t dt_print_letter(uint8_t byte) {
     } else {
         play_sound = (dt.blinking_triangle_flag == 0);
     }
-    if (play_sound && byte != 0x20 && byte != 0x50) {
+    if (play_sound && byte != 0x20 && byte != eb_char_space()) {
         play_sfx(7);  /* SFX::TEXT_PRINT */
     }
 
     /* Typewriter delay (assembly lines 71-81). */
     uint16_t delay = (uint16_t)(dt.selected_text_speed + 1);
-    if (byte == 0x20 || byte == 0x2F || byte == EB_CHAR_EQUIPPED)
+    if (eb_char_is_direct_tile(byte))
         delay *= 2;  /* PRINT_CHAR_WITH_SOUND's delay loop, then this one */
     return delay;
 }
