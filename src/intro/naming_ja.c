@@ -301,7 +301,7 @@ void ja_text_input_prepare(ModeState *init, int name_target, int max_len,
 /* The keyboard frame: windows, the name box, the cursor (big on @CURSOR_SETUP's
  * WINDOW_TICK frame, then CURSOR_BLINK_UPPER/LOWER_TILES alternating every 9
  * input ticks), entity scripts, palettes, the battle BG. */
-static StepResult ja_kb_render(TextInputState *s, WindowInfo *kw, WindowInfo *nw) {
+static StepResult ja_kb_render(TextInputState *s, const WindowInfo *kw, WindowInfo *nw) {
     vwf_frame_reset();
     vwf_reserve_tiles(s->max_len * 2);
     render_all_windows();
@@ -465,7 +465,7 @@ int ja_naming_front(int naming_index, const uint8_t *name) {
 /* Print `len` letters of `name` right-aligned on row 1 of the focus window
  * (window_stats::width - COUNT_STRING_LENGTH). */
 static void ja_print_right_aligned(const uint8_t *name, int count_max, int print_len) {
-    WindowInfo *w = get_window(win.current_focus_window);
+    const WindowInfo *w = get_window(win.current_focus_window);
     if (!w) return;
     set_focus_text_cursor((uint16_t)(w->width - 2 - ja_name_len(name, count_max)), 1);
     print_eb_string(name, print_len);

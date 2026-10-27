@@ -597,7 +597,7 @@ static bool waiting_for_input(void) {
 
 static void print_eb(const uint8_t *s, int max) {
     for (int i = 0; i < max && s[i]; i++) {
-        char buf[3];
+        char buf[3] = {0};
         fwrite(buf, 1, (size_t)put_letter(buf, eb_char_to_ascii(s[i])), stdout);
     }
 }
