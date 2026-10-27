@@ -11,6 +11,7 @@ Writes ``<assets>/ja/`` only (docs/adr/0003-japanese-locale.md):
 - the naming data and the Mr. Saturn and title fonts (``ebtools.ja_naming``).
 - ``text_table.json``: the Japanese text table, for pack-all.
 - ``names/*.json``, ``ui_strings.json``: the interface (``ebtools.ja_interface``).
+- ``bin/``, ``text_window_tiles.bin``: graphics and cinematics (``ebtools.ja_graphics``).
 """
 
 import difflib
@@ -157,6 +158,10 @@ def extract_ja(
 
     interface_stats = extract_interface(rom, config, table, font_stats["glyphs"], out_dir)
     print(f"Interface: naming data, Mr. Saturn font ({interface_stats['mrsaturn_glyphs']} of his own glyphs), titles")
+    from ebtools.ja_graphics import extract_graphics
+
+    graphics = extract_graphics(rom, m2_doc, config.romSymbols, config.rom, out_dir)
+    print(f"Graphics and cinematics: {graphics} files")
 
     _report(us_msgs, jp_msgs, us2jp, ja_msgs, stats, inline_stats, font_stats, unresolved_presentation_labels)
     print(f"Interface: {len(names)} name tables, {len(ui)} UI strings")

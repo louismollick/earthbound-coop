@@ -14,6 +14,10 @@
  *   PLAY_FLYOVER_SCRIPT          (C49EC4.asm, 122 lines)
  *   COFFEETEA_SCENE              (coffee_tea_scene.asm, 139 lines)
  *   UNDRAW_FLYOVER_TEXT          (undraw_flyover_text.asm, 29 lines)
+ *
+ * Japanese (Mother 2, gated on locale_is_ja()): the scripts and the cinematic
+ * font are Mother 2's (JA/flyover_*.bin, JA/coffee.bin, JA/tea.bin,
+ * JA/fonts/flyover.gfx); see "Japanese flyovers" below.
  */
 
 #include "game/flyover.h"
@@ -104,6 +108,98 @@ static const AssetId flyover_script_ids[8] = {
 #define FLYOVER_ROW_BYTES    416
 /* Total VRAM size for flyover tiles: 32 rows × 416 bytes = 13312 = 0x3400 */
 #define FLYOVER_VRAM_TOTAL   0x3400
+
+/* SCROLL_FLYOVER_TEXT's argument at a 0x09 (line break): the US line is 24 px,
+ * Mother 2's 18 (play_flyover_script-jp.asm, coffee_tea_scene-jp.asm). */
+#define FLYOVER_LINE_US 24
+#define FLYOVER_LINE_JA 18
+static uint16_t flyover_line_height(void) {
+    return locale_is_ja() ? FLYOVER_LINE_JA : FLYOVER_LINE_US;
+}
+
+/* ======================================================================
+ * Japanese flyovers (Mother 2)
+ *
+ * A script byte that isn't a command starts a two-byte glyph code
+ * (first << 8 | second); glyph (code - 0x8000) of the cinematic font is a
+ * 12x12 1bpp bitmap of 18 bytes (DECOMP_ENTRY2: each pair of rows is 3 bytes,
+ * the first row's 12 bits then the second's), drawn by RENDER_VWF_GLYPH at
+ * (FLYOVER_VWF_X, FLYOVER_VWF_Y) in colour 3, 12 px apart. The VWF buffer is
+ * positive (0 = transparent) and 4 rows of 26 tiles, shifted up a row at a
+ * time by SCROLL_FLYOVER_TEXT.
+ * ====================================================================== */
+#define JA_FLYOVER_GLYPH_BASE   0x8000
+#define JA_FLYOVER_GLYPH_BYTES  18
+#define JA_FLYOVER_GLYPH_ROWS   12
+#define JA_FLYOVER_ADVANCE      12   /* RENDER_FLYOVER_TEXT_CHARACTER's Y */
+#define JA_FLYOVER_NAME_MAX     4    /* RENDER_PARTY_MEMBER_NAME's LDX #4 */
+#define JA_FLYOVER_VWF_ROWS     4    /* VWF_BUFFER = 4 rows of 26 tiles */
+
+#ifdef EB_HAVE_JA
+/* RENDER_VWF_GLYPH (asm/text/vwf/render_vwf_glyph.asm) with DECOMP_ENTRY2's
+ * glyph decode: each 12-px row overwrites the 12 pixels at FLYOVER_VWF_X
+ * (VWF_GLYPH_MASK_LEFT/CENTER/RIGHT), in the left, centre and right tiles. */
+static void ja_flyover_render_glyph(uint16_t code) {
+    uint16_t glyph = (uint16_t)(code - JA_FLYOVER_GLYPH_BASE);
+    const uint8_t *font = ASSET_DATA(ASSET_JA_FONTS_FLYOVER_GFX);
+    size_t font_size = ASSET_SIZE(ASSET_JA_FONTS_FLYOVER_GFX);
+    if ((size_t)(glyph + 1) * JA_FLYOVER_GLYPH_BYTES > font_size) return;
+    const uint8_t *g = font + (size_t)glyph * JA_FLYOVER_GLYPH_BYTES;
+
+    uint16_t shift = flyover_vwf_x & 7;
+    uint16_t sub_y = flyover_vwf_y & 7;
+    uint16_t pos = (uint16_t)((((flyover_vwf_y >> 3) * flyover_tiles_per_row +
+                                (flyover_vwf_x >> 3) + flyover_tile_offset) * 8 + sub_y) * 2);
+    if (pos < flyover_dirty_min) flyover_dirty_min = pos;   /* UPDATE_VWF_DIRTY_MIN */
+    /* The masks of the three tiles: 12 bits from `shift` in a 24-bit row. */
+    uint32_t mask = 0xFFFu << (12 - shift);
+
+    for (int row = 0; row < JA_FLYOVER_GLYPH_ROWS; row++) {
+        const uint8_t *pair = g + (row / 2) * 3;
+        uint16_t bits = (row & 1) ? (uint16_t)(((pair[1] & 0x0F) << 8) | pair[2])
+                                  : (uint16_t)((pair[0] << 4) | (pair[1] >> 4));
+        uint32_t v = (uint32_t)bits << (12 - shift);
+        for (int t = 0; t < 3; t++) {
+            uint8_t m = (uint8_t)(mask >> (16 - 8 * t));
+            if (!m) continue;
+            uint8_t b = (uint8_t)(v >> (16 - 8 * t));
+            uint32_t at = (uint32_t)pos + (uint32_t)t * 16;
+            if (at + 1 >= sizeof(flyover_vwf)) continue;
+            /* Both planes: the glyph is colour 3. */
+            flyover_vwf[at]     = (uint8_t)((flyover_vwf[at] & ~m) | (b & m));
+            flyover_vwf[at + 1] = (uint8_t)((flyover_vwf[at + 1] & ~m) | (b & m));
+        }
+        pos += 2;
+        if (row == JA_FLYOVER_GLYPH_ROWS - 1) break;
+        sub_y = (sub_y + 1) & 7;
+        if (sub_y == 0)   /* next tile row, same column */
+            pos = (uint16_t)(pos + (flyover_tiles_per_row - 1) * 16);
+    }
+    pos = (uint16_t)(pos + 16 + ((mask & 0xFF) ? 16 : 0));
+    if (pos > flyover_dirty_max) flyover_dirty_max = pos;   /* UPDATE_VWF_DIRTY_MAX */
+}
+
+/* RENDER_FLYOVER_TEXT_CHARACTER (render_flyover_text_character-jp.asm). */
+static void ja_flyover_render_text_char(uint8_t first, uint8_t second) {
+    ja_flyover_render_glyph((uint16_t)((first << 8) | second));
+    flyover_vwf_x = (uint16_t)(flyover_vwf_x + JA_FLYOVER_ADVANCE);
+}
+
+/* RENDER_PARTY_MEMBER_NAME (render_party_member_name-jp.asm): up to 4 letters
+ * of the name, each through JP_FONT_WIDTH_TABLE (text code - 0x20 -> glyph). */
+static void ja_flyover_render_party_name(uint16_t char_id) {
+    if (char_id < 1 || char_id > 4) return;
+    const uint8_t *map = ASSET_DATA(ASSET_JA_FONTS_FLYOVER_MAP_BIN);
+    size_t map_size = ASSET_SIZE(ASSET_JA_FONTS_FLYOVER_MAP_BIN);
+    const uint8_t *name = party_characters[char_id - 1].name;
+    for (int i = 0; i < JA_FLYOVER_NAME_MAX && name[i] != 0; i++) {
+        size_t idx = (size_t)(name[i] - 0x20);
+        if (name[i] < 0x20 || idx >= map_size) continue;
+        ja_flyover_render_glyph((uint16_t)(map[idx] + JA_FLYOVER_GLYPH_BASE));
+        flyover_vwf_x = (uint16_t)(flyover_vwf_x + JA_FLYOVER_ADVANCE);
+    }
+}
+#endif /* EB_HAVE_JA */
 
 /* ======================================================================
  * BLIT_FONT_TO_VWF_BUFFER (C49875)
@@ -208,6 +304,22 @@ static void flyover_render_text_char(uint16_t eb_char) {
     flyover_render_large_char(eb_char);
 }
 
+/* A script byte that is no command: one character (US), or the first byte of
+ * a two-byte glyph code (Mother 2; the second byte follows). */
+static void flyover_script_text(const uint8_t *script, uint32_t size, uint32_t *pos,
+                                uint8_t first) {
+#ifdef EB_HAVE_JA
+    if (locale_is_ja()) {
+        if (*pos < size)
+            ja_flyover_render_text_char(first, script[(*pos)++]);
+        return;
+    }
+#else
+    (void)script; (void)size; (void)pos;
+#endif
+    flyover_render_text_char((uint16_t)first);
+}
+
 /* ======================================================================
  * RENDER_PARTY_MEMBER_NAME (C49CC3)
  *
@@ -218,6 +330,9 @@ static void flyover_render_text_char(uint16_t eb_char) {
  * BRANCHGTS after CLC;SBC #79: branches while char > 0x50 (0x50 = space)
  * ====================================================================== */
 static void flyover_render_party_name(uint16_t char_id) {
+#ifdef EB_HAVE_JA
+    if (locale_is_ja()) { ja_flyover_render_party_name(char_id); return; }
+#endif
     if (char_id < 1 || char_id > 4) return;
     CharStruct *ch = &party_characters[char_id - 1];
 
@@ -297,8 +412,9 @@ static void flyover_init_screen_body(void) {
     }
     ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
 
-    /* Fill VWF ert.buffer with 0xFF (all background) */
-    memset(flyover_vwf, 0xFF, sizeof(flyover_vwf));
+    /* Fill VWF ert.buffer with 0xFF (all background). Mother 2's buffer is
+     * positive: 0 (init_flyover_text_screen-jp.asm). */
+    memset(flyover_vwf, locale_is_ja() ? 0x00 : 0xFF, sizeof(flyover_vwf));
 
     /* Build BG2_BUFFER tilemap: 32 rows × 32 columns.
      * Columns 0-2 and 29-31: empty (0). Columns 3-28: tile indices with palette bit.
@@ -370,11 +486,15 @@ static void flyover_init_screen(void) {
  * Upload size = 0x04E0 bytes (3 rows).
  * ====================================================================== */
 static void flyover_upload_vwf_to_vram_work(void) {
-    flyover_invert_vwf();
+    /* Mother 2 (upload_vwf_buffer_to_vram-jp.asm): the buffer is already
+     * positive, and the rows start at the tilemap's first tile (16). */
+    if (!locale_is_ja())
+        flyover_invert_vwf();
 
     uint16_t row_start = flyover_screen_offset * FLYOVER_ROW_BYTES;  /* offset * 0x1A0 */
     uint16_t upload_size = 0x04E0;  /* 3 rows */
-    uint16_t vram_tile_start = VRAM_TEXT_LAYER_TILES + 0x150;  /* word address */
+    uint16_t vram_tile_start = VRAM_TEXT_LAYER_TILES +
+        (locale_is_ja() ? 0x80 : 0x150);  /* word address */
 
     if (row_start + upload_size > FLYOVER_VRAM_TOTAL) {
         /* Wrap case: upload spans the 32-row boundary */
@@ -415,6 +535,21 @@ static void flyover_scroll_text(uint16_t advance_y) {
     flyover_vwf_y += advance_y;
     flyover_vwf_x = 0;
 
+    if (locale_is_ja()) {
+        /* Mother 2: the screen moves by whole rows passed, and the VWF buffer
+         * shifts up by them instead of being cleared. */
+        uint16_t rows = flyover_vwf_y >> 3;
+        flyover_screen_offset += rows;
+        if (flyover_screen_offset >= 32)
+            flyover_screen_offset -= 32;
+        if (rows > JA_FLYOVER_VWF_ROWS) rows = JA_FLYOVER_VWF_ROWS;
+        size_t keep = (size_t)(JA_FLYOVER_VWF_ROWS - rows) * FLYOVER_ROW_BYTES;
+        memmove(flyover_vwf, flyover_vwf + (size_t)rows * FLYOVER_ROW_BYTES, keep);
+        memset(flyover_vwf + keep, 0, (size_t)rows * FLYOVER_ROW_BYTES);
+        flyover_vwf_y &= 0x0007;
+        return;
+    }
+
     /* Assembly (US): advance_y/8 + 1 rows added to screen offset */
     uint16_t rows = (flyover_vwf_y >> 3) + 1;
     flyover_screen_offset += rows;
@@ -440,6 +575,12 @@ static void flyover_scroll_text(uint16_t advance_y) {
  * Used by flyover script opcode 0x01 for indentation/spacing.
  * ====================================================================== */
 static void flyover_advance_pixel_offset(uint16_t advance) {
+    if (locale_is_ja()) {
+        /* Mother 2 (advance_flyover_pixel_offset-jp.asm): the argument is the
+         * line's width in half glyphs, centred in 208 px: X = 104 - n * 24 / 8. */
+        flyover_vwf_x = (uint16_t)(104 - (((advance & 0xFF) * 24) >> 3));
+        return;
+    }
     uint16_t val = (advance & 0xFF) + 8;
     flyover_pixel_offset += val;
     /* byte_offset = (pixel_offset / 8) * 16 */
@@ -460,8 +601,8 @@ static uint16_t flyover_advance_text_line(uint16_t accumulator) {
     oam_clear();
 
     uint16_t old_high = accumulator & 0xFF00;
-    /* US retail: advance by 64 per tick */
-    uint16_t new_accum = accumulator + 64;
+    /* US retail: advance by 64 per tick; Mother 2 by 80 */
+    uint16_t new_accum = accumulator + (locale_is_ja() ? 80 : 64);
     uint16_t new_high = new_accum & 0xFF00;
 
     if (new_high != old_high) {
@@ -571,7 +712,7 @@ StepResult mode_step_flyover(ModeState *st) {
             const uint8_t *script = ASSET_DATA(flyover_script_ids[s->id]);
             /* opcode 0x09 continuation: upload (yielded) -> wait -> scroll. */
             if (s->sub == 1) { s->sub = 2; return STEP_RESULT_CONTINUE(); }
-            if (s->sub == 2) { flyover_scroll_text(24); s->sub = 0; }
+            if (s->sub == 2) { flyover_scroll_text(flyover_line_height()); s->sub = 0; }
 
             int to_fadein = 0;
             while (!to_fadein) {
@@ -593,7 +734,7 @@ StepResult mode_step_flyover(ModeState *st) {
                     if (s->pos < s->script_size)
                         flyover_render_party_name(script[s->pos++]);
                 } else {
-                    flyover_render_text_char((uint16_t)opcode);
+                    flyover_script_text(script, s->script_size, &s->pos, opcode);
                 }
             }
 
@@ -766,13 +907,16 @@ StepResult mode_step_flyover(ModeState *st) {
              * update_battle_screen_effects(), then either advance + yield again or
              * finish the line. */
             if (s->sub == 1) {
+                /* The line's scroll: 32 px of the accumulator's high byte (US),
+                 * 18 (Mother 2, coffee_tea_scene-jp.asm's 4608). */
+                uint16_t line_accum = locale_is_ja() ? (FLYOVER_LINE_JA << 8) : 8192;
                 update_battle_screen_effects();
-                if (s->scroll_accum < 8192) {
+                if (s->scroll_accum < line_accum) {
                     s->scroll_accum = flyover_advance_text_line(s->scroll_accum);
                     return STEP_RESULT_CONTINUE();
                 }
-                s->scroll_accum -= 8192;
-                flyover_scroll_text(24);
+                s->scroll_accum -= line_accum;
+                flyover_scroll_text(flyover_line_height());
                 s->sub = 0;
             }
 
@@ -794,7 +938,7 @@ StepResult mode_step_flyover(ModeState *st) {
                     if (s->pos < s->script_size)
                         flyover_render_party_name(script[s->pos++]);
                 } else {
-                    flyover_render_text_char((uint16_t)opcode);
+                    flyover_script_text(script, s->script_size, &s->pos, opcode);
                 }
             }
 

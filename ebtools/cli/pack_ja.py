@@ -12,6 +12,8 @@ Called by ``pack-all`` after the US packers.  Writes ``<output>/JA/``:
 - The interface (``ebtools.ja_interface``): every US name table with the
   Mother 2 names, at the US table's path, and ``text/ui_strings.bin``.
 - the naming data and the Mr. Saturn and title fonts (``ebtools.ja_naming``).
+- graphics and cinematics (``ebtools.ja_graphics``): Mother 2 data at the US
+  asset's path, and Japanese-only fonts and tables.
 
 Without ``<assets>/ja/`` it removes a stale ``<output>/JA/`` and writes nothing.
 """
@@ -71,14 +73,20 @@ def pack_ja(
         print("Warning: skipping the Japanese Locale, no US dialogue was packed", file=sys.stderr)
         return 0
 
+    from ebtools.ja_graphics import graphics_are_current
     from ebtools.ja_interface import interface_is_current as names_are_current
     from ebtools.ja_naming import interface_is_current
 
     # A Japanese extraction from an older ebtools must not break the English build
-    if not (ja_dir / JA_TEXT_TABLE_FILE).exists() or not interface_is_current(ja_dir) or not names_are_current(ja_dir):
+    if (
+        not (ja_dir / JA_TEXT_TABLE_FILE).exists()
+        or not interface_is_current(ja_dir)
+        or not names_are_current(ja_dir)
+        or not graphics_are_current(ja_dir)
+    ):
         print(
-            "Warning: skipping the Japanese Locale, its text table, names, UI strings, naming data or fonts "
-            "are missing or stale (rerun `ebtools extract-ja`)",
+            "Warning: skipping the Japanese Locale, its text table, names, UI strings, naming data, fonts or "
+            "graphics are missing or stale (rerun `ebtools extract-ja`)",
             file=sys.stderr,
         )
         return 0
@@ -161,6 +169,11 @@ def pack_ja(
         for rel, data in interface.items():
             _write(out / rel, data)
         naming_files = pack_naming(ja_dir, out, reverse_table)
+        from ebtools.ja_graphics import pack_graphics
+
+        graphics = pack_graphics(ja_dir, us_table)
+        for rel, data in graphics.items():
+            _write(out / rel, data)
     except (ValueError, KeyError, OSError) as exc:
         # e.g. a name table pointing at a US label deleted after extract-ja
         shutil.rmtree(out, ignore_errors=True)
@@ -173,11 +186,11 @@ def pack_ja(
     print(
         f"  Packed Japanese Locale: dialogue {len(blob)} bytes, inline strings {len(inline_blob)} bytes, "
         f"xlat {len(xlat)} entries, font {len(widths)} glyphs, {len(interface)} interface tables, "
-        f"{naming_files} naming files"
+        f"{naming_files} naming files, {len(graphics)} graphics and cinematics files"
     )
     if stale:
         print(f"  Warning: {stale} US inline strings missing from ja/inline_strings.json print nothing")
-    return 4 + len(interface)
+    return 4 + len(interface) + len(graphics)
 
 
 def _write(path: Path, data: bytes) -> None:
