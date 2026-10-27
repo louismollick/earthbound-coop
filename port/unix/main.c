@@ -11,7 +11,10 @@
 #include "game/smooth_camera.h"
 #include "coop/coop.h"
 #include "coop/coop_look.h"
+#include "net/launcher.h"
 #include "net/net.h"
+#include "net/relay.h"
+#include "net/ui.h"
 
 /* Unix-specific: set save file path (defined in sdl2_save.c) */
 void platform_save_set_path(const char *path);
@@ -20,6 +23,7 @@ void platform_savestate_set_path(const char *prefix);
 /* Unix-specific: scripted input playback (defined in sdl2_input_script.c) */
 bool input_script_open(const char *path);
 bool input_script_open_session(const char *path);
+bool input_script_active(void);
 void input_script_root_boundary(void);
 /* Unix-specific: headless video/audio recording (defined in sdl2_record.c) */
 bool record_open_video(const char *path);
@@ -44,7 +48,8 @@ int main(int argc, char *argv[]) {
     bool look_selftest = false;
     const char *coldload_prefix = NULL;
     int players = 1;
-    NetConfig net = { .input_delay = NET_DEFAULT_INPUT_DELAY, .local_players = 1 };
+    bool force_launcher = false;
+    NetConfig net = { .input_delay = 0, .local_players = 1 }; /* delay 0: auto */
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--verify") == 0 && i + 1 < argc) {
@@ -107,6 +112,17 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(argv[i], "--join") == 0 && i + 1 < argc) {
             /* Online co-op: join the Session at ADDR[:PORT] */
             net.join = argv[++i];
+        } else if (strcmp(argv[i], "--host-room") == 0) {
+            /* Online co-op: host a Session in a room at the relay (--relay or online.cfg) */
+            net.host_room = true;
+        } else if (strcmp(argv[i], "--join-room") == 0 && i + 1 < argc) {
+            /* Online co-op: join the relay room of an invite ("RELAY/CODE") */
+            net.join_room = argv[++i];
+        } else if (strcmp(argv[i], "--relay") == 0 && i + 1 < argc) {
+            net.relay = argv[++i];
+        } else if (strcmp(argv[i], "--launcher") == 0) {
+            /* Show the launcher even headless or scripted (tests) */
+            force_launcher = true;
         } else if (strcmp(argv[i], "--input-delay") == 0 && i + 1 < argc) {
             net.input_delay = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--local-players") == 0 && i + 1 < argc) {
@@ -128,15 +144,20 @@ int main(int argc, char *argv[]) {
                 verbose_level++;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--smooth-camera] [--players N] [--host PORT] [--join ADDR[:PORT]] [--input-delay N] [--local-players N] [--verbose] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX] [--selftest-look]\n",
+            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--smooth-camera] [--players N] [--host PORT] [--join ADDR[:PORT]] [--host-room] [--join-room INVITE] [--relay URL] [--launcher] [--input-delay N] [--local-players N] [--verbose] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX] [--selftest-look]\n",
                     argv[0]);
             return 1;
         }
     }
 
-    bool netplay = net.host_port > 0 || net.join;
-    if (net.host_port > 0 && net.join) {
-        fprintf(stderr, "--host and --join are exclusive\n");
+    int modes = (net.host_port > 0) + (net.join != NULL) + net.host_room + (net.join_room != NULL);
+    bool netplay = modes > 0;
+    if (modes > 1) {
+        fprintf(stderr, "--host, --join, --host-room and --join-room are exclusive\n");
+        return 1;
+    }
+    if (net.host_room && !net.relay && !(net.relay = launcher_saved_relay())) {
+        fprintf(stderr, "--host-room needs a relay: --relay URL (see relay/README.md)\n");
         return 1;
     }
     if (netplay && (players > 1 || savestate_selftest || coldload_prefix || look_selftest)) {
@@ -176,18 +197,36 @@ int main(int argc, char *argv[]) {
     atexit(platform_cleanup);
     platform_timer_init();
 
-    /* Online co-op: connect before game_init (a client moves its SRAM to a temp
-     * file first, so it never writes the local save) */
+    /* The launcher, in a window started without a Session, script or test flags:
+     * Play, or start an online Session there */
+    bool launcher = force_launcher || (!platform_headless && !netplay && !input_script_active() && players == 1 &&
+                                       !savestate_selftest && !look_selftest && !coldload_prefix);
+    if (launcher && relay_supported()) {
+        LaunchChoice choice = launcher_run(&net);
+        if (choice == LAUNCH_QUIT)
+            return 0;
+        netplay = choice == LAUNCH_ONLINE;
+    } else if (netplay && !net_start(&net)) {
+        /* Online co-op: connect before game_init (a client moves its SRAM to a temp
+         * file first, so it never writes the local save) */
+        return 1;
+    }
     if (netplay) {
-        if (!net_start(&net))
-            return 1;
         atexit(net_shutdown); /* runs before platform_cleanup */
+        NetStatus st;
+        net_status(&st);
+        if (st.invite[0]) {
+            launcher_remember(st.host ? net.relay : NULL, st.invite);
+            /* The Host hands the invite out: it's on the clipboard */
+            if (st.host && !platform_headless && SDL_SetClipboardText(st.invite) == 0)
+                net_overlay_invite_copied();
+        }
     }
 
     /* Initialize game systems */
     game_init();
     /* The Host's local Players are in from the start, like --players */
-    if (net.host_port > 0)
+    if (net.host_port > 0 || net.host_room)
         players = net.local_players;
     for (int p = 1; p < players; p++)
         coop_join(p);

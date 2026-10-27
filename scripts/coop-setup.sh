@@ -24,7 +24,7 @@ case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) WIN=1 ;; esac
 [ -f earthbound.sfc ] || { echo "ERROR: put the US EarthBound ROM at $ROOT/earthbound.sfc"; exit 1; }
 if [ "$WIN" = 1 ]; then
   MSYS2="${EB_MSYS2:-/c/msys64}"
-  PKGS="mingw-w64-ucrt-x86_64-{gcc,SDL2,ninja,cmake,pkgconf} mingw-w64-clang-x86_64-{clang,compiler-rt,SDL2}"
+  PKGS="mingw-w64-ucrt-x86_64-{gcc,SDL2,ninja,cmake,pkgconf,curl} mingw-w64-clang-x86_64-{clang,compiler-rt,SDL2}"
   [ -x "$MSYS2/ucrt64/bin/gcc.exe" ] && [ -f "$MSYS2/ucrt64/lib/pkgconfig/sdl2.pc" ] ||
     { echo "ERROR: no MSYS2 UCRT64 gcc + SDL2 in $MSYS2 (set EB_MSYS2; pacman -S $PKGS)"; exit 1; }
   export PATH="$MSYS2/ucrt64/bin:$PATH" PYTHONUTF8=1 CMAKE_GENERATOR=Ninja
@@ -36,6 +36,8 @@ else
     command -v "$t" >/dev/null || { echo "ERROR: missing $t (brew install cmake pkg-config sdl2 uv)"; exit 1; }
   done
   pkg-config --exists sdl2 || { echo "ERROR: SDL2 not found (brew install sdl2)"; exit 1; }
+  [ "$(uname -s)" != Darwin ] || [ -d /opt/homebrew/opt/curl ] || [ -d /usr/local/opt/curl ] ||
+    log "no Homebrew curl: the builds get no relay support (brew install curl)"
 fi
 
 log "submodules"
@@ -65,6 +67,13 @@ for i in "${!SAVES[@]}"; do
   cp "$(find "$tmp/x" -iname 'earthbound.srm' | head -1)" "playtest/saves/$name.srm"
   rm -rf "$tmp"
 done
+
+log "relay (for the net_relay scenario)"
+if command -v npm >/dev/null; then
+  (cd relay && npm ci --silent)
+else
+  log "no npm: skipped; net_relay needs Node 24 and npm ci in relay/"
+fi
 
 log "assets"
 if [ ! -f asm/bin/assets.manifest ] || [ ! -f src/assets/items/items.json ] || [ ! -f src/assets/music_tracks.json ]; then

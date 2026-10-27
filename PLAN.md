@@ -10,7 +10,7 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - **Ownership.** Heroes are dealt round-robin to Players by join order. A Player walks their Walker, and their other owned members trail behind it. In battle, each Player picks commands for every Hero they own.
 - **Absent Hero.** A Player whose Heroes are all out of the Party stands in for a Guest if there is one, and otherwise spectates. Solo Chapters fall out of this rule.
 - **Battle input** is sequential, as in the original. Simultaneous input is M7 (built as claimed menus: see the M7 decisions).
-- **Online** is input lockstep with a small fixed input delay and no rollback. The Host owns the save, and a joining Player receives a savestate.
+- **Online** is input lockstep with a small input delay and no rollback. The Host owns the save, and a joining Player receives a savestate. Since M8 the Host sets the delay from the pings, and Sessions can run through a Relay.
 - **Windows (M5) is done on the user's Windows PC** (a separate session; `docs/coop-windows.md`). Other machines don't work on it, but run `framedigest.py check base` (in `coop-gates.sh --framehash`) so every OS keeps matching.
 
 ## Working rules
@@ -124,6 +124,14 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 - [x] Solo Chapter Companion (CONTEXT.md): Spectators walk a Mr. Saturn (existing overworld sprite) during Solo Chapters. Overworld only, sits out battles. A Companion can trigger Look-only interactions (static scan of the text script); anything else plays a Mr. Saturn sound with no text. On by default, no flag.
 - [x] Battle rotation in Solo Chapters: the solo Hero's command menu goes to its Owner, then each Spectator in join order, one turn each.
 
+## M8 Relay
+
+- [x] Relay server in `relay/`: a Cloudflare Worker with one Durable Object per Room (Deploy to Cloudflare button), and the same protocol in Node for a VPS (`relay/node/server.ts`, also what the tests run).
+- [x] The game reaches it over WebSocket (libcurl 8.14+, optional at build time): `--host-room`, `--join-room INVITE`, `--relay URL`. `net/transport.h` keeps `session.c` the same on UDP and the Relay.
+- [x] Launcher before the game (Play, Host online, Join online) in a window when the build has relay support. The Host's invite goes to the clipboard; Join fills it from the clipboard.
+- [x] Auto input delay from measured round trips; status overlay (room code, joins and leaves, F4 pings and delay); a message box when a Session ends in a window.
+- [x] Scenarios: `net_relay` (3 machines through the Node relay, auto delay), `net_auto_delay` (the delay rises and falls while a client plays).
+
 ## Decisions made during the build
 
 - Controllers are assigned to the first free Player slot in connection order; the first controller is P1 together with the keyboard, the IJKL layout is P2 together with the second controller. Headless runs never open controllers. (M0)
@@ -167,6 +175,9 @@ Vocabulary is in `CONTEXT.md`. Architecture decisions are in `docs/adr/`. Enviro
 
 - Windows toolchain: MSYS2 UCRT64 (gcc + SDL2 + Ninja), console subsystem with `SDL_MAIN_HANDLED` (headless runs print; no SDL2main), SDL2.dll copied next to the exe. ASan+UBSan via MSYS2 CLANG64 (gcc has no ASan on MinGW), without -Werror. (M5)
 - Windows harness: named pipes instead of FIFOs, served by the game (a `\\.\pipe\NAME` path for `--session` or `--record-video`), so the Python drivers stay clients as on Unix. No Windows baseline build: the vanilla gate there uses the tracked goldens and the cross-OS frame digest. (M5)
+- Relay transport is WebSocket only (no UDP relay): Cloudflare Workers take no inbound UDP, and a browser build could use the same Relay. It's TCP, so the Session stops resending over it (resends would only spend the free plan's quota). (M8)
+- The auto delay changes only where no join is in flight: before a capture (from the joiner's ping, which the Host waits up to 2 s for) and on a leave. Every machine samples its pad once per frame into every frame from its last one up to f + D, so a delay change needs no agreement on when it happens: a longer delay repeats the pad into the frames it skips, a shorter one writes nothing until f + D passes what was already sent. A joiner takes the delay from the game state blob. (M8)
+- The launcher shows only in a window with relay support and no session, script or test flags, so headless runs, tests and a build without libcurl start exactly as before. The status overlay is drawn after the PPU (not in game state) and only in a window, since the net scenarios compare every machine's screenshots. (M8)
 - Checkouts are LF on every OS (`.gitattributes`); generated tracked files are written UTF-8 + LF, and CMake decodes git output as UTF-8, so a Windows and a Mac tree of the same commit get the same netplay fingerprint. (M5)
 
 ## Blocked

@@ -99,7 +99,7 @@ bool coop_battle_claiming(void) {
 }
 
 void coop_battle_note_claims(const uint16_t pressed[PLATFORM_MAX_PLAYERS], int focus) {
-    ModeState *ms = mode_state(GAME_MODE_BATTLE);
+    const ModeState *ms = mode_state(GAME_MODE_BATTLE);
     if (!coop.claiming || !ms || !menu_loop_phase(ms->battle.phase))
         return;
     for (int p = 0; p < PLATFORM_MAX_PLAYERS; p++) {
@@ -232,7 +232,7 @@ void coop_battle_retitle(void) {
     if (!ms || ms->battle_menu.phase == BM_ENTER)
         return; /* no command window built yet */
     uint8_t char_id = (uint8_t)ms->battle_menu.char_id;
-    WindowInfo *w = get_window(battle_menu_window_id(ms->battle_menu.window_index));
+    const WindowInfo *w = get_window(battle_menu_window_id(ms->battle_menu.window_index));
     if (!w || char_id < 1 || char_id > COOP_HERO_COUNT)
         return;
     /* As bm_build_menu: the Hero's name (5 letters at most), then the tag */

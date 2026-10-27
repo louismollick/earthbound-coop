@@ -48,3 +48,6 @@ docs/plans/
 # Playtest story saves (third-party, see playtest/README.md)
 playtest/saves/
 playtest/out/
+
+# Online co-op launcher settings (port/unix/net/launcher.c)
+online.cfg

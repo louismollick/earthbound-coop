@@ -39,7 +39,7 @@ static bool owns_entity(int p, const CoopCompanion *c) {
 
 /* Put the entity where the state says: position, surface, facing and walking
  * frame (re-rendered only when facing or frame changed). */
-static void present(CoopCompanion *c) {
+static void present(const CoopCompanion *c) {
     int16_t e = c->entity;
     entities.abs_x[e] = (int16_t)c->x;
     entities.abs_y[e] = (int16_t)c->y;
