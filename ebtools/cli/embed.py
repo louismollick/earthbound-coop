@@ -13,6 +13,11 @@ from cyclopts import Parameter
 # Locale prefixes in priority order.
 _LOCALE_PREFIXES = ("US/", "JP/")
 
+# Japanese Locale assets (pack-all's JA/ output, docs/adr/0003-japanese-locale.md).
+# Not a locale family: JA/ assets keep their own ids and override the asset with
+# the same unprefixed path at run time (asset_ja_override).
+_JA_PREFIX = "JA/"
+
 
 def _path_to_identifier(path: str) -> str:
     """Convert a relative file path to a valid C identifier."""
@@ -148,6 +153,23 @@ def _build_locale_map(all_paths: set[str], locale: str) -> dict[str, str]:
             base = path[len(prefix) :]
             locale_map[base] = path
     return locale_map
+
+
+def _ja_overrides(path_to_enum: dict[str, str], locale_map: dict[str, str]) -> dict[str, str]:
+    """Map each asset's enum name to the enum name of its ``JA/`` variant.
+
+    ``JA/<path>`` overrides the asset whose unprefixed path is ``<path>``: the
+    locale asset (``US/<path>``) if there is one, else the common ``<path>``.
+    """
+    out: dict[str, str] = {}
+    for path, ja_enum in path_to_enum.items():
+        if not path.startswith(_JA_PREFIX):
+            continue
+        base = path[len(_JA_PREFIX) :]
+        target = locale_map.get(base, base)
+        if target in path_to_enum:
+            out[path_to_enum[target]] = ja_enum
+    return out
 
 
 def _family_macro_name(dir_part: str) -> str:
@@ -341,6 +363,15 @@ def embed_registry(
             ids_lines.append(f"#define {alias} {target}")
         ids_lines.append("")
 
+    # Japanese Locale overrides
+    ja_override = _ja_overrides(path_to_enum, locale_map)
+    ids_lines.append("/* Japanese Locale: asset_ja_override[id] is the JA/ variant of id, or -1 */")
+    if any(path.startswith(_JA_PREFIX) for path in sorted_paths):
+        ids_lines.append("#define EB_HAVE_JA 1")
+    ids_lines.append("extern const int16_t asset_ja_override[ASSET_COUNT];")
+    ids_lines.append("extern const uint8_t asset_is_ja[ASSET_COUNT];")
+    ids_lines.append("")
+
     # Per-family array declarations and accessor macros
     ids_lines.append("/* Per-family lookup (for runtime-indexed access) */")
     ids_lines.append("typedef struct { const unsigned char *data; const unsigned int *size_ptr; } AssetFamilyEntry;")
@@ -429,6 +460,20 @@ def embed_registry(
                 array_lines.append(f"    {{ 0, 0 }}, /* {idx} [gap] */")
         array_lines.append("};")
         array_lines.append("")
+
+    # Japanese Locale tables (no pointers, so no EBASSET_TABLE_ATTR)
+    values = [ja_override.get(enum_name, "-1") for enum_name, _comment in enum_entries]
+    array_lines.append("const int16_t asset_ja_override[ASSET_COUNT] = {")
+    for i in range(0, len(values), 8):
+        array_lines.append("    " + " ".join(f"{v}," for v in values[i : i + 8]))
+    array_lines.append("};")
+    ja_ids = sorted({path_to_enum[p] for p in path_to_enum if p.startswith(_JA_PREFIX)})
+    array_lines.append("const uint8_t asset_is_ja[ASSET_COUNT] = {")
+    array_lines.extend(f"    [{enum_name}] = 1," for enum_name in ja_ids)
+    if not ja_ids:
+        array_lines.append("    0")
+    array_lines.append("};")
+    array_lines.append("")
 
     array_path = output_dir / "embedded_assets_array.c"
     array_path.write_text("\n".join(array_lines))
