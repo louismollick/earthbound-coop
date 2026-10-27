@@ -94,6 +94,25 @@ static const uint16_t window_configs[][4] = {
 };
 #define WINDOW_CONFIG_COUNT (sizeof(window_configs) / sizeof(window_configs[0]))
 
+/* Japanese: the JPN entries of WINDOW_CONFIGURATION_TABLE for the windows whose
+   Japanese layout the port draws from the JPN asm (the naming screens:
+   src/intro/naming_ja.c). A zero width falls back to window_configs. */
+static const uint16_t window_configs_ja[][4] = {
+    [0x1A] = {  5,  2,  9,  4 },  /* Naming Box */
+    [0x1B] = { 14,  2, 16,  4 },  /* "Name This Friend" */
+    [0x1C] = {  1,  7, 30, 20 },  /* Name input box: 9 text rows (keys, pages, buttons) */
+    [0x1D] = {  7,  3,  6,  4 },  /* Ness's Name */
+    [0x1E] = {  7,  7,  6,  4 },  /* Paula's Name */
+    [0x1F] = {  7, 11,  6,  4 },  /* Jeff's Name */
+    [0x20] = {  7, 15,  6,  4 },  /* Poo's Name */
+    [0x21] = { 20,  3,  8,  4 },  /* King's Name */
+    [0x22] = { 14,  7, 14,  6 },  /* Favourite Food */
+    [0x23] = { 14, 13, 14,  6 },  /* Favourite Thing */
+    [0x24] = {  4, 21, 24,  4 },  /* "Are you sure?" */
+    [0x27] = {  3,  1, 26,  6 },  /* Naming prompt */
+};
+#define WINDOW_CONFIG_JA_COUNT (sizeof(window_configs_ja) / sizeof(window_configs_ja[0]))
+
 /* windows[], titled_windows[], and menu_backup_* now in WindowSystemState win. */
 WindowSystemState win = {
     .current_focus_window = WINDOW_ID_NONE,
@@ -177,7 +196,12 @@ WindowInfo *create_window(uint16_t window_id) {
         w->active = true;
         w->id = window_id;
 
-        if (window_id < WINDOW_CONFIG_COUNT && window_configs[window_id][2] > 0) {
+        if (locale_is_ja() && window_id < WINDOW_CONFIG_JA_COUNT && window_configs_ja[window_id][2] > 0) {
+            w->x = window_configs_ja[window_id][0];
+            w->y = window_configs_ja[window_id][1];
+            w->width = window_configs_ja[window_id][2];
+            w->height = window_configs_ja[window_id][3];
+        } else if (window_id < WINDOW_CONFIG_COUNT && window_configs[window_id][2] > 0) {
             w->x = window_configs[window_id][0];
             w->y = window_configs[window_id][1];
             w->width = window_configs[window_id][2];

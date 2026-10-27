@@ -20,6 +20,13 @@
 #define FONT_CHAR_COUNT   96
 /* Number of characters in the Japanese font (codes 0x20-0xFF) */
 #define JA_FONT_CHAR_COUNT 224
+/* Glyphs in the Japanese fonts (main, Mr. Saturn): the 224 codes, then the
+ * two marks Mother 2 draws for codes below 0x20 (ebtools/ja_locale.py
+ * JA_EXTRA_GLYPH_CODES): the dakuten and handakuten, the naming keyboard's
+ * keys and Mr. Saturn's marks. */
+#define JA_FONT_GLYPHS      226
+#define JA_GLYPH_DAKUTEN    224
+#define JA_GLYPH_HANDAKUTEN 225
 
 /* Special EB text character codes (from CHAR enum in include/macros.asm) */
 #define EB_CHAR_EQUIPPED  0x22  /* CHAR::EQUIPPED — purple oval with "E" (both encodings) */
@@ -27,6 +34,8 @@
 #define JA_CHAR_SPACE     0x20  /* Mother 2's CHAR::SPACE — first Japanese font glyph */
 #define EB_CHAR_BULLET    0x70  /* CHAR::BULLET (US) */
 #define JA_CHAR_BULLET    0x40  /* Mother 2's CHAR::BULLET */
+#define JA_CHAR_DAKUTEN    0x1A /* the dakuten mark ゛ (WINDOW::FILE_SELECT_NAMING_NAME_BOX in the -jp asm) */
+#define JA_CHAR_HANDAKUTEN 0x1B /* the handakuten mark ゜ (WINDOW::FILE_SELECT_NAMING_MESSAGE) */
 
 /* ---- Character classes of the running Locale's text encoding ----
  * English text uses EarthBound's encoding: glyphs 0x50-0xAF, plus three codes
@@ -45,9 +54,13 @@ static inline uint8_t eb_char_bullet(void) {
     return locale_is_ja() ? JA_CHAR_BULLET : EB_CHAR_BULLET;
 }
 
-/* A letter drawn from the font by the VWF renderer. */
+/* A letter drawn from the font by the VWF renderer. Japanese: also the two
+ * marks below 0x20, which PRINT_LETTER prints like any code (text never
+ * reaches the printer with a control code, so only explicit prints see them). */
 static inline bool eb_char_is_glyph(uint8_t c) {
-    return locale_is_ja() ? (c >= JA_CHAR_SPACE && c != EB_CHAR_EQUIPPED) : c >= EB_CHAR_SPACE;
+    if (!locale_is_ja())
+        return c >= EB_CHAR_SPACE;
+    return (c >= JA_CHAR_SPACE && c != EB_CHAR_EQUIPPED) || c == JA_CHAR_DAKUTEN || c == JA_CHAR_HANDAKUTEN;
 }
 
 /* A letter printed as a tilemap tile (RENDER_VWF_CHARACTER's @PRINT_SPECIAL). */
@@ -56,9 +69,14 @@ static inline bool eb_char_is_direct_tile(uint8_t c) {
 }
 
 /* Index of a letter's glyph in the font tables. US: (c - SPACE) & 0x7F, as the
- * asm computes it (any byte maps somewhere in 0-127); Japanese: c - 0x20. */
+ * asm computes it (any byte maps somewhere in 0-127); Japanese: c - 0x20, the
+ * marks after the codes, and 0xFF (past the table) for any other code < 0x20. */
 static inline uint8_t eb_glyph_index(uint8_t c) {
-    return locale_is_ja() ? (uint8_t)(c - JA_CHAR_SPACE) : (uint8_t)((c - EB_CHAR_SPACE) & 0x7F);
+    if (!locale_is_ja())
+        return (uint8_t)((c - EB_CHAR_SPACE) & 0x7F);
+    if (c >= JA_CHAR_SPACE)
+        return (uint8_t)(c - JA_CHAR_SPACE);
+    return c == JA_CHAR_DAKUTEN ? JA_GLYPH_DAKUTEN : c == JA_CHAR_HANDAKUTEN ? JA_GLYPH_HANDAKUTEN : 0xFF;
 }
 
 /* Initialize the text rendering system.
@@ -209,6 +227,14 @@ void vwf_reserve_tiles(uint16_t count);
    font_id: which font to use */
 void vwf_render_character(uint8_t eb_char, uint8_t font_id);
 
+/* Write letter `eb` at text position (x, y) of the focus window as a fixed
+ * 8 px tile column (two new BG2 tiles), as Mother 2 writes letters. */
+void print_letter_tile_at(uint8_t eb, uint16_t x, uint16_t y);
+
+/* Blit glyph `char_index` of `font_id` into the VWF buffer (no flush): the
+ * glyph half of vwf_render_character, for the glyphs no code maps to. */
+void vwf_render_glyph(uint8_t font_id, uint8_t char_index);
+
 /* VWF_FLUSH_TILES_TO_VRAM: Port of asm/text/vwf/flush_vwf_tiles_to_vram.asm.
  * Called after each vwf_render_character(). Allocates VRAM tiles for new
  * VWF tile columns, uploads tile data, writes to per-window content_tilemap. */
@@ -253,8 +279,9 @@ int vwf_render_to_fixed_tiles(const uint8_t *eb_str, int len, uint8_t font_id,
 
 /* Render a window title string to dedicated VRAM tiles (once, at set_window_title time).
    Matches assembly's RENDER_WINDOW_TITLE → RENDER_TINY_FONT_STRING flow.
-   title: ASCII title string.  title_slot: 1-based TITLED_WINDOWS slot.
-   Returns the number of VWF tile columns rendered. */
+   title: ASCII title string (Japanese: Mother 2 codes, one 8x8 tile each, as
+   RENDER_WINDOW_TITLE's JPN branch).  title_slot: 1-based TITLED_WINDOWS slot.
+   Returns the number of tile columns rendered. */
 int render_title_to_vram(const char *title, uint8_t title_slot);
 
 /* Set VWF cursor position (in pixels) */
