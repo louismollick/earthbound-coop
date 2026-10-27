@@ -507,6 +507,149 @@ static void copy_cast_name_tilemap(uint16_t x_col, uint16_t y_row,
     vram_copy(src_bot, vram_bot, tile_count * 2, 0);
 }
 
+#ifdef EB_HAVE_JA
+/* =====================================================================
+ *  Japanese cast names (Mother 2)
+ *
+ *  Mother 2 writes cast names as text codes: each code is its 8x16 font
+ *  tile pair in Mother 2's text window graphics, loaded at the cast tiles
+ *  (JA/graphics/mother2_text_window.gfx.lzhal; JA/ending/cast_names.gfx.lzhal
+ *  over tiles 32-63). RENDER_CAST_NAME_VWF_JP then redraws every name, an
+ *  odd-width one half a tile right so it centres, into tiles from 512
+ *  (CAST_TEXT_ROW). The names are JA/ending/cast_names.bin (JP_CAST_NAME_PTR_TABLE)
+ *  and the party's own names.
+ * ===================================================================== */
+#define JA_CAST_TILES        0x6000  /* VRAM::CAST_TILES (JPN) = TEXT_LAYER_TILES */
+#define JA_CAST_TILES_SIZE   8192    /* LOAD_CAST_SCENE's COPY_TO_VRAM1P */
+#define JA_CAST_NAMES_GFX    0x200   /* CAST_NAMES_GFX over BUFFER + $200 */
+#define JA_CAST_VWF_TILES    0x7000  /* RENDER_CAST_NAME_VWF_JP's tiles (tile 512) */
+#define JA_CAST_VWF_ENTRY    0x2200  /* priority + tile 512 */
+#define JA_CAST_VWF_ROWS     256     /* CAST_TEXT_ROW wraps before passing 256 tiles */
+#define JA_CAST_NAME_MAX     32
+#define JA_CAST_NAME_COUNT   48
+#define JA_CAST_CHAR_NAME    5       /* char_struct::name */
+#define JA_CAST_TILEMAP_ROW  32      /* words from a name's top row to its bottom row */
+
+/* Cast name `index` (JP_CAST_NAME_PTR_TABLE): text codes up to a 0. */
+static const uint8_t *ja_cast_name(uint16_t index) {
+    const uint8_t *data = ASSET_DATA(ASSET_JA_ENDING_CAST_NAMES_BIN);
+    size_t size = ASSET_SIZE(ASSET_JA_ENDING_CAST_NAMES_BIN);
+    if (index >= JA_CAST_NAME_COUNT)
+        FATAL("ja_cast_name: index %u\n", index);
+    uint16_t off = read_u16_le(&data[index * 2]);
+    if (off >= size)
+        FATAL("ja_cast_name: offset %u\n", off);
+    return data + off;
+}
+
+/* PREPARE_CAST_NAME_TILEMAP (prepare_cast_name_tilemap-jp.asm): the tile
+ * pairs of up to `max` codes of `str` at tilemap column `col`; returns how many. */
+static uint16_t ja_prepare_cast_name_tilemap(uint16_t col, uint16_t max, const uint8_t *str) {
+    uint16_t *tilemap = (uint16_t *)BUF_REGION(BUF_CREDITS_TILEMAP, 0, BUF_CREDITS_TILEMAP_SIZE);
+    uint16_t n = 0;
+    while (str[n] != 0 && n < max) {
+        uint16_t c = str[n];
+        uint16_t tile = (uint16_t)((c & 0x000F) + ((c & 0x03F0) << 1) + (c & 0x1C00));
+        uint16_t at = (uint16_t)(col + n);
+        if (at + JA_CAST_TILEMAP_ROW >= BUF_CREDITS_TILEMAP_SIZE / 2)
+            break;
+        tilemap[at] = (uint16_t)(tile + cast_tile_offset);
+        tilemap[at + JA_CAST_TILEMAP_ROW] = (uint16_t)(tile + cast_tile_offset + 16);
+        n++;
+    }
+    return n;
+}
+
+/* BLIT_SHIFTED_FONT_TILE_JP (blit_shifted_font_tile_jp-jp.asm), straight into
+ * VRAM (the asm stages at BUFFER + $2000 and copies the rows afterwards):
+ * the inverse of font tile `src` (and its lower half, 16 tiles on) shifted
+ * right by `shift` is ORed into tile CAST_TEXT_ROW, and what shifts out
+ * starts the next tile; with `clear`, tile CAST_TEXT_ROW is only cleared.
+ * The lower halves are `width` tiles on. Returns the tilemap entry of the
+ * tile it finished (CAST_TEXT_ROW after the blit). */
+static uint16_t ja_blit_shifted_font_tile(uint16_t src, bool clear, uint16_t width, uint16_t shift) {
+    uint8_t *vram = ppu.vram;
+    uint32_t dst = (uint32_t)JA_CAST_VWF_TILES * 2 + (uint32_t)cast_text_row * 16;
+    uint32_t below = (uint32_t)width * 16;
+    const uint8_t *s = &vram[(uint32_t)JA_CAST_TILES * 2 + (uint32_t)src * 16];
+    if (dst + below + 32 > VRAM_SIZE || (uint32_t)src * 16 + 256 + 16 > JA_CAST_TILES_SIZE)
+        FATAL("ja_blit_shifted_font_tile: tile %u row %u\n", src, cast_text_row);
+    if (clear) {
+        memset(&vram[dst], 0, 16);
+        memset(&vram[dst + below], 0, 16);
+        return (uint16_t)(cast_text_row + JA_CAST_VWF_ENTRY);
+    }
+    uint32_t left = dst;
+    if (shift) {
+        for (int i = 0; i < 16; i++) {
+            vram[dst + i] |= (uint8_t)((uint8_t)~s[i] >> shift);
+            vram[dst + below + i] |= (uint8_t)((uint8_t)~s[256 + i] >> shift);
+        }
+        left += 16;
+    }
+    for (int i = 0; i < 16; i++) {
+        vram[left + i] = (uint8_t)((uint8_t)~s[i] << shift);
+        vram[left + below + i] = (uint8_t)((uint8_t)~s[256 + i] << shift);
+    }
+    cast_text_row++;
+    return (uint16_t)(cast_text_row + JA_CAST_VWF_ENTRY);
+}
+
+/* RENDER_CAST_NAME_VWF_JP (render_cast_name_vwf_jp-jp.asm): redraw the
+ * `width` tiles at tilemap column `col` into tiles of their own, half a tile
+ * right if `width` is odd (one tile wider). */
+static void ja_render_cast_name_vwf(uint16_t col, uint16_t width) {
+    if (width * 2 + 2 + cast_text_row > JA_CAST_VWF_ROWS)
+        cast_text_row = 0;
+    uint16_t *p = (uint16_t *)BUF_REGION(BUF_CREDITS_TILEMAP, col * 2,
+                                         (JA_CAST_TILEMAP_ROW + width + 1) * 2);
+    uint16_t src = p[0] & 0x03FF;
+    uint16_t t;
+    if (width & 1) {
+        p[width] = p[width - 1];
+        p[JA_CAST_TILEMAP_ROW + width] = p[JA_CAST_TILEMAP_ROW + width - 1];
+        width++;
+        t = ja_blit_shifted_font_tile(0, true, width, 4);
+        p[0] = (uint16_t)((p[0] & 0x1C00) | t);
+        p[JA_CAST_TILEMAP_ROW] = (uint16_t)((p[JA_CAST_TILEMAP_ROW] & 0x1C00) | (t + width));
+        for (uint16_t k = 1; k < width; k++) {
+            t = ja_blit_shifted_font_tile(src, false, width, 4);
+            uint16_t e = p[k];
+            src = e & 0x03FF;
+            p[k] = (uint16_t)((e & 0x1C00) | t);
+            p[JA_CAST_TILEMAP_ROW + k] = (uint16_t)((p[JA_CAST_TILEMAP_ROW + k] & 0x1C00) | (t + width));
+        }
+    } else {
+        for (uint16_t k = 0; k < width; k++) {
+            t = (uint16_t)(ja_blit_shifted_font_tile(src, false, width, 0) - 1);
+            p[k] = (uint16_t)((p[k] & 0x1C00) | t);
+            p[JA_CAST_TILEMAP_ROW + k] = (uint16_t)((p[JA_CAST_TILEMAP_ROW + k] & 0x1C00) | (t + width));
+            src = p[k + 1] & 0x03FF;
+        }
+    }
+    cast_text_row = (uint16_t)(cast_text_row + width + 1);
+}
+
+/* COPY_CAST_NAME_TILEMAP (copy_cast_name_tilemap-jp.asm): redraw the name,
+ * then copy it as the US version does (an odd width is one tile wider). */
+static void ja_copy_cast_name_tilemap(uint16_t x_col, uint16_t y_row, uint16_t width) {
+    if (width == 0)
+        return;
+    ja_render_cast_name_vwf(x_col, width);
+    copy_cast_name_tilemap(x_col, y_row, (uint16_t)((width + 1) & ~1u));
+}
+
+/* LOAD_CAST_SCENE's tiles (load_cast_scene-jp.asm). */
+static void ja_load_cast_tiles(void) {
+    uint8_t *scratch = buf_decomp_scratch();
+    decomp(ASSET_DATA(ASSET_JA_GRAPHICS_MOTHER2_TEXT_WINDOW_GFX_LZHAL),
+           ASSET_SIZE(ASSET_JA_GRAPHICS_MOTHER2_TEXT_WINDOW_GFX_LZHAL), scratch, BUF_DECOMP_SCRATCH_SIZE);
+    decomp(ASSET_DATA(ASSET_ENDING_CAST_NAMES_GFX_LZHAL), ASSET_SIZE(ASSET_ENDING_CAST_NAMES_GFX_LZHAL),
+           scratch + JA_CAST_NAMES_GFX, BUF_DECOMP_SCRATCH_SIZE - JA_CAST_NAMES_GFX);
+    vram_copy(scratch, JA_CAST_TILES, JA_CAST_TILES_SIZE, 0);
+}
+#endif /* EB_HAVE_JA */
+
 /* =====================================================================
  *  PRINT_CAST_NAME (asm/ending/print_cast_name.asm)
  *
@@ -514,6 +657,13 @@ static void copy_cast_name_tilemap(uint16_t x_col, uint16_t y_row,
  *  and width, then prepares and copies the tilemap.
  * ===================================================================== */
 void print_cast_name(uint16_t cast_index, uint16_t x_col, uint16_t y_row) {
+#ifdef EB_HAVE_JA
+    if (locale_is_ja()) {   /* print_cast_name-jp.asm */
+        uint16_t n = ja_prepare_cast_name_tilemap(x_col, JA_CAST_NAME_MAX, ja_cast_name(cast_index));
+        ja_copy_cast_name_tilemap(x_col, y_row, n);
+        return;
+    }
+#endif
     if (!cast_seq_formatting_data) return;
 
     /* Each entry is 3 bytes: 2-byte tile position + 1-byte width */
@@ -535,6 +685,22 @@ void print_cast_name_entity_var0(uint16_t cast_index, uint16_t x_col,
     /* US version: var0 is the cast_index */
     int16_t ent_off = current_entity_slot;
     uint16_t var0 = entities.var[0][ent_off];
+#ifdef EB_HAVE_JA
+    if (locale_is_ja()) {
+        /* Mother 2: party member `cast_index`'s name, then cast name var0
+         * ("のママ", "のパパ") right after it. */
+        if (cast_index < 1 || cast_index > 6)
+            FATAL("print_cast_name_entity_var0: invalid char_id %u\n", cast_index);
+        uint16_t n = ja_prepare_cast_name_tilemap(x_col, JA_CAST_CHAR_NAME,
+                                                  party_characters[cast_index - 1].name);
+        n = (uint16_t)(n + ja_prepare_cast_name_tilemap((uint16_t)(x_col + n), JA_CAST_NAME_MAX,
+                                                        ja_cast_name(var0)));
+        ja_copy_cast_name_tilemap(x_col, y_row, n);
+        return;
+    }
+#else
+    (void)cast_index;
+#endif
     print_cast_name(var0, x_col, y_row);
 }
 
@@ -545,6 +711,20 @@ void print_cast_name_entity_var0(uint16_t cast_index, uint16_t x_col,
  *  prepare_cast_name_tilemap + copy_cast_name_tilemap.
  * ===================================================================== */
 void print_cast_name_party(uint16_t char_id, uint16_t x_col, uint16_t y_row) {
+#ifdef EB_HAVE_JA
+    if (locale_is_ja()) {   /* print_cast_name_party.asm, JPN */
+        uint16_t n;
+        if (char_id == PARTY_MEMBER_KING) {
+            n = ja_prepare_cast_name_tilemap(x_col, sizeof(game_state.pet_name), game_state.pet_name);
+        } else {
+            if (char_id < 1 || char_id > 6)
+                FATAL("print_cast_name_party: invalid char_id %u\n", char_id);
+            n = ja_prepare_cast_name_tilemap(x_col, JA_CAST_CHAR_NAME, party_characters[char_id - 1].name);
+        }
+        ja_copy_cast_name_tilemap(x_col, y_row, n);
+        return;
+    }
+#endif
     if (!party_cast_tile_ids_data) return;
 
     uint16_t tile_pos;
@@ -942,8 +1122,13 @@ void credits_scroll_frame(void) {
             for (int i = 0; i < 24 && game_state.earthbound_playername[i] != 0; i++) {
                 uint8_t eb = game_state.earthbound_playername[i];
                 uint8_t out;
+                if (locale_is_ja()) {
+                    /* Mother 2 (credits_scroll_frame-jp.asm) uses the codes as
+                     * they are: its letters sit where the font expects them. */
+                    out = eb;
+                }
                 /* Special character handling */
-                if (eb == 0xAC) { out = 124; }        /* pipe */
+                else if (eb == 0xAC) { out = 124; }   /* pipe */
                 else if (eb == 0xAE) { out = 126; }   /* tilde */
                 else if (eb == 0xAF) { out = 127; }   /* special */
                 else if (eb > 0x91) { out = eb - 80; } /* eb >= 0x92: assembly uses eb - 80 */
@@ -1016,6 +1201,31 @@ row_wipe_check:
     ppu.bg_vofs[2] = credits_scroll_position_int;
 }
 
+#ifdef EB_HAVE_JA
+/* The rest of LOAD_CAST_SCENE (load_cast_scene-jp.asm), after the tiles:
+ * Mother 2 loads CAST_BG_PALETTE one 2bpp palette up, clears colours 0 and
+ * 3 of palette 0 and swaps its colours 1 and 2 (the names' inverted glyphs
+ * are colour 2), and also shows BG2 (TM $16). */
+static void ja_load_cast_palettes(void) {
+    load_character_window_palette();
+    memcpy(&ert.palettes[BPP2PALETTE_SIZE / 2], ASSET_DATA(ASSET_ENDING_CAST_BG_PALETTE_PAL),
+           BPP2PALETTE_SIZE * 4);
+    memcpy(&ert.palettes[8 * 16], ASSET_DATA(ASSET_SPRITE_GROUP_PALETTES_PAL), BPP4PALETTE_SIZE * 8);
+    decomp(ASSET_DATA(ASSET_ENDING_CAST_NAMES_PAL_LZHAL), ASSET_SIZE(ASSET_ENDING_CAST_NAMES_PAL_LZHAL),
+           buf_at(BUF_CREDITS_PALETTE, BUFFER_SIZE - BUF_CREDITS_PALETTE), BUFFER_SIZE - BUF_CREDITS_PALETTE);
+    ert.palettes[3] = 0;
+    ert.palettes[0] = 0;
+    uint16_t c1 = ert.palettes[1];
+    ert.palettes[1] = ert.palettes[2];
+    ert.palettes[2] = c1;
+    ert.palette_upload_mode = 24; /* PALETTE_UPLOAD_FULL */
+    ppu.tm = 0x16;
+    cast_text_row = 0;
+    cast_tile_offset = 0;
+    blank_screen_and_wait_vblank();
+}
+#endif
+
 /* =====================================================================
  *  LOAD_CAST_SCENE (asm/ending/load_cast_scene.asm)
  * ===================================================================== */
@@ -1039,8 +1249,14 @@ static void load_cast_scene(void) {
      * LOAD_BATTLE_BG. */
     load_background_animation(BATTLEBG_LAYER_UNKNOWN279, BATTLEBG_LAYER_NONE);
 
-    /* Set up BG3 VRAM layout for cast */
-    set_bg3_vram_location(BG_TILEMAP_SIZE_NORMAL, VRAM_CAST_TILEMAP, VRAM_CAST_TILES);
+    /* Set up BG3 VRAM layout for cast (Mother 2: the cast tiles are the
+     * text layer's, VRAM::CAST_TILES JPN) */
+#ifdef EB_HAVE_JA
+    if (locale_is_ja())
+        set_bg3_vram_location(BG_TILEMAP_SIZE_NORMAL, VRAM_CAST_TILEMAP, JA_CAST_TILES);
+    else
+#endif
+        set_bg3_vram_location(BG_TILEMAP_SIZE_NORMAL, VRAM_CAST_TILEMAP, VRAM_CAST_TILES);
     set_oam_size(0x62);
 
     /* Clear all BG scroll positions */
@@ -1054,6 +1270,14 @@ static void load_cast_scene(void) {
         uint8_t zeros[2] = {0, 0};
         vram_copy(zeros, VRAM_CAST_TILEMAP, 2048, 3);
     }
+
+#ifdef EB_HAVE_JA
+    if (locale_is_ja()) {
+        ja_load_cast_tiles();
+        ja_load_cast_palettes();
+        return;
+    }
+#endif
 
     /* Set force normal font flag */
     force_normal_font_for_length_calc = 0xFF;
@@ -1233,10 +1457,12 @@ static void initialize_credits_scene(void) {
         if (data) {
             decomp(data, data_size, buf_decomp_scratch(), BUF_DECOMP_SCRATCH_SIZE);
 
-            /* Upload to VRAM::CREDITS_LAYER_3_TILES + $200 */
-            vram_copy(BUF_REGION(BUF_DECOMP_SCRATCH, 0, STAFF_CREDITS_FONT_GFX_SIZE),
-                      VRAM_CREDITS_LAYER_3_TILES + 0x200,
-                      STAFF_CREDITS_FONT_GFX_SIZE, 0);
+            /* Upload to VRAM::CREDITS_LAYER_3_TILES + $200 (Japanese: Mother 2's
+             * smaller font, JA/ending/credits_font.gfx.lzhal) */
+            uint16_t font_size = locale_is_ja() ? STAFF_CREDITS_FONT_GFX_SIZE_JA
+                                                : STAFF_CREDITS_FONT_GFX_SIZE;
+            vram_copy(BUF_REGION(BUF_DECOMP_SCRATCH, 0, font_size),
+                      VRAM_CREDITS_LAYER_3_TILES + 0x200, font_size, 0);
         }
     }
 

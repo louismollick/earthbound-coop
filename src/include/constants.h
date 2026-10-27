@@ -198,6 +198,7 @@ enum {
 /* Ending / credits */
 #define CREDITS_LENGTH        0x11B0  /* USA: total scroll distance in pixels */
 #define STAFF_CREDITS_FONT_GFX_SIZE  0xC00  /* USA decompressed font size */
+#define STAFF_CREDITS_FONT_GFX_SIZE_JA 0x800 /* Mother 2 (config.asm JPN), the Japanese Locale */
 
 /* BG tilemap size enum (from include/hardware.asm) */
 #define BG_TILEMAP_SIZE_NORMAL      0

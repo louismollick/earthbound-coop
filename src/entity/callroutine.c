@@ -131,6 +131,18 @@ static const uint8_t anim_seq_meta[][4] = {
     {0x20, 0x01, 0x02, 0x08},  /* 6: the_end (USA) */
 };
 
+/* Mother 2's entry 6 (JPN): its "TO BE CONTINUED..." (JA/graphics/animations/
+ * the_end.anim.lzhal) has more tiles and one frame. */
+static const uint8_t anim_seq_meta_the_end_ja[4] = {0x10, 0x02, 0x01, 0x08};
+#define ANIM_SEQ_THE_END 6
+
+/* The metadata of animation sequence `id` for the running Locale. */
+static const uint8_t *anim_seq_meta_for(uint16_t id) {
+    if (id == ANIM_SEQ_THE_END && locale_is_ja())
+        return anim_seq_meta_the_end_ja;
+    return anim_seq_meta[id];
+}
+
 
 /* PHOTOGRAPHER_CFG_TABLE — loaded from ending/photographer_cfg.bin.
  * Used by SET_PHOTOGRAPHER_POSITION to place the photographer entity. */
@@ -391,6 +403,49 @@ static void decode_planar_tilemap(uint16_t char_code, uint8_t **dest_ptr) {
     }
     *dest_ptr = dest;
 }
+
+#ifdef EB_HAVE_JA
+/* Mother 2's LUMINE_HALL_TEXT (JA/data/text/lumine_hall_text.bin): 3 codes
+ * before the leader's name (at most 4 letters), then 97 after it
+ * (asm/misc/load_character_portrait_screen-jp.asm). */
+#define JA_LUMINE_HEADER_LEN 3
+#define JA_LUMINE_BODY_LEN   97
+#define JA_LUMINE_NAME_MAX   4
+
+/* Stage one 8x16 Japanese glyph as staged tile `k` (2bpp, ink in colour 1). */
+static void ja_portrait_stage_glyph(uint16_t k, uint8_t code) {
+    uint16_t off = (uint16_t)((((k & 0xFFF0) << 1) + (k & 0x000F)) << 4);
+    uint8_t *dst = BUF_REGION(BUF_PORTRAIT_GLYPHS, off, PORTRAIT_GLYPH_BLOCK_HALF + 16);
+    uint8_t idx = eb_glyph_index(code);
+    const uint8_t *glyph = idx == 0xFF ? NULL : font_get_glyph(FONT_ID_NORMAL, idx);
+    for (int y = 0; y < 16; y++) {
+        uint8_t *row = dst + (y < 8 ? 0 : PORTRAIT_GLYPH_BLOCK_HALF) + (y & 7) * 2;
+        row[0] = glyph ? (uint8_t)~glyph[y] : 0;  /* the font is 1bpp, 0 = ink */
+        row[1] = 0;
+    }
+}
+
+/*
+ * The Japanese half of LOAD_CHARACTER_PORTRAIT_SCREEN (JPN): Mother 2 decodes
+ * the codes straight from its text window graphics, 8 px per letter (the
+ * glyphs of the Japanese font, staged here in text order as the US code's VWF
+ * tiles are; Mother 2's DECODE_PLANAR_TILEMAP reads colour 1 only, which
+ * the font doesn't keep apart from colour 2: codes 0x21, 0x22 and 0x40 have
+ * a few such pixels, none of them in the wall text).
+ * Returns the number of staged letters.
+ */
+static uint16_t ja_stage_portrait_glyphs(void) {
+    const uint8_t *text = ASSET_DATA(ASSET_DATA_TEXT_LUMINE_HALL_TEXT_BIN);
+    uint16_t n = 0;
+    for (int i = 0; i < JA_LUMINE_HEADER_LEN; i++)
+        ja_portrait_stage_glyph(n++, text[i]);
+    for (int i = 0; i < JA_LUMINE_NAME_MAX && party_characters[0].name[i] != 0; i++)
+        ja_portrait_stage_glyph(n++, party_characters[0].name[i]);
+    for (int i = 0; i < JA_LUMINE_BODY_LEN; i++)
+        ja_portrait_stage_glyph(n++, text[JA_LUMINE_HEADER_LEN + i]);
+    return n;
+}
+#endif /* EB_HAVE_JA */
 
 /* COPY_TILEMAP_ROWS_TO_VRAM: `height` rows of `count` words from `src`
  * (stride `stride` words) to the tilemap at `base`, starting at (x & 31, y),
@@ -2615,7 +2670,7 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
          * [0 .. tile_size-1]: tile graphics
          * [tile_size .. tile_size+7]: palette (BPP2PALETTE_SIZE = 8 bytes, 4 colors)
          * [tile_size+8 ..]: frame tilemap data (1792 bytes per frame) */
-        uint16_t lasf_tile_size = read_u16_le(anim_seq_meta[lasf_id]);
+        uint16_t lasf_tile_size = read_u16_le(anim_seq_meta_for(lasf_id));
 
         /* Upload tile graphics to VRAM::TEXT_LAYER_TILES */
         if (lasf_tile_size > 0 && (uint32_t)lasf_tile_size <= lasf_dec_sz) {
@@ -2665,7 +2720,7 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         if (dasf_id == 0 || dasf_id > 6) return 0;
 
         /* Tile data size from metadata table */
-        uint16_t dasf_tile_size = read_u16_le(anim_seq_meta[dasf_id]);
+        uint16_t dasf_tile_size = read_u16_le(anim_seq_meta_for(dasf_id));
 
         /* Frame tilemap data offset: after tiles + palette (BPP2PALETTE_SIZE=8).
          * Assembly multiplies frame by 1792 to get frame-specific tilemap. */
@@ -2683,12 +2738,12 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         }
 
         /* Check if last frame: frame_count is at metadata byte [2] */
-        uint8_t dasf_count = anim_seq_meta[dasf_id][2];
+        uint8_t dasf_count = anim_seq_meta_for(dasf_id)[2];
         if (dasf_frame + 1 >= dasf_count)
             return 0;  /* last frame */
 
         /* Return delay value from metadata byte [3] */
-        return anim_seq_meta[dasf_id][3];
+        return anim_seq_meta_for(dasf_id)[3];
     }
 
     case ROM_ADDR_LOAD_CHARACTER_PORTRAIT_SCREEN: {
@@ -2698,8 +2753,16 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
          * render_character_name_display() for the layout. */
         *out_pc = pc;
 
-        /* Y: text width in columns */
-        uint16_t lcps_text_cols = render_character_name_display();
+        /* Y: text width in columns. Japanese: 4 per letter (JPN). */
+        uint16_t lcps_text_cols;
+        uint16_t lcps_ja_letters = 0;
+#ifdef EB_HAVE_JA
+        if (locale_is_ja()) {
+            lcps_ja_letters = ja_stage_portrait_glyphs();
+            lcps_text_cols = (uint16_t)(lcps_ja_letters * 4);
+        } else
+#endif
+            lcps_text_cols = render_character_name_display();
 
         /* 29 blank lead columns */
         uint8_t *const lcps_base =
@@ -2710,24 +2773,28 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
 
         /* Decode staged tiles 0, 1, 2, ... in order: 4 prefix, name, 6 suffix,
          * 205 body. These counts are character counts, so the tail decodes
-         * tiles past the text (never displayed). */
+         * tiles past the text (never displayed). Japanese: one tile per letter. */
         uint16_t lcps_code = 0;
-        for (int i = 0; i < PORTRAIT_PREFIX_LEN; i++)
+        for (uint16_t i = 0; i < lcps_ja_letters; i++)
             decode_planar_tilemap(lcps_code++, &lcps_dest);
-        uint16_t lcps_name_len = portrait_name_strlen();
-        if (lcps_name_len == 6)
-            lcps_name_len = 5;
-        /* A 5-letter name has no terminator, so STRLEN runs on into the
-         * level/exp bytes and can exceed 6 (decoding extra undisplayed tail
-         * tiles). Cap it to what BUF_PORTRAIT_COLUMNS is sized for. */
-        if (lcps_name_len > PORTRAIT_MAX_NAME_TILES)
-            lcps_name_len = PORTRAIT_MAX_NAME_TILES;
-        for (uint16_t i = 0; i < lcps_name_len; i++)
-            decode_planar_tilemap(lcps_code++, &lcps_dest);
-        for (int i = 0; i < PORTRAIT_SUFFIX_LEN; i++)
-            decode_planar_tilemap(lcps_code++, &lcps_dest);
-        for (int i = 0; i < LUMINE_HALL_BODY_LEN; i++)
-            decode_planar_tilemap(lcps_code++, &lcps_dest);
+        if (!lcps_ja_letters) {
+            for (int i = 0; i < PORTRAIT_PREFIX_LEN; i++)
+                decode_planar_tilemap(lcps_code++, &lcps_dest);
+            uint16_t lcps_name_len = portrait_name_strlen();
+            if (lcps_name_len == 6)
+                lcps_name_len = 5;
+            /* A 5-letter name has no terminator, so STRLEN runs on into the
+             * level/exp bytes and can exceed 6 (decoding extra undisplayed tail
+             * tiles). Cap it to what BUF_PORTRAIT_COLUMNS is sized for. */
+            if (lcps_name_len > PORTRAIT_MAX_NAME_TILES)
+                lcps_name_len = PORTRAIT_MAX_NAME_TILES;
+            for (uint16_t i = 0; i < lcps_name_len; i++)
+                decode_planar_tilemap(lcps_code++, &lcps_dest);
+            for (int i = 0; i < PORTRAIT_SUFFIX_LEN; i++)
+                decode_planar_tilemap(lcps_code++, &lcps_dest);
+            for (int i = 0; i < LUMINE_HALL_BODY_LEN; i++)
+                decode_planar_tilemap(lcps_code++, &lcps_dest);
+        }
 
         /* 30 blank trailing columns */
         BUFFER_REGION_CHECK((size_t)(lcps_dest - ert.buffer),
