@@ -7,7 +7,9 @@ Called by ``pack-all`` after the US packers.  Writes ``<output>/JA/``:
 - ``text/xlat.bin``: ``(u32 us_addr, u32 ja_addr)`` pairs sorted by
   ``us_addr``: every US dialogue label address and US inline string offset to
   its Japanese address.
-- ``fonts/main.gfx`` / ``fonts/main.bin``: the 224 Mother 2 glyphs.
+- ``fonts/main.gfx`` / ``fonts/main.bin``: the 224 Mother 2 glyphs and the
+  two marks (``JA_EXTRA_GLYPH_CODES``).
+- the naming data and the Mr. Saturn and title fonts (``ebtools.ja_interface``).
 
 Without ``<assets>/ja/`` it removes a stale ``<output>/JA/`` and writes nothing.
 """
@@ -66,7 +68,16 @@ def pack_ja(
     blob, ja_label_addrs = _compile_dialogue(
         all_dialogue, JA_DIALOGUE_BASE, reverse_table, build_reverse_names(common_data)
     )
+    from ebtools.ja_interface import interface_is_current
+
     missing = [label for label in us_label_addrs if label not in ja_label_addrs]
+    if not interface_is_current(ja_dir):
+        print(
+            "Warning: skipping the Japanese Locale, its naming data or fonts are missing or "
+            "stale (rerun `ebtools extract-ja`)",
+            file=sys.stderr,
+        )
+        return 0
     if missing:
         # Stale Japanese assets must not break the English build.
         print(
@@ -102,9 +113,13 @@ def pack_ja(
     _write(out / "fonts" / "main.gfx", gfx)
     _write(out / "fonts" / "main.bin", widths)
 
+    from ebtools.ja_interface import pack_interface
+
+    interface_files = pack_interface(ja_dir, out, reverse_table)
+
     print(
         f"  Packed Japanese Locale: dialogue {len(blob)} bytes, inline strings {len(inline_blob)} bytes, "
-        f"xlat {len(xlat)} entries, font {len(widths)} glyphs"
+        f"xlat {len(xlat)} entries, font {len(widths)} glyphs, {interface_files} interface files"
     )
     if stale:
         print(f"  Warning: {stale} US inline strings missing from ja/inline_strings.json print nothing")

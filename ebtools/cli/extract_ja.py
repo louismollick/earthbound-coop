@@ -6,7 +6,9 @@ Writes ``<assets>/ja/`` only (docs/adr/0003-japanese-locale.md):
   is the US logic ops with Mother 2's presentation ops (``text_dsl.splice``).
 - ``inline_strings.json``: US inline markup -> Japanese inline markup.
 - ``fonts/main.json`` + ``main.png``: the 224 Mother 2 text glyphs (codes
-  0x20-0xFF) in the US main-font format.
+  0x20-0xFF) and the two marks below them (``JA_EXTRA_GLYPH_CODES``) in the US
+  main-font format.
+- the naming data and the Mr. Saturn and title fonts (``ebtools.ja_interface``).
 - ``text_table.json``: the Japanese text table, for pack-all.
 """
 
@@ -24,7 +26,9 @@ from cyclopts import Parameter
 from ebtools.config import DEFAULT_ASSETS_DIR, CommonData, DumpDoc, load_common_data, load_dump_doc
 from ebtools.ja_locale import (
     JA_ASSETS_SUBDIR,
+    JA_EXTRA_GLYPH_CODES,
     JA_FIRST_GLYPH,
+    JA_FONT_GLYPHS,
     JA_GLYPH_COUNT,
     JA_TEXT_TABLE_FILE,
     ja_text_table,
@@ -123,6 +127,10 @@ def extract_ja(
 
     write_text_table(out_dir / JA_TEXT_TABLE_FILE, table)
     font_stats = export_ja_font(rom, m2_doc, out_dir / "fonts")
+    from ebtools.ja_interface import extract_interface
+
+    interface_stats = extract_interface(rom, config, table, font_stats["glyphs"], out_dir)
+    print(f"Interface: naming data, Mr. Saturn font ({interface_stats['mrsaturn_glyphs']} of his own glyphs), titles")
 
     _report(us_msgs, jp_msgs, us2jp, ja_msgs, stats, inline_stats, font_stats, unresolved_presentation_labels)
     print(f"Wrote {len(written)} dialogue files, {len(inline)} inline strings and the font to {out_dir}")
@@ -403,7 +411,7 @@ def export_ja_font(rom: bytes, doc: DumpDoc, fonts_dir: Path) -> dict:
 
     out = bytearray()
     eighth_column: list[int] = []
-    for code in range(JA_FIRST_GLYPH, JA_FIRST_GLYPH + JA_GLYPH_COUNT):
+    for code in [*range(JA_FIRST_GLYPH, JA_FIRST_GLYPH + JA_GLYPH_COUNT), *JA_EXTRA_GLYPH_CODES]:
         top = (code & 0xF0) * 2 + (code & 0x0F)
         rows = []
         for tile in (top, top + 16):
@@ -415,9 +423,9 @@ def export_ja_font(rom: bytes, doc: DumpDoc, fonts_dir: Path) -> dict:
         out.extend(rows)
         out.extend(b"\xff" * 16)
 
-    widths = bytes([7] * JA_GLYPH_COUNT)
-    export_font_png(bytes(out), widths, "main", 32, fonts_dir, glyph_count=JA_GLYPH_COUNT)
-    return {"eighth_column": eighth_column}
+    widths = bytes([7] * JA_FONT_GLYPHS)
+    export_font_png(bytes(out), widths, "main", 32, fonts_dir, glyph_count=JA_FONT_GLYPHS)
+    return {"eighth_column": eighth_column, "glyphs": bytes(out)}
 
 
 # --- Report --------------------------------------------------------------------
@@ -476,5 +484,5 @@ def _report(
     for s in inline_stats["silent"][:20]:
         print(f"    silent: {s}")
     cols = font_stats["eighth_column"]
-    print(f"Font: {JA_GLYPH_COUNT} glyphs, {len(cols)} use the 8th pixel column (the advance must stay 8 px)")
+    print(f"Font: {JA_FONT_GLYPHS} glyphs, {len(cols)} use the 8th pixel column (the advance must stay 8 px)")
     sys.stdout.flush()
