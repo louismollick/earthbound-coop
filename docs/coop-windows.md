@@ -8,7 +8,7 @@ The desktop port builds natively on Windows 10/11 with MinGW-w64 (MSYS2), plays 
 2. In an MSYS2 shell, install the toolchain:
 
    ```
-   pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,SDL2,ninja,cmake,pkgconf}
+   pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,SDL2,ninja,cmake,pkgconf,curl}    # curl: the relay (online co-op)
    pacman -S --needed mingw-w64-clang-x86_64-{clang,compiler-rt,SDL2}    # only for the ASan+UBSan build
    ```
 
@@ -28,7 +28,7 @@ cmake -S port/unix -B port/unix/build-wide -G Ninja -DCMAKE_BUILD_TYPE=Release -
 cmake --build port/unix/build-wide
 ```
 
-The build copies `SDL2.dll` next to `earthbound.exe`; nothing else is needed at run time (the C runtime is the UCRT that ships with Windows), so the folder runs from Explorer.
+The build copies `SDL2.dll` next to `earthbound.exe`, and with relay support libcurl's DLLs too (`port/unix/cmake/copy_runtime_dlls.cmake`); nothing else is needed at run time (the C runtime is the UCRT that ships with Windows), so the folder runs from Explorer.
 
 ## Play
 

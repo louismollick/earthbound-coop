@@ -1,6 +1,7 @@
 #include "platform/platform.h"
 #include "game/smooth_camera.h"
 #include "snes/ppu.h"
+#include "net/ui.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -149,8 +150,20 @@ static void scenery_send_scanline_with_stamp(int y, const pixel_t *pixels) {
 /* Desktop override of src/platform/platform_render.c (linker precedence: this
  * object resolves the symbol, so the library's default member is not pulled).
  * With the smooth camera off this is exactly the default sequence. */
+/* The game's own overlay (FPS), then the online status (net/ui.h) on top. */
+static scanline_stamp_cb_t game_stamp_cb;
+static void stamp_with_net(int y, pixel_t *pixels) {
+    if (game_stamp_cb)
+        game_stamp_cb(y, pixels);
+    net_overlay_stamp(y, pixels);
+}
+
 void platform_render_frame(scanline_stamp_cb_t fps_overlay_cb) {
     static SmoothCameraFrame sf;
+    if (net_overlay_prepare()) {
+        game_stamp_cb = fps_overlay_cb;
+        fps_overlay_cb = stamp_with_net;
+    }
     current_stamp_cb = fps_overlay_cb;
     scanline_callback_t send = fps_overlay_cb ? send_scanline_with_stamp
                                               : platform_video_send_scanline;

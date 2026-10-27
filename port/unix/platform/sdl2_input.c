@@ -2,6 +2,7 @@
 #include "include/pad.h"
 #include "game_main.h"
 #include "net/net.h"
+#include "net/ui.h"
 #include <SDL.h>
 #include <signal.h>
 #include <string.h>
@@ -22,7 +23,12 @@
  * Netplay (net/net.h): the four pads come from the Session's confirmed input set.
  * This machine's own pad (P1's keys and first controller, or the script's P1
  * commands) is what it sends, for whichever Player it is. Only presentation aux
- * keys (F1-F3) work; the rest would change one machine's game.
+ * keys (F1-F3) work; the rest would change one machine's game. F4 shows the
+ * Session's pings (net/ui.h).
+ *
+ * Text entry (the launcher's fields, input_text_*): while on, typed text, the
+ * clipboard (Ctrl+V, or Cmd+V on a Mac), Backspace, Return and Escape queue up as
+ * characters. The pads still update as usual.
  */
 static uint16_t pad_state[PLATFORM_MAX_PLAYERS];
 static uint16_t pad_prev[PLATFORM_MAX_PLAYERS];
@@ -30,6 +36,9 @@ static uint16_t key_state[2];                           /* keyboard layouts: P1,
 static SDL_GameController *controllers[PLATFORM_MAX_PLAYERS];  /* by Player */
 static uint16_t aux_state;
 static volatile sig_atomic_t quit_requested;
+static bool text_on;
+static char text_queue[512];
+static size_t text_len;
 
 /* Scripted playback (sdl2_input_script.c) */
 bool input_script_active(void);
@@ -115,6 +124,53 @@ static uint16_t controller_pad(SDL_GameController *c) {
     return pad;
 }
 
+static void text_push(const char *s) {
+    for (; *s && text_len < sizeof text_queue; s++)
+        text_queue[text_len++] = *s;
+}
+
+void input_text_enable(bool on) {
+    text_on = on;
+    text_len = 0;
+    if (!platform_headless) {
+        if (on)
+            SDL_StartTextInput();
+        else
+            SDL_StopTextInput();
+    }
+}
+
+/* The characters queued since the last call: printable text, '\b' Backspace,
+ * '\n' Return, 0x1B Escape. */
+size_t input_text_take(char *out, size_t cap) {
+    size_t n = text_len < cap ? text_len : cap;
+    memcpy(out, text_queue, n);
+    memmove(text_queue, text_queue + n, text_len - n);
+    text_len -= n;
+    return n;
+}
+
+static void text_key(const SDL_KeyboardEvent *k) {
+    bool cmd = (k->keysym.mod & (KMOD_CTRL | KMOD_GUI)) != 0;
+    switch (k->keysym.scancode) {
+    case SDL_SCANCODE_BACKSPACE: text_push("\b"); break;
+    case SDL_SCANCODE_RETURN:
+    case SDL_SCANCODE_KP_ENTER:  text_push("\n"); break;
+    case SDL_SCANCODE_ESCAPE:    text_push("\x1b"); break;
+    case SDL_SCANCODE_V:
+        if (cmd && SDL_HasClipboardText()) {
+            char *clip = SDL_GetClipboardText();
+            for (char *c = clip; c && *c; c++)
+                if (*c == '\r' || *c == '\n' || *c == '\t')
+                    *c = ' '; /* a pasted line break doesn't submit */
+            text_push(clip ? clip : "");
+            SDL_free(clip);
+        }
+        break;
+    default: break;
+    }
+}
+
 /* Handle pending SDL events: quit, controller hotplug, keys. */
 static void pump_events(void) {
     SDL_Event event;
@@ -129,10 +185,18 @@ static void pump_events(void) {
         case SDL_CONTROLLERDEVICEREMOVED:
             controller_removed(event.cdevice.which);
             break;
+        case SDL_TEXTINPUT:
+            if (text_on)
+                text_push(event.text.text);
+            break;
         case SDL_KEYDOWN:
         case SDL_KEYUP: {
             uint16_t bit = 0, bit2 = 0; /* P1 / P2 layout */
             uint16_t aux_bit = 0;
+            if (event.type == SDL_KEYDOWN && text_on)
+                text_key(&event.key);
+            if (event.type == SDL_KEYDOWN && !event.key.repeat && event.key.keysym.scancode == SDL_SCANCODE_F4)
+                net_overlay_toggle();
             switch (event.key.keysym.scancode) {
             case SDL_SCANCODE_X:      bit = PAD_A;      break;
             case SDL_SCANCODE_Z:      bit = PAD_B;      break;
@@ -200,6 +264,12 @@ static void net_sample_local(uint16_t pads[PLATFORM_MAX_PLAYERS], int count) {
         pads[k] = k < count ? local[k] : 0;
 }
 
+/* A joiner's window while it waits for the Host's game: the screen so far plus the overlay. */
+static void net_present(void) {
+    if (!platform_headless)
+        platform_render_frame(NULL);
+}
+
 void platform_input_poll(void) {
     record_frame(); /* --record-video/--record-audio: this frame is rendered */
 
@@ -211,7 +281,7 @@ void platform_input_poll(void) {
         /* A capture unwind is not a net frame: every machine runs it with no
          * input, so the pads stay as they are (the script doesn't advance). */
         if (!host_capture_unwinding()) {
-            static const NetInputHooks hooks = { pump_events, net_sample_local };
+            static const NetInputHooks hooks = { pump_events, net_sample_local, net_present };
             net_frame(pad_state, &hooks);
         }
         return;

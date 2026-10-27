@@ -18,6 +18,11 @@ wall time, or when the run ends; no process is left behind.
 Protocol tests can hook the run: a :class:`Trigger` calls its action once a Host
 line matches, with the proxy and each client's link port (see ``net_rejoin``).
 
+``relay=`` runs the Session through a relay room instead (``--host-room`` /
+``--join-room``): a :class:`Relay` (the Node server in ``relay/node/``, which can
+delay every message) replaces the proxy. ``input_delay=None`` leaves the delay to
+the Host's auto delay.
+
 Command line (a quick look): ``python playtest/net/netrun.py --players 2 --frames 3000``.
 It exits non-zero unless every machine ran to the end and they agreed on (nearly)
 every hash point.
@@ -105,6 +110,47 @@ def boot_then(script):
     return BOOT + script
 
 
+class Relay:
+    """The Node relay (relay/node/server.ts) on a free localhost port, while the ``with`` block runs.
+
+    ``delay_ms`` delays every message it forwards, each way (EB_RELAY_TEST_DELAY_MS).
+    """
+
+    ROOT = Path(__file__).resolve().parents[2] / "relay"
+
+    def __init__(self, delay_ms=0):
+        self.delay_ms = delay_ms
+        self.proc = None
+        self.url = None
+
+    def __enter__(self):
+        if not (self.ROOT / "node_modules").exists():
+            raise NetError("relay/node_modules is missing: run `npm ci` in relay/")
+        self.proc = subprocess.Popen(  # noqa: S603
+            ["node", "node/server.ts", "--port", "0", "--listen", "127.0.0.1"],  # noqa: S607
+            cwd=self.ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env={**os.environ, "EB_RELAY_TEST_DELAY_MS": str(self.delay_ms)},
+        )
+        line = self.proc.stdout.readline()
+        m = re.search(r"relay listening on ([\d.]+):(\d+)", line)
+        if not m:
+            self.proc.kill()
+            raise NetError(f"the relay didn't start: {line!r}")
+        self.url = f"ws://{m.group(1)}:{m.group(2)}"
+        threading.Thread(target=self.proc.stdout.read, daemon=True).start()  # keep its pipe drained
+        return self
+
+    def __exit__(self, *exc):
+        self.proc.terminate()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            self.proc.wait(timeout=5)
+        if self.proc.poll() is None:
+            self.proc.kill()
+
+
 def free_udp_port():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.bind(("127.0.0.1", 0))
@@ -137,6 +183,8 @@ class Peer:
     start_after_exit: str | None = None  # ... or once this earlier peer's process is gone
     link: str | None = None  # reuse this earlier peer's proxy link: the Host sees the same endpoint
     binary: str | None = None  # another game binary for this machine (default: the run's)
+    net: "Net | None" = None  # this machine's link conditions (default: the run's)
+    start_after_s: float = 0  # ... and no earlier than this many seconds into the run
 
 
 @dataclass
@@ -263,6 +311,7 @@ def run(
     wait_players=0,
     host_local_players=1,
     triggers=(),
+    relay=None,
 ):
     """Run one Session. ``save``: story save name or .srm path for the Host. Returns a :class:`Result`."""
     net = net or Net()
@@ -276,7 +325,8 @@ def run(
     proxy = Proxy(seed=net.seed)
     ports = {}
     for c in clients:
-        ports[c.name] = ports[c.link] if c.link else proxy.add_link(port, net.latency, net.jitter, net.loss)
+        cn = c.net or net
+        ports[c.name] = ports[c.link] if c.link else proxy.add_link(port, cn.latency, cn.jitter, cn.loss)
     for lp in set(ports.values()):
         proxy.link(lp).record = bool(triggers)
     links = [ports[c.name] for c in clients]
@@ -307,7 +357,10 @@ def run(
         threading.Thread(target=_reader, args=(p, name, q, log), daemon=True).start()
 
     shutil.copy(save, out_dir / "host.srm")
-    host_args = ["--save", "../host.srm", "--host", str(port), "--input-delay", str(input_delay)]
+    host_args = ["--save", "../host.srm"]
+    host_args += ["--host-room", "--relay", relay.url] if relay else ["--host", str(port)]
+    if input_delay is not None:
+        host_args += ["--input-delay", str(input_delay)]
     if end_frame:
         host_args += ["--net-end-frame", str(end_frame)]
     if wait_players:
@@ -330,6 +383,8 @@ def run(
             for c, lk in list(pending):
                 if c.start_after is not None and host.last_frame < c.start_after:
                     continue
+                if time.time() - t0 < c.start_after_s:
+                    continue
                 if c.start_on and not any(re.search(c.start_on, e) for e in host.events):
                     continue
                 if c.start_after_exit and (c.start_after_exit not in procs or procs[c.start_after_exit].poll() is None):
@@ -337,10 +392,14 @@ def run(
                 if procs["host"].poll() is not None:
                     pending.remove((c, lk))  # the host is gone: never start it
                     continue
+                invite = next((e.split("invite=")[1].split()[0] for e in host.events if " invite=" in e), None)
+                if relay and not invite:
+                    continue  # the room isn't open yet
                 pending.remove((c, lk))
                 if c.name in machines:  # a rejoin under the same name: keep the old one's output
                     raise NetError(f"duplicate peer name {c.name}")
-                args = ["--join", f"127.0.0.1:{lk}", "--local-players", str(c.local_players)]
+                where = ["--join-room", invite] if relay else ["--join", f"127.0.0.1:{lk}"]
+                args = [*where, "--local-players", str(c.local_players)]
                 launch(c.name, args, c.script, c.env, c.binary)
                 open_streams += 1
             try:

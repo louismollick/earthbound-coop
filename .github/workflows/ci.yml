@@ -77,6 +77,23 @@ jobs:
       - name: Savestate ABI asserts (Pico + G&W)
         run: .github/scripts/savestate-abi.sh
 
+  relay:
+    # The online co-op relay (relay/): typecheck, and its tests against the Node server
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: relay
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: relay/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
   cppcheck:
     runs-on: ubuntu-24.04
     steps:

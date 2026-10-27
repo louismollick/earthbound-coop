@@ -140,14 +140,14 @@ static int decide_focus(const uint16_t pressed[PLATFORM_MAX_PLAYERS]) {
  * current while the window stays open, after the last other Player left too.
  * Solo play never tags. */
 static void dialogue_tag(void) {
-    WindowInfo *w = get_window(WINDOW_TEXT_STANDARD);
+    const WindowInfo *w = get_window(WINDOW_TEXT_STANDARD);
     if (!w) {
         coop.dialogue_tagged = 0;
         return;
     }
     if (coop.focus >= PLATFORM_MAX_PLAYERS)
         return;
-    char tag[3] = { 'P', (char)('1' + coop.focus), '\0' };
+    const char tag[3] = { 'P', (char)('1' + coop.focus), '\0' };
     if (coop.dialogue_tagged) {
         /* Still ours: a window reopened in between may carry a vanilla title */
         bool ours = w->title[0] == 'P' && w->title[1] >= '1' && w->title[1] <= '4' && w->title[2] == '\0';

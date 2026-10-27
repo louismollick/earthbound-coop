@@ -78,6 +78,18 @@ One online play-through joined by up to four Players, all running the same game 
 **Desync**:
 Any frame where two machines in a Session disagree about game state.
 
+**Relay**:
+A small server (Cloudflare Worker, or Node on a VPS) that passes a Session's packets between the Host and everyone else, so nobody opens a port. It never reads them.
+
+**Room**:
+One Session's place at a Relay, named by a six-character code. It closes when the Host leaves.
+
+**Invite**:
+The Relay plus the Room code (`relay.example.dev/K7QF2M`): what the Host hands out and a joiner pastes.
+
+**Input delay**:
+How many frames late every press takes effect. The Host sets it from the slowest round trip unless told a fixed value.
+
 ## Flagged ambiguities
 
 - "Co-op character" was used for both Guests and the co-op-only Solo Chapter character. Guests are story characters; the co-op-only one is the Companion (Mr. Saturn, formerly planned as a cat).

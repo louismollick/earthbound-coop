@@ -66,6 +66,27 @@ target_include_directories(earthbound PRIVATE
 
 eb_target_warnings(earthbound)
 
+# Online co-op through a relay (net/relay.c, relay/README.md) needs libcurl with
+# WebSockets: 8.14 or newer (earlier releases flag message fragments differently). macOS's own libcurl has none; Homebrew's curl
+# (keg-only: `brew install curl`) has. Without it the build plays direct UDP
+# Sessions only, and starts straight into the game (no launcher).
+option(EB_NET_RELAY "Build relay support when libcurl 8.14+ is found" ON)
+set(EB_HAVE_RELAY OFF)
+if(EB_NET_RELAY)
+    if(APPLE)
+        list(APPEND CMAKE_PREFIX_PATH /opt/homebrew/opt/curl /usr/local/opt/curl)
+    endif()
+    find_package(CURL 8.14 QUIET)
+    if(CURL_FOUND)
+        set(EB_HAVE_RELAY ON)
+        target_link_libraries(earthbound CURL::libcurl)
+        target_compile_definitions(earthbound PRIVATE EB_NET_RELAY)
+        message(STATUS "Relay support: libcurl ${CURL_VERSION_STRING}")
+    else()
+        message(STATUS "Relay support: off (needs libcurl 8.14+; macOS: brew install curl)")
+    endif()
+endif()
+
 if(WIN32)
     # Our own main() (no SDL2main), a console program so headless runs print;
     # Winsock for netplay
@@ -76,6 +97,13 @@ if(WIN32)
         add_custom_command(TARGET earthbound POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:earthbound> $<TARGET_FILE_DIR:earthbound>
             COMMAND_EXPAND_LISTS)
+    endif()
+    # libcurl's own DLLs (TLS, zlib, nghttp2, ...) too, found next to the compiler
+    if(EB_HAVE_RELAY)
+        get_filename_component(EB_TOOLCHAIN_BIN "${CMAKE_C_COMPILER}" DIRECTORY)
+        add_custom_command(TARGET earthbound POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:earthbound> -DDIRS=${EB_TOOLCHAIN_BIN}
+                -DOBJDUMP=${CMAKE_OBJDUMP} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_runtime_dlls.cmake)
     endif()
 endif()
 
