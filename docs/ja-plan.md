@@ -37,11 +37,12 @@ Play the C port in Japanese, with the text, fonts and graphics of the user's Mot
 
 ## J2 Japanese interface
 
-- [x] Name tables: items, enemies, PSI, teleport destinations, phone contacts, store and status text. Window titles: see below.
+- [x] Name tables: items, enemies, PSI, teleport destinations, phone contacts, store and status text. 
 - [x] The strings hardcoded in C (file select, battle commands, equip and Goods menus) come from the Mother 2 ROM in Japanese.
 - [x] Battle grammar: enemy suffixes and articles.
-- [ ] Kana naming keyboard and the Mother 2 Don't Care names.
-- [ ] Mr. Saturn's Japanese font.
+- [x] Kana naming keyboard and the Mother 2 Don't Care names.
+- [x] Mr. Saturn's Japanese font.
+- [x] Window titles in Mother 2's 8x8 title font.
 
 ## J3 Japanese graphics and cinematics
 
