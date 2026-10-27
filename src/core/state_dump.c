@@ -41,6 +41,7 @@
 #include "tamp/compressor.h"
 #include "tamp/decompressor.h"
 #include "core/log.h"
+#include "core/locale.h"
 #include "core/state_layout.h"
 #include "coop/coop.h"
 
@@ -600,6 +601,18 @@ uint32_t state_dump_layout_id(void) {
     return state_layout_id();
 }
 
+/* XOR'd into the header's layout_id: the Locale the slot was saved in. Text
+ * readers hold offsets into the Locale's text blobs (kana and kanji differ too),
+ * so a slot from another Locale is rejected on the header read like one from
+ * another layout. English's is 0, so English slots keep the plain layout_id. */
+static uint32_t locale_salt(Locale l) {
+    switch (l) {
+    case LOCALE_JA:       return 0x4A410000u;  /* "JA" */
+    case LOCALE_JA_KANJI: return 0x4A4B0000u;  /* "JK" */
+    default:              return 0;
+    }
+}
+
 /* Write the 24-byte uncompressed header at offset 0. Called LAST (after the compress
  * pass) because crc/comp_len aren't known until then. `layout_xor` is 0 except in the
  * reject self-test, which writes an image from a "different build". */
@@ -608,7 +621,7 @@ static bool write_header(int slot, uint16_t frame, uint32_t seq,
     uint8_t h[STATE_DUMP_HEADER_SIZE];
     uint32_t magic  = STATE_DUMP_MAGIC;
     uint16_t ver    = STATE_DUMP_VERSION;
-    uint32_t layout = state_layout_id() ^ layout_xor;
+    uint32_t layout = state_layout_id() ^ locale_salt(locale_get()) ^ layout_xor;
     memcpy(h + 0,  &magic,    4);
     memcpy(h + 4,  &ver,      2);
     memcpy(h + 6,  &frame,    2);
@@ -707,7 +720,14 @@ static bool read_slot_header(int slot, uint32_t *seq, uint32_t *crc, uint32_t *p
     memcpy(&layout,  h + 20, 4);
     if (magic != STATE_DUMP_MAGIC || version != STATE_DUMP_VERSION)
         return false;
-    if (layout != state_layout_id()) {
+    if (layout != (state_layout_id() ^ locale_salt(locale_get()))) {
+        for (int l = 0; l < LOCALE_COUNT; l++) {
+            if (layout == (state_layout_id() ^ locale_salt((Locale)l))) {
+                LOG_WARN("savestate: slot %d was saved in %s; this game runs in %s\n",
+                         slot, locale_name((Locale)l), locale_name(locale_get()));
+                return false;
+            }
+        }
         LOG_WARN("savestate: slot %d was written by a build with a different state layout\n",
                  slot);
         return false;
@@ -1452,6 +1472,13 @@ bool state_dump_reject_test(void) {
      * layout_id (same sizes, different field layout). */
     ok = ok && read_slot(1);
     ok = ok && write_slot_ex(0, fixed_seq, 0, 0x00010000u);
+    scribble_direct_sections(0xA5);
+    ok = ok && !read_slot(0) && direct_sections_hold(0xA5);
+
+    /* Slot 0 again: a well-formed image saved in another Locale. */
+    ok = ok && read_slot(1);
+    Locale other = locale_get() == LOCALE_EN ? LOCALE_JA : LOCALE_EN;
+    ok = ok && write_slot_ex(0, fixed_seq, 0, locale_salt(locale_get()) ^ locale_salt(other));
     scribble_direct_sections(0xA5);
     ok = ok && !read_slot(0) && direct_sections_hold(0xA5);
 

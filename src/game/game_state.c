@@ -4,6 +4,7 @@
 #include "data/assets.h"
 #include "entity/entity.h"
 #include "platform/platform.h"
+#include <stdio.h>
 #include <string.h>
 
 GameState game_state;
@@ -411,8 +412,28 @@ static uint16_t compute_xor_checksum(const SaveBlock *block) {
     return xor_sum;
 }
 
+/* The save Language tag: the last two padding bytes (see game_state.h). */
+#define SAVE_TAG_OFFSET (sizeof(((SaveBlock *)0)->padding) - 2)
+
+void save_block_set_locale(SaveBlock *block, Locale l) {
+    block->padding[SAVE_TAG_OFFSET] = l == LOCALE_EN ? 0 : 'J';
+    block->padding[SAVE_TAG_OFFSET + 1] = l == LOCALE_EN ? 0 : 'A';
+}
+
+Locale save_block_locale(const SaveBlock *block) {
+    const uint8_t *tag = block->padding + SAVE_TAG_OFFSET;
+    return (tag[0] == 'J' && tag[1] == 'A') ? LOCALE_JA : LOCALE_EN;
+}
+
+bool save_locale_compatible(Locale save, Locale running) {
+    return (save != LOCALE_EN) == (running != LOCALE_EN);
+}
+
 bool save_game(int slot) {
     if (slot < 0 || slot >= SAVE_COUNT) return false;
+    /* Never write over a save of the other Language (a restored savestate can
+     * still hold a slot that has since become locked) */
+    if (save_slot_locked(slot)) return false;
 
     SaveBlock *block = &ert.save_scratch;
     memset(block, 0, sizeof(*block));
@@ -424,6 +445,7 @@ bool save_game(int slot) {
     memcpy(&block->game_state, &game_state, sizeof(GameState));
     memcpy(block->party_characters, party_characters, sizeof(party_characters));
     memcpy(block->event_flags, event_flags, sizeof(block->event_flags));
+    save_block_set_locale(block, locale_get());  /* checksummed below */
 
     /* Stamp the on-cartridge block signature so real EarthBound's
      * CHECK_BLOCK_SIGNATURE accepts the slot instead of erasing it. The checksums
@@ -448,11 +470,10 @@ bool save_game(int slot) {
     return write_sram_version_word();
 }
 
-bool load_game(int slot) {
-    if (slot < 0 || slot >= SAVE_COUNT) return false;
-
+/* Read the first copy of `slot` whose checksums hold into ert.save_scratch.
+ * Returns false if neither does. */
+static bool read_valid_block(int slot) {
     SaveBlock *block = &ert.save_scratch;
-    bool loaded = false;
 
     /* Try both copies */
     for (int copy = 0; copy < SAVE_COPY_COUNT; copy++) {
@@ -463,13 +484,28 @@ bool load_game(int slot) {
         uint16_t checksum = compute_add_checksum(block);
         uint16_t xor_checksum = compute_xor_checksum(block);
         if (block->header.checksum == checksum &&
-            block->header.checksum_complement == xor_checksum) {
-            loaded = true;
-            break;
-        }
+            block->header.checksum_complement == xor_checksum)
+            return true;
     }
+    return false;
+}
 
-    if (!loaded) return false;
+bool save_slot_locked(int slot) {
+    if (slot < 0 || slot >= SAVE_COUNT) return false;
+    /* Occupied as FILE_SELECT_MENU tests it (favourite_thing[1] != 0): an erased,
+     * all-zero block passes the checksums and reads as untagged English. */
+    const SaveBlock *block = &ert.save_scratch;
+    return read_valid_block(slot) && block->game_state.favourite_thing[1] != 0 &&
+           !save_locale_compatible(save_block_locale(block), locale_get());
+}
+
+bool load_game(int slot) {
+    if (slot < 0 || slot >= SAVE_COUNT) return false;
+
+    const SaveBlock *block = &ert.save_scratch;
+    if (!read_valid_block(slot)) return false;
+    /* A save of the other Language never reaches the live state. */
+    if (!save_locale_compatible(save_block_locale(block), locale_get())) return false;
 
     memcpy(&game_state, &block->game_state, sizeof(GameState));
     memcpy(party_characters, block->party_characters, sizeof(party_characters));
@@ -489,6 +525,7 @@ bool load_game(int slot) {
  * (other slots) survives the boot integrity check on hardware/snes9x. */
 bool erase_save(int slot) {
     if (slot < 0 || slot >= SAVE_COUNT) return false;
+    if (save_slot_locked(slot)) return false;  /* deleted from its own Language only */
 
     SaveBlock *block = &ert.save_scratch;
     memset(block, 0, sizeof(*block));
@@ -509,6 +546,7 @@ bool erase_save(int slot) {
  * version word so the image survives real EarthBound's boot integrity check. */
 bool copy_save(int to, int from) {
     if (to < 0 || to >= SAVE_COUNT || from < 0 || from >= SAVE_COUNT) return false;
+    if (save_slot_locked(to) || save_slot_locked(from)) return false;
 
     SaveBlock *block = &ert.save_scratch;
     for (int copy = 0; copy < SAVE_COPY_COUNT; copy++) {
@@ -521,4 +559,77 @@ bool copy_save(int to, int from) {
     }
 
     return write_sram_version_word();
+}
+
+/* True if every padding byte of `b` is zero (an English block's padding). */
+static bool padding_is_zero(const SaveBlock *b) {
+    for (size_t i = 0; i < sizeof b->padding; i++)
+        if (b->padding[i] != 0)
+            return false;
+    return true;
+}
+
+bool save_locale_selftest(void) {
+    const Locale running = g_locale;
+    SaveBlock *b = &ert.save_scratch;
+    bool ok = true;
+    /* Each check runs only while all before it held; the first failure is named */
+#define CHECK(cond) \
+    do { \
+        if (ok && !(cond)) { \
+            fprintf(stderr, "locale self-test: failed: %s\n", #cond); \
+            ok = false; \
+        } \
+    } while (0)
+
+    /* The tag on a block: untagged reads as English, the tag sits in the last two
+     * padding bytes and is checksummed, kanji writes Japanese's tag. */
+    memset(b, 0, sizeof *b);
+    CHECK(save_block_locale(b) == LOCALE_EN);
+    uint16_t sum_en = compute_add_checksum(b);
+    save_block_set_locale(b, LOCALE_JA);
+    CHECK(save_block_locale(b) == LOCALE_JA);
+    CHECK(b->padding[sizeof b->padding - 2] == 'J' && b->padding[sizeof b->padding - 1] == 'A');
+    CHECK(compute_add_checksum(b) != sum_en);
+    save_block_set_locale(b, LOCALE_JA_KANJI);
+    CHECK(save_block_locale(b) == LOCALE_JA);
+    save_block_set_locale(b, LOCALE_EN);
+    CHECK(save_block_locale(b) == LOCALE_EN && padding_is_zero(b));
+
+    /* The lock decision: kana and kanji share saves, English shares with nobody. */
+    CHECK(save_locale_compatible(LOCALE_EN, LOCALE_EN));
+    CHECK(save_locale_compatible(LOCALE_JA, LOCALE_JA));
+    CHECK(save_locale_compatible(LOCALE_JA, LOCALE_JA_KANJI));
+    CHECK(!save_locale_compatible(LOCALE_JA, LOCALE_EN));
+    CHECK(!save_locale_compatible(LOCALE_EN, LOCALE_JA));
+    CHECK(!save_locale_compatible(LOCALE_EN, LOCALE_JA_KANJI));
+
+    /* Through SRAM (the Locale is flipped directly: no Japanese assets needed).
+     * An English save is untagged and loads in English only; a Japanese one is
+     * tagged, loads in Japanese only and shows locked in English; an erased slot
+     * is locked in neither. */
+    game_state.favourite_thing[1] = 1; /* occupied, as file select tests it */
+    g_locale = LOCALE_EN;
+    CHECK(save_game(0) && read_valid_block(0) && padding_is_zero(b));
+    CHECK(load_game(0) && !save_slot_locked(0));
+    g_locale = LOCALE_JA;
+    CHECK(!load_game(0) && save_slot_locked(0));
+    /* Nothing writes over a locked slot: not saving, copying or erasing */
+    CHECK(!save_game(0) && !copy_save(1, 0) && !copy_save(0, 1) && !erase_save(0));
+    g_locale = LOCALE_EN;
+    CHECK(erase_save(0));
+    g_locale = LOCALE_JA;
+    CHECK(save_game(0) && read_valid_block(0) && save_block_locale(b) == LOCALE_JA);
+    CHECK(load_game(0) && !save_slot_locked(0));
+    g_locale = LOCALE_EN;
+    CHECK(!load_game(0) && save_slot_locked(0));
+    CHECK(!save_game(0) && !copy_save(1, 0) && !copy_save(0, 1) && !erase_save(0));
+    g_locale = LOCALE_JA;
+    CHECK(erase_save(0) && !save_slot_locked(0));
+    g_locale = LOCALE_EN;
+    CHECK(!save_slot_locked(0));
+
+#undef CHECK
+    g_locale = running;
+    return ok;
 }

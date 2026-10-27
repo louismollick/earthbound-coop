@@ -1,0 +1,66 @@
+# Japanese plan
+
+Play the C port in Japanese, with the text, fonts and graphics of the user's Mother 2 ROM, in the same executable as English. Architecture: ADR 0003. Each milestone is one PR, merged when its gates pass.
+
+## Settled decisions
+
+- **Language** is picked before the game starts: a launcher row (English, Japanese, and Japanese kanji when the local kanji script exists) and `--lang en|ja|ja-kanji` (also `EB_LANG`) for headless runs and builds without the launcher. It never changes while the game runs.
+- **Text-only Locale.** Japanese messages keep the US logic ops and take Mother 2's presentation ops. US-only messages keep their logic and print nothing. A label that exists only in Mother 2 is dropped.
+- **Donor ROM.** `mother2.sfc` (unheadered, SHA-1 `8738cff9e38a8b86ae30bfe0e5fbcb2828c2b16e`) in the repo root, gitignored. Without it the build is English-only and the launcher has no Language row.
+- **Assets.** `ebtools extract-ja` writes the editable Japanese assets to `src/assets/ja/` (dialogue YAML in the US file layout and label order, JSON tables). `pack-all` packs them to `build/packed_assets/JA/`, and the registry embeds them as overrides: in Japanese, `ASSET_DATA(id)` returns the `JA/` variant when there is one. In English nothing changes.
+- **Text addresses.** US inline strings `0x000000`, US dialogue `0x100000`, Japanese dialogue `0x200000`, Japanese inline strings `0x300000`. In Japanese, a US address is translated through a label table (`JA/text/xlat.bin`) when text is resolved; Japanese internal jumps already point into the Japanese ranges.
+- **Encoding.** Japanese text keeps Mother 2's encoding: control codes below `0x20`, glyphs `0x20` to `0xFF`. The code that classifies or converts characters asks the Locale (`eb_char_space()`, `eb_glyph_index()`, `ascii_to_eb_char()`, ...).
+- **Font.** The Japanese glyphs are Mother 2's 8x16 text tiles (two stacked tiles per code in `JP/graphics/text_window.gfx`), packed into the US variable-width font format with a fixed 8 px advance.
+- **Saves.** A Japanese save block carries `JA` in the last two padding bytes. File select shows a save of the other Language as a locked slot labelled `English` or `日本語`: it can't be loaded, copied over or started over, only deleted from its own Language. Kana and kanji share saves.
+- **Savestates** record the Locale; loading one from another Locale is rejected like a layout mismatch.
+- **Online.** The fingerprint carries the Locale, and the asset hash covers only the active Locale's assets, so an English-only build can join an English Session of a build that also has Japanese.
+- **English is untouched.** All Japanese paths are gated on the Locale.
+
+## Gates (every milestone)
+
+1. Build `-DEB_WERROR=ON` at both viewports, with and without `mother2.sfc` extracted.
+2. `uv run --no-sync python -m pytest tests -q` passes, including the Japanese tests when the Japanese assets exist.
+3. English bit-identical: `regress.py compare BASE NEW` shows no diffs and `regress.py framehash BASE NEW` 0 changed frames, BASE being the merge base.
+4. Japanese playtest: the milestone's scenes reached with `--lang ja`, screenshots read by hand.
+5. One adversarial review per milestone (GPT 6.1 Sol), findings fixed or rebutted.
+
+## J1 Locale switch and Japanese dialogue
+
+- [x] `make mother2` builds a ROM identical to `mother2.sfc` (renamed labels in the JP-only files).
+- [x] `ebtools extract-ja`: Japanese dialogue YAML (US logic, Mother 2 presentation), Japanese inline strings for item, enemy, PSI and action descriptions, the Japanese font.
+- [x] Packing and embedding: `JA/` overrides, the Japanese dialogue and inline blobs, the address table.
+- [x] Runtime Locale, `--lang`, `EB_LANG`, the launcher's Language row.
+- [x] Text engine: glyph index, space, word wrap, bullet, text sounds and number printing follow the Locale; all variable-width fonts use the Japanese glyphs.
+- [x] Save tag and locked slots, savestate Locale, online fingerprint.
+- [x] Tests: logic invariant over every label; save tag round trip; an untagged save loads as English.
+- [x] Playtest: Ness's house to the meteorite, a shop, a battle and an item description in Japanese.
+
+## J2 Japanese interface
+
+- [ ] Name tables: items, enemies, PSI, teleport destinations, phone contacts, store and status text, window titles.
+- [ ] The strings hardcoded in C (file select, battle commands, equip and Goods menus) come from the Mother 2 ROM in Japanese.
+- [ ] Battle grammar: enemy suffixes and articles.
+- [ ] Kana naming keyboard and the Mother 2 Don't Care names.
+- [ ] Mr. Saturn's Japanese font.
+
+## J3 Japanese graphics and cinematics
+
+- [ ] Town map labels, the sound stone, attract mode text.
+- [ ] Flyovers, the coffee and tea breaks and Lumine Hall, with the cinematic font's kanji.
+- [ ] Staff credits and cast names.
+
+## J4 Kanji
+
+- [ ] An extended glyph code for kanji, in the text DSL and the renderer.
+- [ ] A free pixel kanji font (redistributable license) in `src/custom_assets/`.
+- [ ] A gitignored override folder for a kanji script, packed over the kana dialogue when present; the launcher's Japanese kanji choice.
+- [ ] A checker test (skips without an override): control codes unchanged, every glyph in the font, and, with SudachiPy installed, the reading of every converted line equals the original kana.
+
+## Decisions made during the build
+
+- J1: Japanese text is a fallthrough chain splice (labels the US added inside a Mother 2 message keep its text); Mother 2 `call_text` to logic-free text the US lacks is inlined. 144 US labels end up silent in Japanese, mostly English grammar helpers and the US-only item-give messages (J2 ports Mother 2's give flow).
+- J1: the Locale is folded into the savestate layout id (no format change); a locked slot reads `Japanese` in English and `えいご` in Japanese.
+- J1: `$` is 0x23 in Mother 2's encoding (0x24 is the `00` tile).
+- J1: pack-all skips the Japanese Locale (with a warning) when its dialogue lacks a US label or a message's logic drifted from the US; English always builds.
+
+## Blocked

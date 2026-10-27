@@ -72,7 +72,7 @@ class CommonData(BaseModel):
 
 def load_dump_doc(path: Path) -> DumpDoc:
     """Load a DumpDoc from a YAML file."""
-    with path.open() as f:
+    with path.open(encoding="utf-8") as f:
         raw = yaml.safe_load(f)
 
     return DumpDoc.model_validate(raw)
@@ -80,7 +80,7 @@ def load_dump_doc(path: Path) -> DumpDoc:
 
 def load_common_data(path: Path) -> CommonData:
     """Load CommonData from a YAML file."""
-    with path.open() as f:
+    with path.open(encoding="utf-8") as f:
         raw = yaml.safe_load(f)
 
     return CommonData.model_validate(raw)

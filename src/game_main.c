@@ -292,7 +292,7 @@ static void fps_overlay_stamp_scanline(int y, pixel_t *pixels) {
     /* A line wider than the timing column (the savestate notice) grows leftward. */
     int text_w = 0;
     for (const char *s = fps_overlay.lines[text_row]; *s; s++)
-        text_w += font_get_width(FONT_ID_TINY, (uint8_t)(ascii_to_eb_char(*s) - 0x50));
+        text_w += font_get_width(FONT_ID_TINY, (uint8_t)(ascii_to_us_eb_char(*s) - 0x50));
     if (text_w > overlay_w)
         overlay_w = text_w;
     int ox = EB_VIEWPORT_WIDTH - overlay_w - 1;
@@ -305,7 +305,7 @@ static void fps_overlay_stamp_scanline(int y, pixel_t *pixels) {
     /* Stamp glyphs */
     int cx = ox;
     for (const char *s = fps_overlay.lines[text_row]; *s; s++) {
-        uint8_t eb = ascii_to_eb_char(*s);
+        uint8_t eb = ascii_to_us_eb_char(*s); /* the TINY font is US in every Locale */
         uint8_t idx = eb - 0x50;
         const uint8_t *glyph = font_get_glyph(FONT_ID_TINY, idx);
         uint8_t w = font_get_width(FONT_ID_TINY, idx);

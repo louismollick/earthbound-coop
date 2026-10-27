@@ -27,6 +27,10 @@ class StringTableBuilder:
         self._strings[text] = offset
         return offset
 
+    def entries(self) -> dict[str, int]:
+        """Return ``{text: byte offset}`` for every string, in insertion order."""
+        return dict(self._strings)
+
     def build(self) -> bytes:
         """Return the complete string table as bytes."""
         return bytes(self._buf)

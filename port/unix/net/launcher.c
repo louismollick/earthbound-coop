@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "core/locale.h"
 #include "include/pad.h"
 #include "net/relay.h"
 #include "net/ui.h"
@@ -20,9 +21,9 @@ size_t input_text_take(char *out, size_t cap);
 #define LEFT 32
 #define LINE 18
 
-static char saved_relay[256], saved_invite[256];
+static char saved_relay[256], saved_invite[256], saved_lang[16];
 
-/* ---- online.cfg: "relay=..." and "invite=..." lines ---- */
+/* ---- online.cfg: "relay=...", "invite=..." and "lang=..." lines ---- */
 
 static void cfg_load(void) {
     FILE *f = fopen(CFG_PATH, "r");
@@ -35,6 +36,8 @@ static void cfg_load(void) {
             snprintf(saved_relay, sizeof saved_relay, "%s", line + 6);
         else if (strncmp(line, "invite=", 7) == 0)
             snprintf(saved_invite, sizeof saved_invite, "%s", line + 7);
+        else if (strncmp(line, "lang=", 5) == 0)
+            snprintf(saved_lang, sizeof saved_lang, "%s", line + 5);
     }
     fclose(f);
 }
@@ -44,6 +47,8 @@ static void cfg_save(void) {
     if (!f)
         return;
     fprintf(f, "relay=%s\ninvite=%s\n", saved_relay, saved_invite);
+    if (saved_lang[0])
+        fprintf(f, "lang=%s\n", saved_lang);
     fclose(f);
 }
 
@@ -112,17 +117,31 @@ static void present(void) {
 /* ---- Screens ---- */
 
 enum { S_MENU, S_HOST, S_JOIN };
+/* The menu rows; ROW_LANG only when the build has another Language */
+enum { ROW_PLAY, ROW_HOST, ROW_JOIN, ROW_LANG };
 static const char *const ITEMS[] = { "Play", "Host online", "Join online" };
 
-static void draw_menu(int sel, const char *status, bool err) {
-    int y = H / 2 - 3 * LINE / 2 - 8;
-    for (int i = 0; i < 3; i++) {
+/* The next Language this build has, after `l` in direction `dir` (+1 / -1). */
+static Locale next_locale(Locale l, int dir) {
+    for (int i = 1; i < LOCALE_COUNT; i++) {
+        Locale c = (Locale)(((int)l + dir * i + LOCALE_COUNT) % LOCALE_COUNT);
+        if (locale_available(c))
+            return c;
+    }
+    return l;
+}
+
+static void draw_menu(int sel, int rows, const char *status, bool err) {
+    int y = H / 2 - rows * LINE / 2 - 8;
+    for (int i = 0; i < rows; i++) {
         pixel_t c = i == sel ? WHITE : GRAY;
         if (i == sel) /* a small right-pointing cursor */
             for (int dy = 0; dy < 7; dy++)
                 for (int dx = 0; dx <= (dy < 4 ? dy : 6 - dy); dx++)
                     fb[y + 4 + dy][LEFT - 10 + dx] = c;
-        text(LEFT, y, UI_FONT_MAIN, ITEMS[i], c);
+        char lang_row[48];
+        snprintf(lang_row, sizeof lang_row, "Language: %s", locale_name(locale_get()));
+        text(LEFT, y, UI_FONT_MAIN, i == ROW_LANG ? lang_row : ITEMS[i], c);
         y += LINE;
     }
     if (status[0])
@@ -172,10 +191,15 @@ static bool clipboard_invite(const char *fallback_relay, char *out, size_t cap) 
     return ok;
 }
 
-LaunchChoice launcher_run(NetConfig *cfg) {
+LaunchChoice launcher_run(NetConfig *cfg, bool lang_given) {
     static char field[256], relay[256], invite[256];
     const char *cli_relay = cfg->relay; /* --relay: preferred over online.cfg's */
     cfg_load();
+    /* The Language row: online.cfg's choice unless --lang / EB_LANG gave one */
+    const int rows = locale_available(LOCALE_JA) ? 4 : 3;
+    Locale saved;
+    if (rows == 4 && !lang_given && locale_parse(saved_lang, &saved))
+        locale_set(saved); /* refused (changing nothing) if this build lacks it */
     input_text_enable(true);
     int screen = S_MENU, sel = 0, frame = 0;
     char status[512] = "";
@@ -189,10 +213,15 @@ LaunchChoice launcher_run(NetConfig *cfg) {
 
         if (screen == S_MENU) {
             if (pressed & PAD_UP)
-                sel = (sel + 2) % 3;
+                sel = (sel + rows - 1) % rows;
             if (pressed & PAD_DOWN)
-                sel = (sel + 1) % 3;
-            if (pressed & (PAD_A | PAD_START)) {
+                sel = (sel + 1) % rows;
+            if (sel == ROW_LANG && (pressed & (PAD_LEFT | PAD_RIGHT | PAD_A | PAD_START))) {
+                /* Before game_init and net_start, so locale_set is still allowed */
+                locale_set(next_locale(locale_get(), (pressed & PAD_LEFT) ? -1 : 1));
+                snprintf(saved_lang, sizeof saved_lang, "%s", locale_code(locale_get()));
+                cfg_save();
+            } else if (pressed & (PAD_A | PAD_START)) {
                 status[0] = '\0';
                 if (sel == 0) {
                     choice = LAUNCH_PLAY;
@@ -257,7 +286,7 @@ LaunchChoice launcher_run(NetConfig *cfg) {
 
         memset(fb, 0, sizeof fb);
         if (screen == S_MENU)
-            draw_menu(sel, status, err);
+            draw_menu(sel, rows, status, err);
         else
             draw_field(screen, field, frame, status, err);
         present();
