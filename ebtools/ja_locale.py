@@ -37,6 +37,11 @@ class JaLocaleConfig(BaseModel):
     romSha1: str
     textTable: dict[int, str] = Field(default_factory=dict)
     labels: dict[str, str] = Field(default_factory=dict)
+    # US labels whose Japanese message is Mother 2's whole message, logic too.
+    motherLogic: list[str] = Field(default_factory=list)
+    # Mother 2 symbol -> (ROM offset, bytes to the next symbol), for the
+    # interface tables (ebtools.ja_interface; regenerate with `ebtools ja-offsets`).
+    romSymbols: dict[str, tuple[int, int]] = Field(default_factory=dict)
 
 
 def load_ja_locale(path: Path) -> JaLocaleConfig:
