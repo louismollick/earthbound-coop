@@ -5,7 +5,10 @@ Reads raw text bytecode and produces a list of dicts, each with an "op" key
 ArgSpec names. Literal text bytes produce {"op": "text", "value": "decoded string"}.
 """
 
+from collections.abc import Sequence
+
 from ebtools.byte_reader import ByteReader
+from ebtools.text_dsl.kanji import KANJI_PREFIX, kanji_index
 from ebtools.text_dsl.opcodes import OPCODE_BY_BYTES, ArgType
 
 # Compressed text prefix bytes.
@@ -73,6 +76,7 @@ def decode_text_block(
     *,
     compressed_text: dict[int, str] | None = None,
     stop_at_end_block: bool = False,
+    kanji: Sequence[str] | None = None,
 ) -> list[dict]:
     """Decode raw text bytecode into a list of structured dicts.
 
@@ -84,6 +88,8 @@ def decode_text_block(
         stop_at_end_block: If True, stop decoding after the first end_block
             opcode (0x02). Useful for decoding a single message from a block
             that contains many.
+        kanji: The kanji glyph table of Japanese kanji text: 0x15 and two
+            digit bytes are then a kanji (text_dsl/kanji.py), not compressed text.
 
     Returns
     -------
@@ -105,6 +111,12 @@ def decode_text_block(
         if b in text_table:
             reader.read_byte()
             text_buf.append(text_table[b])
+            continue
+
+        # A kanji: the prefix and two digits.
+        if kanji is not None and b == KANJI_PREFIX and len(reader) >= 3:
+            reader.read_byte()
+            text_buf.append(kanji[kanji_index(reader.read_byte(), reader.read_byte())])
             continue
 
         # Compressed text expansion.

@@ -165,10 +165,10 @@ def _packed() -> tuple[Path, dict]:
     seen: dict = {}
     real = pack_ja_mod.pack_ja
 
-    def spy(assets_dir, output_dir, common_data, us_label_addrs, us_inline, bin_dir):
+    def spy(assets_dir, output_dir, common_data, us_label_addrs, us_inline, bin_dir, custom_dir):
         seen["labels"] = dict(us_label_addrs)
         seen["inline"] = us_inline.entries()
-        return real(assets_dir, output_dir, common_data, us_label_addrs, us_inline, bin_dir)
+        return real(assets_dir, output_dir, common_data, us_label_addrs, us_inline, bin_dir, custom_dir)
 
     with mock.patch.object(pack_ja_mod, "pack_ja", spy), contextlib.redirect_stdout(io.StringIO()):
         pack_all(

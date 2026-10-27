@@ -243,12 +243,14 @@ enum { FP_OPT_AUDIO = 1, FP_OPT_VERIFY = 2, FP_OPT_LETTERBOX = 4, FP_OPT_B_MENU 
 
 static Fingerprint my_fp;
 
-/* English skips the Japanese assets (JA/), so a build without them hashes the same. */
+/* The running Locale's assets only: English skips the Japanese ones (JA/,
+ * JA_KANJI/) and kana Japanese the kanji ones, so a build without them hashes
+ * the same. */
 static uint32_t asset_hash(void) {
     uint32_t h = 2166136261u;
     for (int i = 0; i < ASSET_COUNT; i++) {
 #ifdef EB_HAVE_JA
-        if (asset_is_ja[i] && !locale_is_ja())
+        if ((asset_is_ja[i] == 1 && !locale_is_ja()) || (asset_is_ja[i] == 2 && locale_get() != LOCALE_JA_KANJI))
             continue;
 #endif
         const AssetEntry *e = &embedded_assets[i];

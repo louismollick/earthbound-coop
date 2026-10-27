@@ -10,6 +10,7 @@ app = App(
 app.command("ebtools.cli.extract:extract")
 app.command("ebtools.cli.extract_ja:extract_ja", name="extract-ja")
 app.command("ebtools.ja_interface:ja_offsets", name="ja-offsets")
+app.command("ebtools.ja_kanji:check_kanji", name="check-kanji")
 app.command("ebtools.cli.embed:embed_registry")
 app.command("ebtools.cli.pack:pack_app", name="pack")
 app.command("ebtools.cli.generate:generate_app", name="generate")

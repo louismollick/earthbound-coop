@@ -59,7 +59,7 @@ uint16_t vwf_x;        /* current pixel X position */
 uint16_t vwf_tile;     /* current tile index in ert.buffer */
 uint16_t vwf_pixels_rendered; /* tracks how many pixels rendered (savestate-captured) */
 
-void (*text_trace_hook)(int event, uint16_t window_id, uint8_t eb_char);
+void (*text_trace_hook)(int event, uint16_t window_id, uint16_t letter);
 
 /* VWF save/restore aliases into the tail of ert.buffer (BUF_VWF_SAVE).
  * Phase-exclusive with pathfinding — see buffer_layout.h for details. */
@@ -123,6 +123,45 @@ uint8_t font_get_height(uint8_t font_id) {
     return fonts[font_id].height;
 }
 
+/* The kanji font (Japanese kanji Locale): JA_KANJI/fonts/kanji.gfx, one 8 px
+ * column of KANJI_GLYPH_ROWS inverted 1bpp rows a glyph; kanji.bin, a width a
+ * glyph; kanji_chars.bin, a u16 LE code point a glyph. count 0 = not bound. */
+#define KANJI_GLYPH_ROWS 16
+static struct {
+    const uint8_t *glyphs, *widths, *chars;
+    uint16_t count;
+} kanji_font;
+
+static void load_kanji_font(void) {
+    kanji_font.count = 0;
+#ifdef EB_HAVE_JA_KANJI
+    if (locale_get() != LOCALE_JA_KANJI)
+        return;
+    size_t n = ASSET_SIZE(ASSET_JA_KANJI_FONTS_KANJI_BIN);
+    if (ASSET_SIZE(ASSET_JA_KANJI_FONTS_KANJI_GFX) != n * KANJI_GLYPH_ROWS ||
+        ASSET_SIZE(ASSET_JA_KANJI_FONTS_KANJI_CHARS_BIN) != n * 2 || n > 0xFFFF) {
+        LOG_WARN("kanji font: inconsistent sizes; kanji print nothing\n");
+        return;
+    }
+    kanji_font.glyphs = ASSET_DATA(ASSET_JA_KANJI_FONTS_KANJI_GFX);
+    kanji_font.widths = ASSET_DATA(ASSET_JA_KANJI_FONTS_KANJI_BIN);
+    kanji_font.chars = ASSET_DATA(ASSET_JA_KANJI_FONTS_KANJI_CHARS_BIN);
+    kanji_font.count = (uint16_t)n;
+#endif
+}
+
+bool ja_kanji_enabled(void) {
+    return kanji_font.count != 0;
+}
+
+uint8_t ja_kanji_width(uint16_t index) {
+    return index < kanji_font.count ? kanji_font.widths[index] : 7;
+}
+
+uint16_t ja_kanji_codepoint(uint16_t index) {
+    return index < kanji_font.count ? read_u16_le(kanji_font.chars + 2 * (size_t)index) : 0;
+}
+
 /* --- Convert 1bpp to 2bpp for VRAM --- */
 
 static void convert_1bpp_to_2bpp(const uint8_t *src, uint8_t *dst, int rows) {
@@ -177,6 +216,8 @@ void text_system_init(void) {
         load_font(FONT_ID_MRSATURN, ASSET_JA_FONTS_MRSATURN_GFX, ASSET_JA_FONTS_MRSATURN_BIN, 16, JA_FONT_GLYPHS);
     }
 #endif
+    /* Japanese kanji: the kanji glyphs, beside the Japanese fonts (text.h). */
+    load_kanji_font();
 
     /* Cursor arrow tiles (0x41/0x51 and 0x28D/0x29D) come from the
        TEXT_WINDOW_GFX asset uploaded by text_load_window_gfx(). */
@@ -3743,16 +3784,22 @@ static void ja_mrsaturn_glyph(uint8_t index) {
  * semi-voiced kana (codes 0x60+, low nibble 3/5/7/10 or 11) his dakuten (26) or
  * handakuten (27) as a following glyph. PRINT_MRSATURN_LETTER first starts a new
  * line, one tile in, once text_x is past 14 (text_x: the tile being drawn). */
-static void ja_print_mrsaturn_letter(uint8_t eb) {
+static bool ja_mrsaturn_line_start(bool letter) {
     WindowInfo *w = get_window(win.current_focus_window);
-    if (!w) return;
+    if (!w) return false;
     uint16_t text_x = (vwf_x & 7) ? (uint16_t)(w->text_x - 1) : w->text_x;
-    if (text_x > 14 && eb >= 0x20) {
+    if (text_x > 14 && letter) {
         print_newline();
         w = get_window(win.current_focus_window);
-        if (!w) return;
+        if (!w) return false;
         set_focus_text_cursor(w->text_x + 1, w->text_y);
     }
+    return true;
+}
+
+static void ja_print_mrsaturn_letter(uint8_t eb) {
+    if (!ja_mrsaturn_line_start(eb >= 0x20))
+        return;
     ja_mrsaturn_glyph(eb_glyph_index(eb));
     if (eb >= 0x60) {
         uint8_t low = eb & 0x0F;
@@ -3822,6 +3869,45 @@ void print_eb_letter(uint8_t eb) {
     }
 
     /* Update cursor pixel position */
+    w = get_window(win.current_focus_window);
+    if (!w) return;
+    w->cursor_pixel_x = vwf_x;
+}
+
+static void vwf_render_kanji(uint16_t index);
+
+/* print_eb_letter's glyph path for a kanji (text.h). A kanji is a letter but
+ * not the bullet: it ends a word-wrap indent and is the last printed letter
+ * (recorded as JA_KANJI_PREFIX). In Mr. Saturn's font it is a glyph his font
+ * lacks: an 8 px letter on the next whole tile. */
+void print_kanji_letter(uint16_t index) {
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w) return;
+
+    uint8_t font_id = (uint8_t)(w->font & 0xFF);
+    if (vwf_indent_new_line) {
+        w->text_x = 0;
+        set_text_pixel_position(w->text_y, 6);
+        w = get_window(win.current_focus_window);
+        if (!w) return;
+        font_id = (uint8_t)(w->font & 0xFF);
+        vwf_indent_new_line = 0;
+    }
+    dt.last_printed_character = JA_KANJI_PREFIX;
+
+    if (text_trace_hook)
+        text_trace_hook(TEXT_TRACE_KANJI, win.current_focus_window, index);
+
+    if (font_id == FONT_ID_MRSATURN) {
+        if (!ja_mrsaturn_line_start(true))
+            return;
+        w = get_window(win.current_focus_window);
+        if (w && (vwf_x & 7))
+            set_focus_text_cursor(w->text_x, w->text_y);
+    }
+    vwf_render_kanji(index);
+    vwf_flush_tiles_to_vram();
+
     w = get_window(win.current_focus_window);
     if (!w) return;
     w->cursor_pixel_x = vwf_x;
@@ -4378,12 +4464,25 @@ void vwf_render_character(uint8_t eb_char, uint8_t font_id) {
 
 /* The glyph half of vwf_render_character (RENDER_VWF_CHARACTER @SETUP_GLYPH):
  * blit glyph `char_index` of `font_id`, width + CHARACTER_PADDING pixels. */
+static void vwf_blit_glyph_columns(const uint8_t *glyph, uint8_t char_width, uint8_t height);
+
 void vwf_render_glyph(uint8_t font_id, uint8_t char_index) {
     const uint8_t *glyph = font_get_glyph(font_id, char_index);  /* NULL past the table */
     if (!glyph) return;
 
-    uint8_t char_width = font_get_width(font_id, char_index);
-    uint8_t height = font_get_height(font_id);
+    vwf_blit_glyph_columns(glyph, font_get_width(font_id, char_index), font_get_height(font_id));
+}
+
+/* vwf_render_glyph for glyph `index` of the kanji font (nothing past the table). */
+static void vwf_render_kanji(uint16_t index) {
+    if (index >= kanji_font.count) return;
+    vwf_blit_glyph_columns(kanji_font.glyphs + (size_t)index * KANJI_GLYPH_ROWS,
+                           kanji_font.widths[index], KANJI_GLYPH_ROWS);
+}
+
+/* Blit a glyph `char_width` + CHARACTER_PADDING pixels wide, `height` rows a
+ * column, in 8 px columns. */
+static void vwf_blit_glyph_columns(const uint8_t *glyph, uint8_t char_width, uint8_t height) {
     /* Total advance = character width + inter-character padding (assembly: CHARACTER_PADDING) */
     uint8_t total_width = char_width + character_padding;
 

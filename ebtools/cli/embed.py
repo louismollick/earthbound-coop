@@ -17,6 +17,8 @@ _LOCALE_PREFIXES = ("US/", "JP/")
 # Not a locale family: JA/ assets keep their own ids and override the asset with
 # the same unprefixed path at run time (asset_ja_override).
 _JA_PREFIX = "JA/"
+# The Japanese kanji Locale's own assets (ebtools/ja_kanji.py), read only in it
+_JA_KANJI_PREFIX = "JA_KANJI/"
 
 
 def _path_to_identifier(path: str) -> str:
@@ -366,9 +368,14 @@ def embed_registry(
     # Japanese Locale overrides
     ja_override = _ja_overrides(path_to_enum, locale_map)
     ids_lines.append("/* Japanese Locale: asset_ja_override[id] is the JA/ variant of id, or -1 */")
-    if any(path.startswith(_JA_PREFIX) for path in sorted_paths):
+    have_ja = any(path.startswith(_JA_PREFIX) for path in sorted_paths)
+    if have_ja:
         ids_lines.append("#define EB_HAVE_JA 1")
+        if any(path.startswith(_JA_KANJI_PREFIX) for path in sorted_paths):
+            ids_lines.append("#define EB_HAVE_JA_KANJI 1")
     ids_lines.append("extern const int16_t asset_ja_override[ASSET_COUNT];")
+    ids_lines.append("/* Which Locales read an asset: 0 every one, 1 the Japanese ones (JA/), 2 Japanese kanji")
+    ids_lines.append(" * (JA_KANJI/) */")
     ids_lines.append("extern const uint8_t asset_is_ja[ASSET_COUNT];")
     ids_lines.append("")
 
@@ -467,9 +474,13 @@ def embed_registry(
     for i in range(0, len(values), 8):
         array_lines.append("    " + " ".join(f"{v}," for v in values[i : i + 8]))
     array_lines.append("};")
-    ja_ids = sorted({path_to_enum[p] for p in path_to_enum if p.startswith(_JA_PREFIX)})
+    ja_ids = sorted(
+        (path_to_enum[p], 2 if p.startswith(_JA_KANJI_PREFIX) else 1)
+        for p in path_to_enum
+        if p.startswith((_JA_PREFIX, _JA_KANJI_PREFIX))
+    )
     array_lines.append("const uint8_t asset_is_ja[ASSET_COUNT] = {")
-    array_lines.extend(f"    [{enum_name}] = 1," for enum_name in ja_ids)
+    array_lines.extend(f"    [{enum_name}] = {tag}," for enum_name, tag in ja_ids)
     if not ja_ids:
         array_lines.append("    0")
     array_lines.append("};")
