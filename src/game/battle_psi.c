@@ -441,9 +441,14 @@ void display_psi_target_and_cost(uint16_t ability_id) {
     set_focus_text_cursor(0, 1);
     const uint8_t *pp_cost_data = ASSET_DATA(ASSET_US_DATA_PP_COST_TEXT_BIN);
     print_eb_string(pp_cost_data, 8);
-    { static const uint8_t space = 0x50; print_eb_string(&space, 1); }
-    set_window_number_padding(129);
-    set_text_pixel_position(1, 40);
+    if (locale_is_ja()) {
+        /* Mother 2: the number right after "しょうひPP:", padding 1 */
+        set_window_number_padding(1);
+    } else {
+        { static const uint8_t space = 0x50; print_eb_string(&space, 1); }
+        set_window_number_padding(129);
+        set_text_pixel_position(1, 40);
+    }
 
     uint16_t battle_action_id = psi->battle_action;
     uint8_t pp_cost = battle_action_table[battle_action_id].pp_cost;

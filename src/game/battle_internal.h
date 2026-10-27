@@ -10,6 +10,7 @@
 #include "game/battle.h"
 #include "core/math.h"
 #include "core/mode_stack.h"
+#include "core/locale.h"
 
 /* ---- RNG helpers ---- */
 static inline uint8_t rand_byte(void) {
@@ -31,6 +32,13 @@ static inline uint16_t rand_limit(uint16_t limit) {
 /* ---- EB character encoding constants ---- */
 #define EB_CHAR_SPACE     0x50
 #define EB_CHAR_A_MINUS_1 0x70  /* CHAR::A_ - 1 = 0x71 - 1 */
+#define JA_CHAR_A_MINUS_1 0x40  /* Mother 2's CHAR::A_ - 1 = 0x41 - 1 */
+/* Japanese, the letter that tells apart enemies of one type goes right after
+ * the name, without the US space (fix_attacker_name.asm, fix_target_name.asm,
+ * set_target_name_with_article.asm, JPN). */
+static inline uint8_t enemy_letter_base(void) {
+    return locale_is_ja() ? JA_CHAR_A_MINUS_1 : EB_CHAR_A_MINUS_1;
+}
 
 /* ---- Shared data tables ---- */
 extern const uint16_t dead_targettable_actions[];

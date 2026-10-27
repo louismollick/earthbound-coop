@@ -22,6 +22,7 @@
 #include "game/map_loader.h"
 #include "game/window.h"
 #include "game/text.h"
+#include "game/ui_text.h"
 #include "game/fade.h"
 #include "game/oval_window.h"
 #include "game/battle_bg.h"
@@ -1011,10 +1012,19 @@ void fix_attacker_name(uint16_t param) {
                     add_letter = false; /* Only one enemy of this type */
             }
             if (add_letter && atk->the_flag != 0) {
-                scratch[pos++] = EB_CHAR_SPACE;
-                set_print_attacker_article(1);
-                scratch[pos] = atk->the_flag + EB_CHAR_A_MINUS_1;
+                if (!locale_is_ja()) {
+                    scratch[pos++] = EB_CHAR_SPACE;
+                    set_print_attacker_article(1);
+                }
+                scratch[pos] = atk->the_flag + enemy_letter_base();
             }
+        }
+        /* Mother 2: the abbreviated name (the encounter message) of several
+         * enemies takes the plural suffix たち (fix_attacker_name.asm, JPN
+         * @CHECK_PLURAL_SUFFIX) */
+        if (locale_is_ja() && atk->ally_or_enemy == 1 && param != 0 && bt.enemies_in_battle > 1) {
+            scratch[pos] = 0x66;      /* た */
+            scratch[pos + 1] = 0x76;  /* ち */
         }
 
         /* Special case: "My Pet" uses the player's pet name */
@@ -1063,9 +1073,11 @@ void fix_target_name(void) {
                     add_letter = false;
             }
             if (add_letter && tgt->the_flag != 0) {
-                scratch[pos++] = EB_CHAR_SPACE;
-                set_print_target_article(1);
-                scratch[pos] = tgt->the_flag + EB_CHAR_A_MINUS_1;
+                if (!locale_is_ja()) {
+                    scratch[pos++] = EB_CHAR_SPACE;
+                    set_print_target_article(1);
+                }
+                scratch[pos] = tgt->the_flag + enemy_letter_base();
             }
         }
 
@@ -2816,18 +2828,18 @@ static void bm_build_menu(BattleMenuState *st, const CharStruct *ch) {
 
     /* Add attack option (Bash/Shoot/Do Nothing) */
     if (st->weapon_type == 0) {
-        add_menu_item("Bash", 1, 0, 0);
+        add_menu_item(ui_text(UI_BATTLE_BASH, "Bash"), 1, 0, 0);
     } else if (st->weapon_type == 1) {
-        add_menu_item("Shoot", 1, 0, 0);
+        add_menu_item(ui_text(UI_BATTLE_SHOOT, "Shoot"), 1, 0, 0);
     } else {
-        add_menu_item("Do Nothing", 1, 0, 0);
+        add_menu_item(ui_text(UI_BATTLE_DO_NOTHING, "Do Nothing"), 1, 0, 0);
     }
 
     /* Add Goods and Defend options (unless paralyzed/immobilized)
      * Assembly: BATTLE_MENU_TEXT+16="Goods" userdata=2, +64="Defend" userdata=5 */
     if (st->weapon_type != 2) {
-        add_menu_item("Goods", 2, 6, 0);
-        add_menu_item("Defend", 5, 6, 1);
+        add_menu_item(ui_text(UI_BATTLE_GOODS, "Goods"), 2, 6, 0);
+        add_menu_item(ui_text(UI_BATTLE_DEFEND, "Defend"), 5, 6, 1);
     }
 
     /* Add Defend and Run Away (only for first character selecting) */
@@ -2841,26 +2853,26 @@ static void bm_build_menu(BattleMenuState *st, const CharStruct *ch) {
         if (st->char_id == PARTY_MEMBER_PAULA || st->char_id == PARTY_MEMBER_POO) {
             x_offset += 2;
         }
-        add_menu_item("Auto Fight", 3, x_offset, 0);
-        add_menu_item("Run Away", 6, x_offset, 1);
+        add_menu_item(ui_text(UI_BATTLE_AUTO_FIGHT, "Auto Fight"), 3, x_offset, 0);
+        add_menu_item(ui_text(UI_BATTLE_RUN_AWAY, "Run Away"), 6, x_offset, 1);
     }
 
     /* Add Jeff's Spy or PSI option */
     if (st->char_id == PARTY_MEMBER_JEFF) {
-        add_menu_item("Spy", 4, 0, 1);
+        add_menu_item(ui_text(UI_BATTLE_SPY, "Spy"), 4, 0, 1);
     } else if ((ch->afflictions[STATUS_GROUP_CONCENTRATION] & 0xFF) == 0) {
         /* Can use PSI (not concentration-blocked) */
-        add_menu_item("PSI", 4, 0, 1);
+        add_menu_item(ui_text(UI_BATTLE_PSI, "PSI"), 4, 0, 1);
     }
 
     /* Add Paula's Pray */
     if (st->char_id == PARTY_MEMBER_PAULA) {
-        add_menu_item("Pray", 7, 11, 0);
+        add_menu_item(ui_text(UI_BATTLE_PRAY, "Pray"), 7, 11, 0);
     }
 
     /* Add Poo's Mirror */
     if (st->char_id == PARTY_MEMBER_POO) {
-        add_menu_item("Mirror", 7, 13, 0);
+        add_menu_item(ui_text(UI_BATTLE_MIRROR, "Mirror"), 7, 13, 0);
     }
 }
 
