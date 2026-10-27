@@ -6,8 +6,10 @@
 #include "platform/platform.h"
 #include "game_main.h"
 #include "game/audio.h"
+#include "core/locale.h"
 #include "core/log.h"
 #include "core/state_dump.h"
+#include "game/game_state.h"
 #include "game/smooth_camera.h"
 #include "coop/coop.h"
 #include "coop/coop_look.h"
@@ -46,6 +48,8 @@ int main(int argc, char *argv[]) {
     const char *verify_rom_path = NULL;
     bool savestate_selftest = false;
     bool look_selftest = false;
+    bool locale_selftest = false;
+    const char *lang = NULL;
     const char *coldload_prefix = NULL;
     int players = 1;
     bool force_launcher = false;
@@ -59,6 +63,13 @@ int main(int argc, char *argv[]) {
              * Implies headless so it neither opens a window nor plays the game. */
             savestate_selftest = true;
             platform_headless = true;
+        } else if (strcmp(argv[i], "--selftest-locale") == 0) {
+            /* Check the save Language tag and the locked-slot decision, then exit. */
+            locale_selftest = true;
+            platform_headless = true;
+        } else if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {
+            /* The Language: en, ja or ja-kanji (also EB_LANG; else the launcher's row) */
+            lang = argv[++i];
         } else if (strcmp(argv[i], "--selftest-look") == 0) {
             /* Classify the co-op Look-only test labels and every NPC's text, then exit. */
             look_selftest = true;
@@ -144,8 +155,25 @@ int main(int argc, char *argv[]) {
                 verbose_level++;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--smooth-camera] [--players N] [--host PORT] [--join ADDR[:PORT]] [--host-room] [--join-room INVITE] [--relay URL] [--launcher] [--input-delay N] [--local-players N] [--verbose] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX] [--selftest-look]\n",
+            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--smooth-camera] [--players N] [--host PORT] [--join ADDR[:PORT]] [--host-room] [--join-room INVITE] [--relay URL] [--launcher] [--input-delay N] [--local-players N] [--verbose] [--lang en|ja|ja-kanji] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX] [--selftest-look] [--selftest-locale]\n",
                     argv[0]);
+            return 1;
+        }
+    }
+
+    /* The Language, before the launcher, net_start and game_init (core/locale.h).
+     * --lang wins over EB_LANG; with neither, the launcher's saved choice or English. */
+    if (!lang || !*lang)
+        lang = getenv("EB_LANG");
+    bool lang_given = lang && *lang;
+    if (lang_given) {
+        Locale l;
+        if (!locale_parse(lang, &l)) {
+            fprintf(stderr, "--lang takes en, ja or ja-kanji (got \"%s\")\n", lang);
+            return 1;
+        }
+        if (!locale_set(l)) {
+            fprintf(stderr, "%s isn't in this build (see docs/ja-plan.md)\n", locale_name(l));
             return 1;
         }
     }
@@ -160,7 +188,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "--host-room needs a relay: --relay URL (see relay/README.md)\n");
         return 1;
     }
-    if (netplay && (players > 1 || savestate_selftest || coldload_prefix || look_selftest)) {
+    if (netplay && (players > 1 || savestate_selftest || coldload_prefix || look_selftest || locale_selftest)) {
         fprintf(stderr, "--host/--join can't be combined with --players or the self-tests\n");
         return 1;
     }
@@ -200,9 +228,9 @@ int main(int argc, char *argv[]) {
     /* The launcher, in a window started without a Session, script or test flags:
      * Play, or start an online Session there */
     bool launcher = force_launcher || (!platform_headless && !netplay && !input_script_active() && players == 1 &&
-                                       !savestate_selftest && !look_selftest && !coldload_prefix);
+                                       !savestate_selftest && !look_selftest && !coldload_prefix && !locale_selftest);
     if (launcher && relay_supported()) {
-        LaunchChoice choice = launcher_run(&net);
+        LaunchChoice choice = launcher_run(&net, lang_given);
         if (choice == LAUNCH_QUIT)
             return 0;
         netplay = choice == LAUNCH_ONLINE;
@@ -250,6 +278,17 @@ int main(int argc, char *argv[]) {
 
     if (look_selftest)
         exit(coop_look_selftest());
+
+    if (locale_selftest) {
+        /* Through a scratch save file, so the real one is never touched */
+        const char *scratch = "eb-selftest-locale.srm";
+        platform_save_set_path(scratch);
+        bool ok = save_locale_selftest();
+        remove(scratch);
+        fprintf(stderr, "locale (save tag / untagged reads English / slot lock) self-test: %s\n",
+                ok ? "PASS" : "FAIL");
+        exit(ok ? 0 : 1);
+    }
 
     if (coldload_prefix) {
         platform_savestate_set_path(coldload_prefix);

@@ -192,26 +192,18 @@ static void file_select_init(void) {
     ppu.cgram[0] = BGR555(0, 0, 0); /* black backdrop */
 }
 
-/*
- * Display the file select menu showing 3 save slots.
- * Returns selected slot (1-3).
- *
- * Faithful port of FILE_SELECT_MENU (file_select_menu.asm):
- *   Pass 1: build menu item labels ("N: CharName" or "N: Start New Game")
- *   Pass 2: for occupied slots, print "Level:" and "Text Speed:" info
- */
-/* Build the file-select slot list window (formerly file_select_menu() minus the
- * blocking selection_menu(0) call). Returns -1 when the window is ready to push a
- * selection menu, or an early result (create-window failure → 1) otherwise. */
-static int fm_file_select_build(void) {
-    WindowInfo *w = create_window(WINDOW_FILE_SELECT_MAIN);
-    if (!w) return 1;
+/* save_files_present[] value of a slot holding a save of the other Language:
+ * present (so nothing is copied onto it) but locked: it shows a marker instead
+ * of the name and can't be selected (docs/adr/0003-japanese-locale.md). */
+#define SAVE_FILE_LOCKED 2
 
+/* Pass 1 of the slot list (FILE_SELECT_MENU): read each slot into the live
+ * state, record it in save_files_present and add its menu item.
+ * Assembly (file_select_menu.asm:20-25): LOAD_GAME_SLOT then check
+ * favourite_thing[1] != 0 to determine occupancy. */
+static void fm_add_slot_items(void) {
     static char slot_labels[3][32];
 
-    /* Pass 1: Build menu items for each save slot.
-     * Assembly (file_select_menu.asm:20-25): LOAD_GAME_SLOT then check
-     * favourite_thing[1] != 0 to determine occupancy. */
     for (int slot = 0; slot < SAVE_COUNT; slot++) {
         bool occupied = load_game(slot) && game_state.favourite_thing[1] != 0;
         if (occupied) {
@@ -222,6 +214,10 @@ static int fm_file_select_build(void) {
             snprintf(slot_labels[slot], sizeof(slot_labels[slot]), "%d: %s",
                      slot + 1, name);
             save_files_present[slot] = 1;
+        } else if (save_slot_locked(slot)) {
+            /* The name is printed by fm_print_slot_details (it may be kana) */
+            snprintf(slot_labels[slot], sizeof(slot_labels[slot]), "%d:", slot + 1);
+            save_files_present[slot] = SAVE_FILE_LOCKED;
         } else {
             snprintf(slot_labels[slot], sizeof(slot_labels[slot]),
                      "%d: Start New Game", slot + 1);
@@ -229,16 +225,25 @@ static int fm_file_select_build(void) {
         }
         add_menu_item(slot_labels[slot], (uint16_t)(slot + 1), 0, (uint16_t)slot);
     }
+}
 
-    /* Assembly (file_select_menu.asm:111): OPEN_WINDOW_AND_PRINT_MENU(columns=1)
-     * lays out and prints menu item labels BEFORE slot details. */
-    open_window_and_print_menu(1, 0);
-
-    /* Pass 2: Display per-slot details for occupied slots.
-     * Assembly (file_select_menu.asm:115-214): after OPEN_WINDOW_AND_PRINT_MENU,
-     * prints Level and Text Speed info at specific cursor positions. */
+/* Pass 2: per-slot details for occupied slots, after OPEN_WINDOW_AND_PRINT_MENU.
+ * Assembly (file_select_menu.asm:115-214) prints Level and Text Speed info at
+ * specific cursor positions. A locked slot shows only the other Language's
+ * name, in this Language: "Japanese", or えいご ("English") in Japanese. */
+static void fm_print_slot_details(void) {
     static const char *speed_names[] EB_NORELOC = {"Fast", "Medium", "Slow"};
     for (int slot = 0; slot < SAVE_COUNT; slot++) {
+        if (save_files_present[slot] == SAVE_FILE_LOCKED) {
+            set_focus_text_cursor(3, (uint16_t)slot);
+            if (locale_is_ja()) {
+                static const uint8_t eigo[] = { 0x90, 0x70, 0xA3 }; /* え い ご */
+                print_eb_string(eigo, (int)sizeof eigo);
+            } else {
+                print_string("Japanese");
+            }
+            continue;
+        }
         if (!save_files_present[slot]) continue;
 
         load_game(slot);
@@ -260,6 +265,29 @@ static int fm_file_select_build(void) {
                  speed_names[speed_idx]);
         print_string(speed_buf);
     }
+}
+
+/*
+ * Display the file select menu showing 3 save slots.
+ * Returns selected slot (1-3).
+ *
+ * Faithful port of FILE_SELECT_MENU (file_select_menu.asm):
+ *   Pass 1: build menu item labels ("N: CharName" or "N: Start New Game")
+ *   Pass 2: for occupied slots, print "Level:" and "Text Speed:" info
+ */
+/* Build the file-select slot list window (formerly file_select_menu() minus the
+ * blocking selection_menu(0) call). Returns -1 when the window is ready to push a
+ * selection menu, or an early result (create-window failure → 1) otherwise. */
+static int fm_file_select_build(void) {
+    WindowInfo *w = create_window(WINDOW_FILE_SELECT_MAIN);
+    if (!w) return 1;
+
+    /* Pass 1: menu items; OPEN_WINDOW_AND_PRINT_MENU(columns=1); pass 2: details */
+    fm_add_slot_items();
+    /* Assembly (file_select_menu.asm:111): OPEN_WINDOW_AND_PRINT_MENU(columns=1)
+     * lays out and prints menu item labels BEFORE slot details. */
+    open_window_and_print_menu(1, 0);
+    fm_print_slot_details();
 
     /* Assembly (file_select_menu.asm:271): SELECTION_MENU directly —
      * no RENDER_ALL_WINDOWS in between. The caller pushes GAME_MODE_SELECTION_
@@ -342,48 +370,9 @@ static void file_select_menu_display_only(void) {
     WindowInfo *w = create_window(WINDOW_FILE_SELECT_MAIN);
     if (!w) return;
 
-    static char slot_labels[3][32];
-
-    for (int slot = 0; slot < SAVE_COUNT; slot++) {
-        bool occupied = load_game(slot) && game_state.favourite_thing[1] != 0;
-        if (occupied) {
-            char name[6] = {0};
-            for (int i = 0; i < 5 && party_characters[0].name[i]; i++) {
-                name[i] = eb_char_to_ascii(party_characters[0].name[i]);
-            }
-            snprintf(slot_labels[slot], sizeof(slot_labels[slot]), "%d: %s",
-                     slot + 1, name);
-            save_files_present[slot] = 1;
-        } else {
-            snprintf(slot_labels[slot], sizeof(slot_labels[slot]),
-                     "%d: Start New Game", slot + 1);
-            save_files_present[slot] = 0;
-        }
-        add_menu_item(slot_labels[slot], (uint16_t)(slot + 1), 0, (uint16_t)slot);
-    }
-
+    fm_add_slot_items();
     open_window_and_print_menu(1, 0);
-
-    static const char *speed_names[] EB_NORELOC = {"Fast", "Medium", "Slow"};
-    for (int slot = 0; slot < SAVE_COUNT; slot++) {
-        if (!save_files_present[slot]) continue;
-
-        load_game(slot);
-
-        set_focus_text_cursor(9, (uint16_t)slot);
-        print_string("Level:");
-
-        set_focus_text_cursor(13, (uint16_t)slot);
-        print_number(party_characters[0].level, 2);
-
-        set_focus_text_cursor(16, (uint16_t)slot);
-        int speed_idx = game_state.text_speed - 1;
-        if (speed_idx < 0 || speed_idx > 2) speed_idx = 0;
-        char speed_buf[32];
-        snprintf(speed_buf, sizeof(speed_buf), "Text Speed: %s",
-                 speed_names[speed_idx]);
-        print_string(speed_buf);
-    }
+    fm_print_slot_details();
 
     /* Assembly (file_select_menu.asm:247-258): highlight selected slot with palette 6 */
     uint16_t highlight_idx = (current_save_slot > 0) ? current_save_slot - 1 : 0;
@@ -1357,7 +1346,7 @@ static void create_file_select_party_sprites(void) {
 static uint16_t get_text_pixel_width(uint8_t font_id, const uint8_t *eb_text, int len) {
     uint16_t total = 0;
     for (int i = 0; i < len; i++) {
-        uint8_t char_index = (eb_text[i] - 0x50) & 0x7F;
+        uint8_t char_index = eb_glyph_index(eb_text[i]);
         total += font_get_width(font_id, char_index) + 1; /* +1 = CHARACTER_PADDING */
     }
     return total;
@@ -1715,10 +1704,10 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
 
     /* Assembly lines 604-612: Prepend "PSI " to favourite_thing.
        The naming screen fills favourite_thing+4 onward; we set the prefix here. */
-    game_state.favourite_thing[0] = 0x80; /* CHAR::P */
-    game_state.favourite_thing[1] = 0x83; /* CHAR::S_ */
-    game_state.favourite_thing[2] = 0x79; /* CHAR::I */
-    game_state.favourite_thing[3] = 0x50; /* CHAR::SPACE */
+    game_state.favourite_thing[0] = ascii_to_eb_char('P'); /* CHAR::P */
+    game_state.favourite_thing[1] = ascii_to_eb_char('S'); /* CHAR::S_ */
+    game_state.favourite_thing[2] = ascii_to_eb_char('I'); /* CHAR::I */
+    game_state.favourite_thing[3] = eb_char_space();       /* CHAR::SPACE */
 
     /* Assembly line 644-645: unknownC3 = 1 */
     game_state.unknownC3 = 1;
@@ -1855,7 +1844,10 @@ StepResult mode_step_file_menu(ModeState *ms) {
             current_save_slot = (uint8_t)selected;   /* file_select_menu() did this */
             if (selected == 0) { st->phase = FM_SELECT; continue; }
             int slot = selected - 1;
-            if (save_files_present[slot]) {
+            if (save_files_present[slot] == SAVE_FILE_LOCKED) {
+                /* The other Language's save: nothing to do here, back to the list */
+                st->phase = FM_SELECT;
+            } else if (save_files_present[slot]) {
                 /* FILE_SELECT_MENU @AFTER_SELECTION: LOAD_GAME_SLOT(CURRENT_SAVE_SLOT-1),
                  * so the submenu / delete confirmation show this slot's data. */
                 load_game(slot);

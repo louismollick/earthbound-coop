@@ -24,6 +24,8 @@ typedef enum {
     TEXT_SRC_DIALOGUE = 0,    /* dialogue blob      (ASSET_DIALOGUE_DIALOGUE_BIN)   */
     TEXT_SRC_INLINE_STRINGS,  /* inline strings     (ASSET_TEXT_INLINE_STRINGS_BIN) */
     TEXT_SRC_STATUS_WINDOW,   /* status window text (ASSET_DATA_STATUS_WINDOW_TEXT_BIN) */
+    TEXT_SRC_JA_DIALOGUE,     /* Japanese dialogue blob   (JA/text/dialogue.bin)       */
+    TEXT_SRC_JA_INLINE_STRINGS, /* Japanese inline strings (JA/text/inline_strings.bin) */
     TEXT_SRC_COUNT,
 } TextSource;
 
@@ -45,7 +47,8 @@ typedef struct {
 bool display_text_init(void);
 
 /* Resolve a text address the way CC jumps and CALL_TEXT do (dialogue blob at
- * >= 0x100000, inline string table below). Returns the bytes at addr and sets
+ * >= 0x100000, inline string table below; in Japanese a US address reads the
+ * Japanese text it translates to). Returns the bytes at addr and sets
  * *remaining to the bytes left in that block, or returns NULL if unresolvable.
  * Read-only; used by the co-op Look-only scan (coop_look.c). */
 const uint8_t *display_text_resolve(uint32_t addr, size_t *remaining);

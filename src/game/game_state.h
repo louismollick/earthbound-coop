@@ -2,6 +2,7 @@
 #define GAME_STATE_H
 
 #include "core/types.h"
+#include "core/locale.h"
 #include "include/constants.h"
 
 /* Character struct - 95 bytes (US retail), matches char_struct from structs.asm */
@@ -266,5 +267,22 @@ bool save_game(int slot);
 bool load_game(int slot);
 bool erase_save(int slot);
 bool copy_save(int to, int from); /* 0-based slots; COPY_SAVE */
+
+/* ---- Save Language (docs/adr/0003-japanese-locale.md) ----
+ * A block written in Japanese carries 'J','A' in the last two padding bytes,
+ * inside the checksummed area. English writes no tag, so its blocks stay
+ * byte-identical to the original's, and an untagged block reads as English.
+ * Kana and kanji share saves. load_game refuses a save of the other Language
+ * (its typed names are in the other encoding); file select shows it locked. */
+void save_block_set_locale(SaveBlock *block, Locale l);
+Locale save_block_locale(const SaveBlock *block); /* LOCALE_EN or LOCALE_JA */
+/* Whether a save written in `save` can be used while the game runs in `running`. */
+bool save_locale_compatible(Locale save, Locale running);
+/* Whether `slot` (0-based) holds a valid save of the other Language. */
+bool save_slot_locked(int slot);
+/* --selftest-locale: the tag round trip, an untagged save reading as English and
+ * the slot lock decision, partly through SRAM slot 0 (point the save file at a
+ * scratch file first). Leaves the Locale as it found it. */
+bool save_locale_selftest(void);
 
 #endif /* GAME_STATE_H */

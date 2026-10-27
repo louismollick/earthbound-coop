@@ -2,6 +2,7 @@
 #define GAME_TEXT_H
 
 #include "core/types.h"
+#include "core/locale.h"
 
 /* VWF buffer: 52 tiles x 32 bytes = 1664 bytes */
 #define VWF_BUFFER_TILES 52
@@ -15,12 +16,50 @@
 #define FONT_ID_TINY      3
 #define FONT_ID_LARGE     4
 
-/* Number of characters in a font table */
+/* Number of characters in a US font table (codes 0x50-0xAF) */
 #define FONT_CHAR_COUNT   96
+/* Number of characters in the Japanese font (codes 0x20-0xFF) */
+#define JA_FONT_CHAR_COUNT 224
 
 /* Special EB text character codes (from CHAR enum in include/macros.asm) */
-#define EB_CHAR_EQUIPPED  0x22  /* CHAR::EQUIPPED — purple oval with "E" */
-#define EB_CHAR_SPACE     0x50  /* CHAR::SPACE — first font glyph */
+#define EB_CHAR_EQUIPPED  0x22  /* CHAR::EQUIPPED — purple oval with "E" (both encodings) */
+#define EB_CHAR_SPACE     0x50  /* CHAR::SPACE — first US font glyph */
+#define JA_CHAR_SPACE     0x20  /* Mother 2's CHAR::SPACE — first Japanese font glyph */
+#define EB_CHAR_BULLET    0x70  /* CHAR::BULLET (US) */
+#define JA_CHAR_BULLET    0x40  /* Mother 2's CHAR::BULLET */
+
+/* ---- Character classes of the running Locale's text encoding ----
+ * English text uses EarthBound's encoding: glyphs 0x50-0xAF, plus three codes
+ * below them (0x20, EQUIPPED, 0x2F) that RENDER_VWF_CHARACTER prints as tilemap
+ * tiles. Japanese text uses Mother 2's: glyphs 0x20-0xFF, with only EQUIPPED as
+ * a tile. Control codes are below 0x20 in both. Code that classifies text bytes
+ * asks these instead of comparing with the US constants. */
+
+/* The space character (a word boundary for word wrap). */
+static inline uint8_t eb_char_space(void) {
+    return locale_is_ja() ? JA_CHAR_SPACE : EB_CHAR_SPACE;
+}
+
+/* The bullet that starts a dialogue line (no indent after a wrap). */
+static inline uint8_t eb_char_bullet(void) {
+    return locale_is_ja() ? JA_CHAR_BULLET : EB_CHAR_BULLET;
+}
+
+/* A letter drawn from the font by the VWF renderer. */
+static inline bool eb_char_is_glyph(uint8_t c) {
+    return locale_is_ja() ? (c >= JA_CHAR_SPACE && c != EB_CHAR_EQUIPPED) : c >= EB_CHAR_SPACE;
+}
+
+/* A letter printed as a tilemap tile (RENDER_VWF_CHARACTER's @PRINT_SPECIAL). */
+static inline bool eb_char_is_direct_tile(uint8_t c) {
+    return locale_is_ja() ? c == EB_CHAR_EQUIPPED : (c == 0x20 || c == EB_CHAR_EQUIPPED || c == 0x2F);
+}
+
+/* Index of a letter's glyph in the font tables. US: (c - SPACE) & 0x7F, as the
+ * asm computes it (any byte maps somewhere in 0-127); Japanese: c - 0x20. */
+static inline uint8_t eb_glyph_index(uint8_t c) {
+    return locale_is_ja() ? (uint8_t)(c - JA_CHAR_SPACE) : (uint8_t)((c - EB_CHAR_SPACE) & 0x7F);
+}
 
 /* Initialize the text rendering system.
    Loads fonts from extracted assets and sets up VRAM for text display. */
@@ -98,11 +137,17 @@ void clear_window_text(uint16_t window_id);
 enum { TEXT_TRACE_CHAR, TEXT_TRACE_SCROLL, TEXT_TRACE_CLEAR, TEXT_TRACE_CLOSE };
 extern void (*text_trace_hook)(int event, uint16_t window_id, uint8_t eb_char);
 
-/* Convert an EarthBound internal character code to ASCII. */
+/* Convert a text byte of the running Locale's encoding to ASCII ('?' for a
+ * letter ASCII lacks, such as kana). */
 char eb_char_to_ascii(uint8_t eb_char);
 
-/* Convert ASCII to EarthBound internal character code */
+/* Convert ASCII to the running Locale's encoding. Japanese has no lowercase
+ * (folded to uppercase) and fewer punctuation marks (the rest become spaces). */
 uint8_t ascii_to_eb_char(char ascii);
+
+/* ascii_to_eb_char's US table, whatever the Locale: for the fonts that stay US
+ * in Japanese (TINY: window titles, debug overlays). */
+uint8_t ascii_to_us_eb_char(char ascii);
 
 /* TEXT_RENDER_STATE: tracks current VWF tile VRAM positions.
  * Port of assembly's TEXT_RENDER_STATE BSS struct.

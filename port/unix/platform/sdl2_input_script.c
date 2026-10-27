@@ -367,7 +367,9 @@ static void text_trace(int event, uint16_t window_id, uint8_t eb_char) {
         return;
     }
 
-    char c = (eb_char >= 0x50 && eb_char <= 0xAF) ? eb_char_to_ascii(eb_char) : 0;
+    /* Letters only: US 0x50-0xAF, Japanese 0x20-0xFF but EQUIPPED (kana read as '?') */
+    bool letter = locale_is_ja() ? eb_char_is_glyph(eb_char) : (eb_char >= 0x50 && eb_char <= 0xAF);
+    char c = letter ? eb_char_to_ascii(eb_char) : 0;
     if (!c)
         return;
     int y = w->text_y;

@@ -22,15 +22,16 @@ typedef struct {
 
 /* The fonts straight from the embedded assets (text_system_init's, but usable
  * before game_init: the launcher runs first). Glyph rows are 1 bit per pixel,
- * MSB left, 0 = ink. The main font gets the game's 1 px letter spacing. */
+ * MSB left, 0 = ink. The main font gets the game's 1 px letter spacing. Always
+ * the US fonts (ASSET_*_BASE): this text is English in every Locale. */
 static const UiFont *font(int id) {
     static UiFont f[2];
     static bool loaded;
     if (!loaded) {
-        f[UI_FONT_MAIN] = (UiFont){ ASSET_DATA(ASSET_FONTS_MAIN_GFX), ASSET_DATA(ASSET_FONTS_MAIN_BIN), 16,
-                                    (int)(ASSET_SIZE(ASSET_FONTS_MAIN_GFX) / GLYPHS), 1 };
-        f[UI_FONT_TINY] = (UiFont){ ASSET_DATA(ASSET_FONTS_TINY_GFX), ASSET_DATA(ASSET_FONTS_TINY_BIN), 8,
-                                    (int)(ASSET_SIZE(ASSET_FONTS_TINY_GFX) / GLYPHS), 0 };
+        f[UI_FONT_MAIN] = (UiFont){ ASSET_DATA_BASE(ASSET_FONTS_MAIN_GFX), ASSET_DATA_BASE(ASSET_FONTS_MAIN_BIN), 16,
+                                    (int)(ASSET_SIZE_BASE(ASSET_FONTS_MAIN_GFX) / GLYPHS), 1 };
+        f[UI_FONT_TINY] = (UiFont){ ASSET_DATA_BASE(ASSET_FONTS_TINY_GFX), ASSET_DATA_BASE(ASSET_FONTS_TINY_BIN), 8,
+                                    (int)(ASSET_SIZE_BASE(ASSET_FONTS_TINY_GFX) / GLYPHS), 0 };
         loaded = true;
     }
     return &f[id];
@@ -41,7 +42,7 @@ int ui_font_height(int id) {
 }
 
 static int glyph_index(char c) {
-    int i = ascii_to_eb_char(c) - 0x50;
+    int i = ascii_to_us_eb_char(c) - 0x50;
     return i >= 0 && i < GLYPHS ? i : 0;
 }
 

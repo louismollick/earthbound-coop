@@ -81,8 +81,9 @@ typedef struct {
 } StateDumpVisitor;
 void state_dump_visit(const StateDumpVisitor *v);
 
-/* This build's savestate layout fingerprint (the slot header's layout_id). Netplay
- * peers compare it to refuse a build that would desync. */
+/* This build's savestate layout fingerprint (the slot header's layout_id, which a
+ * non-English Locale also XORs with its own salt). Netplay peers compare it to
+ * refuse a build that would desync. */
 uint32_t state_dump_layout_id(void);
 
 #endif /* CORE_STATE_DUMP_H */
