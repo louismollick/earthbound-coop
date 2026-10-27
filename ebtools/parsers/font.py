@@ -13,9 +13,8 @@ from ebtools.parsers._tiles import decode_1bpp_font_glyph, encode_1bpp_font_glyp
 
 # 96 glyphs per font (EB codes 0x50-0xAF)
 GLYPH_COUNT = 96
-# Grid layout: 16 columns × 6 rows = 96 glyphs
+# Grid layout: 16 columns (6 rows for the 96 US glyphs)
 GRID_COLS = 16
-GRID_ROWS = 6
 
 
 class FontMetadata(BaseModel):
@@ -46,22 +45,25 @@ def export_font_png(
     font_name: str,
     stride: int,
     output_dir: Path,
+    glyph_count: int = GLYPH_COUNT,
 ) -> None:
     """Export a font to a PNG grid image and JSON metadata.
 
-    The PNG is a 16×6 grid of 8×stride cells. 1 byte per row, stride rows per glyph.
+    The PNG is a 16-column grid of 8×stride cells (16×6 for the 96 US glyphs).
+    1 byte per row, stride rows per glyph.
     Color 0 = background (black), color 1 = foreground (white).
     """
+    grid_rows = -(-glyph_count // GRID_COLS)
     cell_w = 8
     cell_h = stride  # pixel height = byte stride (1 byte per row)
     img_w = GRID_COLS * cell_w
-    img_h = GRID_ROWS * cell_h
+    img_h = grid_rows * cell_h
 
     # Create 1-bit indexed PNG (palette: 0=black bg, 1=white fg)
     img = Image.new("P", (img_w, img_h))
     img.putpalette([0, 0, 0, 255, 255, 255] + [0] * (256 * 3 - 6))
 
-    for glyph_idx in range(GLYPH_COUNT):
+    for glyph_idx in range(glyph_count):
         col = glyph_idx % GRID_COLS
         row = glyph_idx // GRID_COLS
 
@@ -83,11 +85,11 @@ def export_font_png(
     # Write JSON sidecar with widths and metadata
     metadata = FontMetadata(
         font_name=font_name,
-        glyph_count=GLYPH_COUNT,
+        glyph_count=glyph_count,
         byte_stride=stride,
         grid_columns=GRID_COLS,
-        grid_rows=GRID_ROWS,
-        widths=list(width_data[:GLYPH_COUNT]),
+        grid_rows=grid_rows,
+        widths=list(width_data[:glyph_count]),
     )
     json_path = output_dir / f"{font_name}.json"
     json_path.write_text(metadata.model_dump_json(indent=2) + "\n")
@@ -140,9 +142,9 @@ def pack_font(
     cell_h = stride
 
     gfx_buf = bytearray()
-    for glyph_idx in range(GLYPH_COUNT):
-        col = glyph_idx % GRID_COLS
-        row = glyph_idx // GRID_COLS
+    for glyph_idx in range(metadata.glyph_count):
+        col = glyph_idx % metadata.grid_columns
+        row = glyph_idx // metadata.grid_columns
 
         # Extract pixel grid from image
         pixels = []

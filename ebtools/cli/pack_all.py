@@ -572,9 +572,10 @@ def pack_all(
 
     # --- Dialogue files (MUST run before config packers so addr_remap is available) ---
     addr_remap: dict[int, int] = {}  # original SNES addr → new compiled SNES addr
+    dialogue_label_addrs: dict[str, int] = {}  # label → compiled address (0x100000+)
     dialogue_dir = assets_dir / "dialogue"
     if dialogue_dir.exists():
-        addr_remap = _pack_dialogue(
+        addr_remap, dialogue_label_addrs = _pack_dialogue(
             dialogue_dir,
             output_dir,
             doc,
@@ -745,6 +746,11 @@ def pack_all(
 
     # (Dialogue files were packed earlier — see _pack_dialogue call above)
 
+    # --- Japanese Locale (<assets>/ja/ from `ebtools extract-ja`) ---
+    from ebtools.cli.pack_ja import pack_ja
+
+    packed += pack_ja(assets_dir, output_dir, common_data, dialogue_label_addrs, string_table)
+
     if packed == 0:
         print("Warning: no assets found to pack", file=sys.stderr)
     else:
@@ -843,17 +849,18 @@ def _pack_dialogue(
     reverse_text_table: dict[str, int],
     common_data: CommonData | None = None,
     text_refs_dir: Path | None = None,
-) -> dict[int, int]:
+) -> tuple[dict[int, int], dict[str, int]]:
     """Compile all dialogue YAML into a single flat blob.
 
     All dialogue blocks are concatenated into one ``dialogue/dialogue.bin``
     file.  Every label gets a flat byte offset (guaranteed < 0xC00000) so
     the C port can distinguish new-format offsets from legacy SNES addresses.
 
-    Returns a dict mapping original SNES addresses to flat offsets so config
-    packers can update text pointer fields.
+    Returns ``(addr_remap, label_addrs)``: original SNES address -> flat
+    offset, so config packers can update text pointer fields, and label ->
+    flat offset.
     """
-    from ebtools.text_dsl.compiler import build_reverse_names, compile_text_block
+    from ebtools.text_dsl.compiler import build_reverse_names
     from ebtools.text_dsl.yaml_io import deserialize_dialogue_file
 
     # Build reverse name lookup for symbolic names in dialogue YAML.
@@ -868,50 +875,10 @@ def _pack_dialogue(
     # must include this base so cross-references within the blob are correct.
     dialogue_blob_base = 0x100000
 
-    # Phase 1: Load all files, compute flat byte offsets for every label
-    # across ALL blocks in one continuous address space.
-    all_dialogue: list[tuple[Path, dict[str, list[dict]]]] = []
-    flat_label_offsets: dict[str, int] = {}
-    global_byte_pos = 0
-
-    for yaml_file in yaml_files:
-        messages = deserialize_dialogue_file(yaml_file.read_text())
-        all_dialogue.append((yaml_file, messages))
-
-        # Dummy offsets for size measurement (LABEL args always compile to 4 bytes)
-        dummy_offsets = {**original_label_addrs, **dict.fromkeys(messages, 0)}
-        for label, ops in messages.items():
-            flat_label_offsets[label] = dialogue_blob_base + global_byte_pos
-            try:
-                compiled = compile_text_block(
-                    ops, reverse_text_table, label_offsets=dummy_offsets, reverse_names=reverse_names
-                )
-            except (ValueError, KeyError, TypeError) as exc:
-                raise SystemExit(f"Error compiling dialogue {yaml_file.name}, label {label!r}: {exc}") from exc
-            global_byte_pos += len(compiled)
-
-    # Merge original SNES label addresses so cross-block references resolve.
-    all_label_offsets = {**original_label_addrs, **flat_label_offsets}
-
-    # Validate after Phase 1 (all labels known).
-    validation_errors = _validate_dialogue(all_dialogue, all_label_offsets)
-    if validation_errors:
-        print("Dialogue validation errors:", file=sys.stderr)
-        for err in validation_errors:
-            print(f"  {err}", file=sys.stderr)
-        raise SystemExit(f"Dialogue validation failed with {len(validation_errors)} error(s)")
-
-    # Phase 2: Compile everything into one flat blob with resolved labels
-    blob = bytearray()
-    for _yaml_file, messages in all_dialogue:
-        for _label, ops in messages.items():
-            try:
-                compiled = compile_text_block(
-                    ops, reverse_text_table, label_offsets=flat_label_offsets, reverse_names=reverse_names
-                )
-            except (ValueError, KeyError, TypeError) as exc:
-                raise SystemExit(f"Error compiling dialogue {_yaml_file.name}, label {_label!r}: {exc}") from exc
-            blob.extend(compiled)
+    all_dialogue = [(f, deserialize_dialogue_file(f.read_text())) for f in yaml_files]
+    blob, flat_label_offsets = _compile_dialogue(
+        all_dialogue, dialogue_blob_base, reverse_text_table, reverse_names, original_label_addrs
+    )
 
     if blob:
         out_path = output_dir / "dialogue" / "dialogue.bin"
@@ -937,7 +904,66 @@ def _pack_dialogue(
     src_data_dir = text_refs_dir if text_refs_dir is not None else dialogue_dir.parent.parent / "data"
     _generate_text_refs_header(flat_label_offsets, src_data_dir)
 
-    return addr_remap
+    return addr_remap, flat_label_offsets
+
+
+def _compile_dialogue(
+    all_dialogue: list[tuple[Path, dict[str, list[dict]]]],
+    base: int,
+    reverse_text_table: dict[str, int],
+    reverse_names: dict | None,
+    extra_label_addrs: dict[str, int] | None = None,
+) -> tuple[bytes, dict[str, int]]:
+    """Compile dialogue files into one flat blob whose labels start at *base*.
+
+    *extra_label_addrs* (label -> address) only lets references to labels
+    outside the blob pass validation.  Returns ``(blob, label -> address)``.
+    """
+    from ebtools.text_dsl.compiler import compile_text_block
+
+    extra_label_addrs = extra_label_addrs or {}
+
+    # Phase 1: compute flat byte offsets for every label across ALL blocks in
+    # one continuous address space.
+    flat_label_offsets: dict[str, int] = {}
+    global_byte_pos = 0
+    # Dummy offsets for size measurement (LABEL args always compile to 4 bytes)
+    dummy_offsets = {**extra_label_addrs, **{label: 0 for _, messages in all_dialogue for label in messages}}
+
+    for yaml_file, messages in all_dialogue:
+        for label, ops in messages.items():
+            flat_label_offsets[label] = base + global_byte_pos
+            try:
+                compiled = compile_text_block(
+                    ops, reverse_text_table, label_offsets=dummy_offsets, reverse_names=reverse_names
+                )
+            except (ValueError, KeyError, TypeError) as exc:
+                raise SystemExit(f"Error compiling dialogue {yaml_file.name}, label {label!r}: {exc}") from exc
+            global_byte_pos += len(compiled)
+
+    # Merge original SNES label addresses so cross-block references resolve.
+    all_label_offsets = {**extra_label_addrs, **flat_label_offsets}
+
+    # Validate after Phase 1 (all labels known).
+    validation_errors = _validate_dialogue(all_dialogue, all_label_offsets)
+    if validation_errors:
+        print("Dialogue validation errors:", file=sys.stderr)
+        for err in validation_errors:
+            print(f"  {err}", file=sys.stderr)
+        raise SystemExit(f"Dialogue validation failed with {len(validation_errors)} error(s)")
+
+    # Phase 2: Compile everything into one flat blob with resolved labels
+    blob = bytearray()
+    for _yaml_file, messages in all_dialogue:
+        for _label, ops in messages.items():
+            try:
+                compiled = compile_text_block(
+                    ops, reverse_text_table, label_offsets=flat_label_offsets, reverse_names=reverse_names
+                )
+            except (ValueError, KeyError, TypeError) as exc:
+                raise SystemExit(f"Error compiling dialogue {_yaml_file.name}, label {_label!r}: {exc}") from exc
+            blob.extend(compiled)
+    return bytes(blob), flat_label_offsets
 
 
 def _compute_door_data_entry_offsets(assets_dir: Path) -> set[int] | None:

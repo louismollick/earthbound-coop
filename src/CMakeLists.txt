@@ -104,6 +104,23 @@ set(PACK_ALL_TOOL_DEPS
     ${EMBED_MANIFEST}
     ${EBTOOLS_PY_SOURCES})
 
+# pack-all writes packed_assets/JA/ only while assets/ja/ (ebtools extract-ja)
+# exists. Its files are in ASSET_SOURCE_FILES; this file changes when the
+# directory comes or goes, so deleting it reruns pack-all (which removes JA/).
+set(JA_ASSETS_STATE "${CMAKE_CURRENT_BINARY_DIR}/ja_assets.state")
+set(_ja_state "none")
+if(EXISTS "${ASSETS_DIR}/ja")
+    set(_ja_state "ja")
+endif()
+set(_ja_old_state "")
+if(EXISTS ${JA_ASSETS_STATE})
+    file(READ ${JA_ASSETS_STATE} _ja_old_state)
+endif()
+if(NOT _ja_old_state STREQUAL _ja_state)
+    file(WRITE ${JA_ASSETS_STATE} "${_ja_state}")
+endif()
+list(APPEND PACK_ALL_TOOL_DEPS ${JA_ASSETS_STATE})
+
 add_custom_command(
     OUTPUT ${PACK_ALL_STAMP}
     COMMAND ${EBTOOLS_EXE} pack-all
