@@ -112,14 +112,18 @@ def extract_ja(
     ja_msgs = splice_dialogue(list(us_msgs.items()), jp_msgs, jp_next, us2jp, jp2us, jp_label_to_us)
     written = set()
     for path, msgs in us_files:
-        (dialogue_out / path.name).write_text(serialize_dialogue_file({label: ja_msgs[label] for label in msgs}))
+        (dialogue_out / path.name).write_text(
+            serialize_dialogue_file({label: ja_msgs[label] for label in msgs}), encoding="utf-8"
+        )
         written.add(path.name)
     for stale in dialogue_out.glob("*.y*ml"):
         if stale.name not in written:
             stale.unlink()
 
     inline, inline_stats = build_inline_strings(assets_dir, bin_dir, us_doc, us2jp, jp_msgs)
-    (out_dir / "inline_strings.json").write_text(json.dumps(inline, ensure_ascii=False, indent=1) + "\n")
+    (out_dir / "inline_strings.json").write_text(
+        json.dumps(inline, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+    )
 
     write_text_table(out_dir / JA_TEXT_TABLE_FILE, table)
     font_stats = export_ja_font(rom, m2_doc, out_dir / "fonts")
@@ -133,7 +137,7 @@ def _load_us_dialogue(dialogue_dir: Path) -> list[tuple[Path, Messages]]:
     from ebtools.text_dsl.yaml_io import deserialize_dialogue_file
 
     files = sorted(dialogue_dir.glob("*.yaml")) + sorted(dialogue_dir.glob("*.yml"))
-    return [(p, deserialize_dialogue_file(p.read_text())) for p in files]
+    return [(p, deserialize_dialogue_file(p.read_text(encoding="utf-8"))) for p in files]
 
 
 # --- Mother 2 dialogue ---------------------------------------------------------
@@ -358,7 +362,7 @@ def build_inline_strings(
         if not table_path.exists():
             raise SystemExit(f"error: {table_path} not found (run `ebtools extract` first)")
         table = table_path.read_bytes()
-        for idx, entry in enumerate(json.loads(json_path.read_text())[list_key]):
+        for idx, entry in enumerate(json.loads(json_path.read_text(encoding="utf-8"))[list_key]):
             us_text = entry.get(field)
             if us_text is None:
                 continue

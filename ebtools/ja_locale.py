@@ -41,7 +41,7 @@ class JaLocaleConfig(BaseModel):
 
 def load_ja_locale(path: Path) -> JaLocaleConfig:
     """Load ``ja_locale.yml``."""
-    return JaLocaleConfig.model_validate(yaml.safe_load(path.read_text()) or {})
+    return JaLocaleConfig.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
 
 
 def ja_text_table(mother2_doc: DumpDoc, config: JaLocaleConfig) -> dict[int, str]:
@@ -61,10 +61,11 @@ def ja_text_table(mother2_doc: DumpDoc, config: JaLocaleConfig) -> dict[int, str
 def write_text_table(path: Path, table: dict[int, str]) -> None:
     """Write the text table as JSON (``{"0x20": " ", ...}``)."""
     path.write_text(
-        json.dumps({f"0x{k:02X}": v for k, v in sorted(table.items())}, ensure_ascii=False, indent=1) + "\n"
+        json.dumps({f"0x{k:02X}": v for k, v in sorted(table.items())}, ensure_ascii=False, indent=1) + "\n",
+        encoding="utf-8",
     )
 
 
 def read_text_table(path: Path) -> dict[int, str]:
     """Read a text table written by :func:`write_text_table`."""
-    return {int(k, 16): v for k, v in json.loads(path.read_text()).items()}
+    return {int(k, 16): v for k, v in json.loads(path.read_text(encoding="utf-8")).items()}

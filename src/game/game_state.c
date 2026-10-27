@@ -432,6 +432,9 @@ bool save_locale_compatible(Locale save, Locale running) {
 
 bool save_game(int slot) {
     if (slot < 0 || slot >= SAVE_COUNT) return false;
+    /* Never write over a save of the other Language (a restored savestate can
+     * still hold a slot that has since become locked) */
+    if (save_slot_locked(slot)) return false;
 
     SaveBlock *block = &ert.save_scratch;
     memset(block, 0, sizeof(*block));
@@ -523,6 +526,7 @@ bool load_game(int slot) {
  * (other slots) survives the boot integrity check on hardware/snes9x. */
 bool erase_save(int slot) {
     if (slot < 0 || slot >= SAVE_COUNT) return false;
+    if (save_slot_locked(slot)) return false;  /* deleted from its own Language only */
 
     SaveBlock *block = &ert.save_scratch;
     memset(block, 0, sizeof(*block));
@@ -543,6 +547,7 @@ bool erase_save(int slot) {
  * version word so the image survives real EarthBound's boot integrity check. */
 bool copy_save(int to, int from) {
     if (to < 0 || to >= SAVE_COUNT || from < 0 || from >= SAVE_COUNT) return false;
+    if (save_slot_locked(to) || save_slot_locked(from)) return false;
 
     SaveBlock *block = &ert.save_scratch;
     for (int copy = 0; copy < SAVE_COPY_COUNT; copy++) {
@@ -610,12 +615,19 @@ bool save_locale_selftest(void) {
     CHECK(load_game(0) && !save_slot_locked(0));
     g_locale = LOCALE_JA;
     CHECK(!load_game(0) && save_slot_locked(0));
+    /* Nothing writes over a locked slot: not saving, copying or erasing */
+    CHECK(!save_game(0) && !copy_save(1, 0) && !copy_save(0, 1) && !erase_save(0));
+    g_locale = LOCALE_EN;
+    CHECK(erase_save(0));
+    g_locale = LOCALE_JA;
     CHECK(save_game(0) && read_valid_block(0) && save_block_locale(b) == LOCALE_JA);
     CHECK(load_game(0) && !save_slot_locked(0));
     g_locale = LOCALE_EN;
     CHECK(!load_game(0) && save_slot_locked(0));
-    CHECK(erase_save(0) && !save_slot_locked(0));
+    CHECK(!save_game(0) && !copy_save(1, 0) && !copy_save(0, 1) && !erase_save(0));
     g_locale = LOCALE_JA;
+    CHECK(erase_save(0) && !save_slot_locked(0));
+    g_locale = LOCALE_EN;
     CHECK(!save_slot_locked(0));
 
 #undef CHECK

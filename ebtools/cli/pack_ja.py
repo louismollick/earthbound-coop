@@ -49,6 +49,7 @@ def pack_ja(
     from ebtools.cli.pack_all import _compile_dialogue
     from ebtools.parsers.font import pack_font
     from ebtools.text_dsl.compiler import build_reverse_names
+    from ebtools.text_dsl.splice import strip_presentation
     from ebtools.text_dsl.yaml_io import deserialize_dialogue_file
 
     ja_dir = assets_dir / JA_ASSETS_SUBDIR
@@ -62,7 +63,7 @@ def pack_ja(
 
     # Dialogue: the same files (and so the same label order) as the US.
     yaml_files = sorted((ja_dir / "dialogue").glob("*.yaml")) + sorted((ja_dir / "dialogue").glob("*.yml"))
-    all_dialogue = [(f, deserialize_dialogue_file(f.read_text())) for f in yaml_files]
+    all_dialogue = [(f, deserialize_dialogue_file(f.read_text(encoding="utf-8"))) for f in yaml_files]
     blob, ja_label_addrs = _compile_dialogue(
         all_dialogue, JA_DIALOGUE_BASE, reverse_table, build_reverse_names(common_data)
     )
@@ -75,6 +76,23 @@ def pack_ja(
             file=sys.stderr,
         )
         return 0
+    # Every Japanese message must still run its US message's logic: a US edit after
+    # `extract-ja` would otherwise give the two Languages different game logic.
+    ja_ops = {label: ops for _f, msgs in all_dialogue for label, ops in msgs.items()}
+    us_dialogue = sorted((assets_dir / "dialogue").glob("*.yaml")) + sorted((assets_dir / "dialogue").glob("*.yml"))
+    drifted = [
+        label
+        for f in us_dialogue
+        for label, ops in deserialize_dialogue_file(f.read_text(encoding="utf-8")).items()
+        if strip_presentation(ops) != strip_presentation(ja_ops[label])
+    ]
+    if drifted:
+        print(
+            f"Warning: skipping the Japanese Locale, {len(drifted)} messages no longer match the US logic "
+            f"(rerun `ebtools extract-ja`): {drifted[:5]}",
+            file=sys.stderr,
+        )
+        return 0
     _write(out / "text" / "dialogue.bin", blob)
 
     xlat: dict[int, int] = {}
@@ -84,7 +102,7 @@ def pack_ja(
         xlat.setdefault(us_addr, ja_label_addrs[label])
 
     # Inline strings, in the US table's order.
-    ja_inline_map: dict[str, str] = json.loads((ja_dir / "inline_strings.json").read_text())
+    ja_inline_map: dict[str, str] = json.loads((ja_dir / "inline_strings.json").read_text(encoding="utf-8"))
     ja_inline = StringTableBuilder(reverse_table)
     stale = 0
     for us_text, us_offset in us_inline.entries().items():
