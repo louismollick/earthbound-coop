@@ -110,3 +110,30 @@ romSymbols:
   STATUS_EQUIP_WINDOW_TEXT_9: [0x0439B7, 7]
   STATUS_WINDOW_TEXT: [0x09DD4E, 1302]
   TELEPHONE_CONTACTS_TABLE: [0x158AAE, 112]
+
+# Mother 2 data for the Japanese interface (ebtools/ja_interface.py): file
+# offsets into mother2.sfc (the symbols' addresses in build/mother2.map, minus
+# 0xC00000) and sizes. `count` entries of `size` bytes each.
+rom:
+  # FILE_SELECT_TEXT_PLEASE_NAME_THEM_STRINGS: the naming prompts (NAME_THEM_STRING_LENGTH 15)
+  namingPrompts: {offset: 0x049525, size: 15, count: 7}
+  # FILE_SELECT_TEXT_FAVORITE_FOOD .. _ARE_YOU_SURE_NOPE: the naming confirmation
+  favoriteFood: {offset: 0x04958E, size: 9}
+  coolestThing: {offset: 0x049597, size: 11}
+  areYouSure: {offset: 0x0495A2, size: 12}
+  areYouSureYep: {offset: 0x0495AE, size: 3}
+  areYouSureNope: {offset: 0x0495B1, size: 4}
+  # DONT_CARE_NAMES: 7 groups (Ness .. favourite thing) of 7 names
+  dontCareNames: {offset: 0x15F42F, size: 6, count: 49}
+  # NAME_REGISTRY_REQUEST_STRING (ENTER_YOUR_NAME_PLEASE)
+  nameRegistryRequest: {offset: 0x03F670, size: 11}
+  # CONSONANT_VOWEL_TRANSLITERATION_PAIRS (PROCESS_NAME_INPUT_STRING): 26 letters x 5 vowels x 2 codes
+  transliterationPairs: {offset: 0x03F67B, size: 260}
+  # MRSATURN_CHAR_TILE_MAP (text code - 16 -> Mr. Saturn glyph + 1, 0 = the normal tile)
+  # and MRSATURN_CHAR_WIDTH_TABLE (PRINT_MRSATURN_LETTER)
+  mrSaturnCharMap: {offset: 0x03EAED, size: 240}
+  mrSaturnWidths: {offset: 0x03EBDD, size: 62}
+  # MRSATURN_FONT_DATA: 16x16 glyphs, 2bpp tiles, 8 glyphs per 16-tile row (JP/fonts/unknown.gfx)
+  mrSaturnFont: {offset: 0x20209D, size: 4096}
+  # MOTHER2_ROMAJI_FONT: the 8x8 window title glyphs, codes 0x20-0xFF (JP/fonts/hppp.gfx)
+  titleFont: {offset: 0x20110E, size: 3584}

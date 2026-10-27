@@ -28,6 +28,7 @@
 #include "game_main.h"
 #include "data/text_refs.h"
 #include "intro/file_select.h"
+#include "intro/naming_ja.h"
 #include "intro/title_screen.h"
 #include "game/battle_bg.h"
 #include "game/town_map.h"
@@ -81,6 +82,8 @@ static size_t phone_call_text_size;
  * Pops the TEXT_INPUT keyboard result (0 = confirmed, 0xFFFF = cancelled).
  */
 StepResult mode_step_enter_name(ModeState *st) {
+    if (locale_is_ja())
+        return ja_enter_name_step(st);
     EnterNameState *s = &st->enter_name;
 
     switch ((EnterNamePhase)s->phase) {

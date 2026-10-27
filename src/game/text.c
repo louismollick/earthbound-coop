@@ -37,7 +37,7 @@ typedef struct {
     size_t   glyph_size;  /* total glyph data size */
     uint8_t  height;      /* pixel rows per glyph */
     uint8_t  bytes_per_glyph; /* bytes per glyph in data */
-    uint8_t  char_count;  /* glyphs in the table: FONT_CHAR_COUNT, or JA_FONT_CHAR_COUNT */
+    uint8_t  char_count;  /* glyphs in the table: FONT_CHAR_COUNT, or JA_FONT_GLYPHS */
     bool     loaded;
 } FontData;
 
@@ -78,7 +78,7 @@ TextRenderState text_render_state;
 
 /* Bind font slot `font_id` to a glyph/width asset pair. `char_count` is the
  * number of glyphs in the table (FONT_CHAR_COUNT for the US fonts,
- * JA_FONT_CHAR_COUNT for the Japanese one). */
+ * JA_FONT_GLYPHS for the Japanese ones). */
 static bool load_font(uint8_t font_id, AssetId gfx_id, AssetId width_id,
                       uint8_t height, uint8_t char_count) {
     if (font_id >= 5) return false;
@@ -165,13 +165,16 @@ void text_system_init(void) {
     load_font(FONT_ID_MRSATURN, ASSET_FONTS_MRSATURN_GFX, ASSET_FONTS_MRSATURN_BIN, 16, FONT_CHAR_COUNT);
 
 #ifdef EB_HAVE_JA
-    /* Japanese: Mother 2's 8x16 glyphs (JA/fonts/main.gfx: 224 chars x 32 bytes,
-     * codes 0x20-0xFF, width 7 + CHARACTER_PADDING) in every variable-width slot
-     * the text uses. TINY (window titles) and MRSATURN keep the US data for now. */
+    /* Japanese: Mother 2's 8x16 glyphs (JA/fonts/main.gfx: 226 glyphs x 32 bytes,
+     * codes 0x20-0xFF then the two marks, width 7 + CHARACTER_PADDING) in every
+     * variable-width slot the text uses, and Mr. Saturn's (JA/fonts/mrsaturn.gfx,
+     * same indices; see ja_print_mrsaturn_letter). TINY keeps the US data: the
+     * Japanese window titles are tiles (render_title_to_vram). */
     if (locale_is_ja()) {
-        load_font(FONT_ID_NORMAL, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_CHAR_COUNT);
-        load_font(FONT_ID_BATTLE, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_CHAR_COUNT);
-        load_font(FONT_ID_LARGE, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_CHAR_COUNT);
+        load_font(FONT_ID_NORMAL, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_GLYPHS);
+        load_font(FONT_ID_BATTLE, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_GLYPHS);
+        load_font(FONT_ID_LARGE, ASSET_JA_FONTS_MAIN_GFX, ASSET_JA_FONTS_MAIN_BIN, 16, JA_FONT_GLYPHS);
+        load_font(FONT_ID_MRSATURN, ASSET_JA_FONTS_MRSATURN_GFX, ASSET_JA_FONTS_MRSATURN_BIN, 16, JA_FONT_GLYPHS);
     }
 #endif
 
@@ -3716,6 +3719,50 @@ uint8_t vwf_indent_new_line = 0;
 /* (store_eb_text and compute_eb_pixel_width removed — text now rendered
  * immediately via vwf_render_character + vwf_flush_tiles_to_vram) */
 
+/* One glyph of a Japanese Mr. Saturn letter (PRINT_MRSATURN_LETTER @READY_TO_PRINT,
+ * asm/text/print_mrsaturn_letter.asm). A glyph of his font (MRSATURN_CHAR_TILE_MAP
+ * != 0) is a VWF glyph of its own width; a code his font lacks (width 0 in
+ * JA/fonts/mrsaturn.bin) is a normal 8 px tile: if a VWF glyph left a partial
+ * tile, RESET_VWF_TEXT_STATE + text_x + 1 moves to the next tile first.
+ * (Mother 2 also skips a tile when the VWF glyph ended exactly on a tile
+ * boundary; the port knows a partial tile only by the pixel offset.) */
+static void ja_mrsaturn_glyph(uint8_t index) {
+    if (font_get_width(FONT_ID_MRSATURN, index) != 0) {
+        vwf_render_glyph(FONT_ID_MRSATURN, index);
+    } else {
+        WindowInfo *w = get_window(win.current_focus_window);
+        if (w && (vwf_x & 7))
+            set_focus_text_cursor(w->text_x, w->text_y);
+        vwf_render_glyph(FONT_ID_NORMAL, index);
+    }
+    vwf_flush_tiles_to_vram();
+}
+
+/* Japanese: PRINT_LETTER's Mr. Saturn path (asm/text/print_letter-jp.asm, a
+ * window font != 0): PRINT_MRSATURN_LETTER for the letter, then for a voiced or
+ * semi-voiced kana (codes 0x60+, low nibble 3/5/7/10 or 11) his dakuten (26) or
+ * handakuten (27) as a following glyph. PRINT_MRSATURN_LETTER first starts a new
+ * line, one tile in, once text_x is past 14 (text_x: the tile being drawn). */
+static void ja_print_mrsaturn_letter(uint8_t eb) {
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w) return;
+    uint16_t text_x = (vwf_x & 7) ? (uint16_t)(w->text_x - 1) : w->text_x;
+    if (text_x > 14 && eb >= 0x20) {
+        print_newline();
+        w = get_window(win.current_focus_window);
+        if (!w) return;
+        set_focus_text_cursor(w->text_x + 1, w->text_y);
+    }
+    ja_mrsaturn_glyph(eb_glyph_index(eb));
+    if (eb >= 0x60) {
+        uint8_t low = eb & 0x0F;
+        if (low == 3 || low == 5 || low == 7 || low == 10)
+            ja_mrsaturn_glyph(JA_GLYPH_DAKUTEN);
+        else if (low == 11)
+            ja_mrsaturn_glyph(JA_GLYPH_HANDAKUTEN);
+    }
+}
+
 /*
  * PRINT_EB_STRING — Renders EB-encoded characters immediately via VWF.
  *
@@ -3758,17 +3805,21 @@ void print_eb_letter(uint8_t eb) {
     if (text_trace_hook)
         text_trace_hook(TEXT_TRACE_CHAR, win.current_focus_window, eb);
 
-    /* VWF render + flush to VRAM + write to per-window tilemap.
-     * vwf_render_character handles @PRINT_SPECIAL internally for
-     * chars 0x20, 0x22, 0x2F. */
-    vwf_render_character(eb, font_id);
+    if (glyph && font_id == FONT_ID_MRSATURN && locale_is_ja()) {
+        ja_print_mrsaturn_letter(eb);
+    } else {
+        /* VWF render + flush to VRAM + write to per-window tilemap.
+         * vwf_render_character handles @PRINT_SPECIAL internally for
+         * chars 0x20, 0x22, 0x2F. */
+        vwf_render_character(eb, font_id);
 
-    /* Assembly: RENDER_VWF_CHARACTER calls FLUSH_VWF_TILES_TO_VRAM only for
-     * normal chars (>= 0x50).  Special chars (0x20, 0x22, 0x2F) jump to @DONE
-     * without flushing — advance_vwf_tile already handled tile alloc.
-     * Flushing after a special char would allocate an extra stale VWF tile. */
-    if (glyph)
-        vwf_flush_tiles_to_vram();
+        /* Assembly: RENDER_VWF_CHARACTER calls FLUSH_VWF_TILES_TO_VRAM only for
+         * normal chars (>= 0x50).  Special chars (0x20, 0x22, 0x2F) jump to @DONE
+         * without flushing — advance_vwf_tile already handled tile alloc.
+         * Flushing after a special char would allocate an extra stale VWF tile. */
+        if (glyph)
+            vwf_flush_tiles_to_vram();
+    }
 
     /* Update cursor pixel position */
     w = get_window(win.current_focus_window);
@@ -4322,7 +4373,12 @@ void vwf_render_character(uint8_t eb_char, uint8_t font_id) {
 
     if (!eb_char_is_glyph(eb_char)) return;
 
-    uint8_t char_index = eb_glyph_index(eb_char);
+    vwf_render_glyph(font_id, eb_glyph_index(eb_char));
+}
+
+/* The glyph half of vwf_render_character (RENDER_VWF_CHARACTER @SETUP_GLYPH):
+ * blit glyph `char_index` of `font_id`, width + CHARACTER_PADDING pixels. */
+void vwf_render_glyph(uint8_t font_id, uint8_t char_index) {
     const uint8_t *glyph = font_get_glyph(font_id, char_index);  /* NULL past the table */
     if (!glyph) return;
 
@@ -4700,8 +4756,74 @@ int vwf_render_to_fixed_tiles(const uint8_t *eb_str, int len, uint8_t font_id,
     return (int)tiles_used;
 }
 
+/* Write letter `eb` of the focus window's font at text position (x, y) of the
+ * focus window as one 8 px column of two newly allocated tiles, the way Mother 2
+ * writes every letter (WRITE_TILE_TO_WINDOW, a fixed tile per letter). For
+ * screens that place single letters at fixed columns (the Japanese naming
+ * keyboard): a VWF print there would also allocate the empty column after each
+ * letter. The VWF state is kept; the text cursor moves past the letter. */
+void print_letter_tile_at(uint8_t eb, uint16_t x, uint16_t y) {
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w || !eb_char_is_glyph(eb)) return;
+    uint16_t cw = w->width - 2;
+    uint16_t upper_pos = (uint16_t)(y * cw * 2 + x);
+    uint16_t lower_pos = (uint16_t)(upper_pos + cw);
+    if (x >= cw || lower_pos >= w->content_tilemap_size) return;
+
+    memcpy(vwf_saved_buffer, vwf_buffer, 2 * VWF_TILE_BYTES); /* the glyph fills tiles 0-1 */
+    uint16_t saved_x = vwf_x, saved_tile = vwf_tile, saved_pixels = vwf_pixels_rendered;
+    TextRenderState saved_trs = text_render_state;
+
+    vwf_init();
+    vwf_render_character(eb, (uint8_t)(w->font & 0xFF));
+    uint16_t upper = alloc_bg2_tilemap_entry();
+    uint16_t lower = alloc_bg2_tilemap_entry();
+    upload_vwf_tile_to_vram(0, upper, lower);
+
+    memcpy(vwf_buffer, vwf_saved_buffer, 2 * VWF_TILE_BYTES);
+    vwf_x = saved_x;
+    vwf_tile = saved_tile;
+    vwf_pixels_rendered = saved_pixels;
+    text_render_state = saved_trs;
+
+    w = get_window(win.current_focus_window); /* alloc may close windows on exhaustion */
+    if (!w || lower_pos >= w->content_tilemap_size) return;
+    free_tile_safe(w->content_tilemap[upper_pos]);
+    free_tile_safe(w->content_tilemap[lower_pos]);
+    w->content_tilemap[upper_pos] = upper + w->curr_tile_attributes;
+    w->content_tilemap[lower_pos] = lower + w->curr_tile_attributes;
+    w->text_x = (uint8_t)(x + 1);
+    w->text_y = (uint8_t)y;
+}
+
+/* Japanese window title tiles (RENDER_WINDOW_TITLE's JPN branch,
+ * asm/battle/render_window_title.asm): each title byte is a Mother 2 code whose
+ * 8x8 tile, MOTHER2_ROMAJI_FONT[(code - 32) * 16] (JA/fonts/title.gfx), is copied
+ * to the slot's tiles $02E0 + (slot - 1) * 16 + i; the frame then draws one tile
+ * per byte (RENDER_WINDOW_FRAME @WRITE_TITLE_TILE, render_window_frame-jp.asm).
+ * A slot holds 16 tiles. Returns the tile count. */
+#ifdef EB_HAVE_JA
+static int ja_render_title_to_vram(const char *title, uint8_t title_slot) {
+    const uint8_t *font = ASSET_DATA(ASSET_JA_FONTS_TITLE_GFX);
+    size_t font_size = ASSET_SIZE(ASSET_JA_FONTS_TITLE_GFX);
+    uint32_t base = VRAM_TEXT_LAYER_TILES * 2 + (uint32_t)(0x02E0 + (title_slot - 1) * 16) * 16;
+    int n = 0;
+    for (; n < 16 && title[n] != '\0'; n++) {
+        uint8_t code = ascii_to_eb_char(title[n]);  /* the title is char-mapped like menu labels */
+        size_t src = (size_t)(code < 0x20 ? 0 : code - 0x20) * 16;
+        if (src + 16 <= font_size && base + (uint32_t)n * 16 + 16 <= VRAM_SIZE)
+            memcpy(ppu.vram + base + (uint32_t)n * 16, font + src, 16);
+    }
+    return n;
+}
+#endif
+
 int render_title_to_vram(const char *title, uint8_t title_slot) {
     if (!title || title[0] == '\0' || title_slot == 0) return 0;
+#ifdef EB_HAVE_JA
+    if (locale_is_ja())
+        return ja_render_title_to_vram(title, title_slot);
+#endif
 
     /* Convert ASCII title to EB encoding (US: the TINY font stays US in Japanese) */
     uint8_t eb_str[WINDOW_TITLE_SIZE];

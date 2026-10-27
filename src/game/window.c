@@ -97,7 +97,9 @@ static const uint16_t window_configs[][4] = {
 
 /* Japanese: Mother 2's place and size (WINDOW_CONFIGURATION_TABLE, JPN) for
  * the windows whose Japanese text needs more room than the US window gives
- * (its font is 8 px a letter). Every other window keeps the US layout. */
+ * (its font is 8 px a letter), and for the naming screens, whose Japanese
+ * layout is drawn from the JPN asm (src/intro/naming_ja.c). Every other window
+ * keeps the US layout. */
 static const struct { uint8_t id; uint16_t config[4]; } ja_window_configs[] = {
     { 0x03, {  1 + WINDOW_X_NUDGE,  1,  7, 10 } },  /* Inventory menu (せつめい) */
     { 0x0A, {  1 + WINDOW_X_NUDGE, 10,  9,  4 } },  /* Carried money ($99999 and the 00 sign) */
@@ -105,6 +107,18 @@ static const struct { uint8_t id; uint16_t config[4]; } ja_window_configs[] = {
     { 0x16, {  9, 16, 13,  6 } },                   /* Copy menu, 1 choice */
     { 0x2D, {  2, 11, 16,  6 } },                   /* Equipment stats */
     { 0x31, {  9,  4, 22,  4 } },                   /* Battle target text (どのてきに?:) */
+    { 0x1A, {  5,  2,  9,  4 } },                   /* Naming Box */
+    { 0x1B, { 14,  2, 16,  4 } },                   /* "Name This Friend" */
+    { 0x1C, {  1,  7, 30, 20 } },                   /* Name input box: 9 text rows (keys, pages, buttons) */
+    { 0x1D, {  7,  3,  6,  4 } },                   /* Ness's Name */
+    { 0x1E, {  7,  7,  6,  4 } },                   /* Paula's Name */
+    { 0x1F, {  7, 11,  6,  4 } },                   /* Jeff's Name */
+    { 0x20, {  7, 15,  6,  4 } },                   /* Poo's Name */
+    { 0x21, { 20,  3,  8,  4 } },                   /* King's Name */
+    { 0x22, { 14,  7, 14,  6 } },                   /* Favourite Food */
+    { 0x23, { 14, 13, 14,  6 } },                   /* Favourite Thing */
+    { 0x24, {  4, 21, 24,  4 } },                   /* "Are you sure?" */
+    { 0x27, {  3,  1, 26,  6 } },                   /* Naming prompt */
 };
 
 /* The {x, y, width, height} window_id opens with, or NULL for the default. */

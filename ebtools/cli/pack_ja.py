@@ -7,9 +7,11 @@ Called by ``pack-all`` after the US packers.  Writes ``<output>/JA/``:
 - ``text/xlat.bin``: ``(u32 us_addr, u32 ja_addr)`` pairs sorted by
   ``us_addr``: every US dialogue label address and US inline string offset to
   its Japanese address.
-- ``fonts/main.gfx`` / ``fonts/main.bin``: the 224 Mother 2 glyphs.
+- ``fonts/main.gfx`` / ``fonts/main.bin``: the 224 Mother 2 glyphs and the
+  two marks (``JA_EXTRA_GLYPH_CODES``).
 - The interface (``ebtools.ja_interface``): every US name table with the
   Mother 2 names, at the US table's path, and ``text/ui_strings.bin``.
+- the naming data and the Mr. Saturn and title fonts (``ebtools.ja_naming``).
 
 Without ``<assets>/ja/`` it removes a stale ``<output>/JA/`` and writes nothing.
 """
@@ -76,7 +78,16 @@ def pack_ja(
     blob, ja_label_addrs = _compile_dialogue(
         all_dialogue, JA_DIALOGUE_BASE, reverse_table, build_reverse_names(common_data)
     )
+    from ebtools.ja_naming import interface_is_current
+
     missing = [label for label in us_label_addrs if label not in ja_label_addrs]
+    if not interface_is_current(ja_dir):
+        print(
+            "Warning: skipping the Japanese Locale, its naming data or fonts are missing or "
+            "stale (rerun `ebtools extract-ja`)",
+            file=sys.stderr,
+        )
+        return 0
     if missing:
         # Stale Japanese assets must not break the English build.
         print(
@@ -130,6 +141,7 @@ def pack_ja(
     _write(out / "fonts" / "main.bin", widths)
 
     from ebtools.ja_interface import pack_interface
+    from ebtools.ja_naming import pack_interface as pack_naming
 
     def us_table(rel: str) -> bytes:
         packed = output_dir / rel
@@ -138,10 +150,12 @@ def pack_ja(
     interface = pack_interface(ja_dir, us_table, reverse_table, us_label_addrs)
     for rel, data in interface.items():
         _write(out / rel, data)
+    naming_files = pack_naming(ja_dir, out, reverse_table)
 
     print(
         f"  Packed Japanese Locale: dialogue {len(blob)} bytes, inline strings {len(inline_blob)} bytes, "
-        f"xlat {len(xlat)} entries, font {len(widths)} glyphs, {len(interface)} interface tables"
+        f"xlat {len(xlat)} entries, font {len(widths)} glyphs, {len(interface)} interface tables, "
+        f"{naming_files} naming files"
     )
     if stale:
         print(f"  Warning: {stale} US inline strings missing from ja/inline_strings.json print nothing")
