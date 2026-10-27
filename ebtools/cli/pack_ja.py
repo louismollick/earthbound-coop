@@ -71,6 +71,18 @@ def pack_ja(
         print("Warning: skipping the Japanese Locale, no US dialogue was packed", file=sys.stderr)
         return 0
 
+    from ebtools.ja_interface import interface_is_current as names_are_current
+    from ebtools.ja_naming import interface_is_current
+
+    # A Japanese extraction from an older ebtools must not break the English build
+    if not (ja_dir / JA_TEXT_TABLE_FILE).exists() or not interface_is_current(ja_dir) or not names_are_current(ja_dir):
+        print(
+            "Warning: skipping the Japanese Locale, its text table, names, UI strings, naming data or fonts "
+            "are missing or stale (rerun `ebtools extract-ja`)",
+            file=sys.stderr,
+        )
+        return 0
+
     reverse_table = {char: code for code, char in read_text_table(ja_dir / JA_TEXT_TABLE_FILE).items()}
 
     # Dialogue: the same files (and so the same label order) as the US.
@@ -79,16 +91,7 @@ def pack_ja(
     blob, ja_label_addrs = _compile_dialogue(
         all_dialogue, JA_DIALOGUE_BASE, reverse_table, build_reverse_names(common_data)
     )
-    from ebtools.ja_naming import interface_is_current
-
     missing = [label for label in us_label_addrs if label not in ja_label_addrs]
-    if not interface_is_current(ja_dir):
-        print(
-            "Warning: skipping the Japanese Locale, its naming data or fonts are missing or "
-            "stale (rerun `ebtools extract-ja`)",
-            file=sys.stderr,
-        )
-        return 0
     if missing:
         # Stale Japanese assets must not break the English build.
         print(

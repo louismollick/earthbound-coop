@@ -290,12 +290,12 @@ _ROM_SYMBOLS_HEADER = "romSymbols:"
 
 def write_rom_symbols(config_path: Path, symbols: dict[str, tuple[int, int]]) -> None:
     """Replace the ``romSymbols:`` block of ``ja_locale.yml`` (up to the next top-level key)."""
-    text = config_path.read_text()
+    text = config_path.read_text(encoding="utf-8")
     head, rest = text.split("\n" + _ROM_SYMBOLS_HEADER + "\n")
     tail = re.search(r"^\S", rest, re.MULTILINE)
     lines = [f"  {name}: [0x{off:06X}, {size}]" for name, (off, size) in sorted(symbols.items())]
     block = _ROM_SYMBOLS_HEADER + "\n" + "\n".join(lines) + "\n"
-    config_path.write_text(head + "\n" + block + ("\n" + rest[tail.start() :] if tail else ""))
+    config_path.write_text(head + "\n" + block + ("\n" + rest[tail.start() :] if tail else ""), encoding="utf-8")
 
 
 def ja_offsets(
@@ -303,7 +303,7 @@ def ja_offsets(
     config: Path = Path("ja_locale.yml"),
 ) -> None:
     """Regenerate ``ja_locale.yml`` ``romSymbols`` from a Mother 2 linker map (``make mother2``)."""
-    symbols = rom_symbols_from_map(map_path.read_text(), rom_symbols_used())
+    symbols = rom_symbols_from_map(map_path.read_text(encoding="utf-8"), rom_symbols_used())
     write_rom_symbols(config, symbols)
     print(f"Wrote {len(symbols)} Mother 2 symbols to {config}")
 
@@ -397,8 +397,10 @@ def write_interface_json(out_dir: Path, names: dict[str, dict], ui: dict[str, st
     names_dir = out_dir / "names"
     names_dir.mkdir(parents=True, exist_ok=True)
     for name, fields in names.items():
-        (names_dir / f"{name}.json").write_text(json.dumps(fields, ensure_ascii=False, indent=1) + "\n")
-    (out_dir / "ui_strings.json").write_text(json.dumps(ui, ensure_ascii=False, indent=1) + "\n")
+        (names_dir / f"{name}.json").write_text(
+            json.dumps(fields, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+        )
+    (out_dir / "ui_strings.json").write_text(json.dumps(ui, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
 
 
 # --- Packing -------------------------------------------------------------------
@@ -475,6 +477,21 @@ def pack_ui_texts(ui: dict[str, str], reverse: dict[str, int]) -> bytes:
     return b"".join(_encode(ui[name], reverse, UI_TEXT_SIZE - 1, name) + b"\0" for name, _, _, _ in UI_TEXTS)
 
 
+def interface_is_current(ja_dir: Path) -> bool:
+    """Whether ``ja_dir`` holds every name table and every UI string this version packs.
+
+    An older extraction lacks some; packing it would fail and take the English
+    build down with it.
+    """
+    names_dir = ja_dir / "names"
+    tables = [names_dir / f"{t.name}.json" for t in NAME_TABLES] + [names_dir / f"{STATUS_WINDOW_TABLE}.json"]
+    ui_path = ja_dir / "ui_strings.json"
+    if not all(p.exists() for p in tables) or not ui_path.exists():
+        return False
+    ui = json.loads(ui_path.read_text(encoding="utf-8"))
+    return all(name in ui for name, _, _, _ in UI_TEXTS)
+
+
 def pack_interface(
     ja_dir: Path,
     us_table: Callable[[str], bytes],
@@ -489,11 +506,11 @@ def pack_interface(
     out: dict[str, bytes] = {}
     names_dir = ja_dir / "names"
     for t in NAME_TABLES:
-        fields = json.loads((names_dir / f"{t.name}.json").read_text())
+        fields = json.loads((names_dir / f"{t.name}.json").read_text(encoding="utf-8"))
         path = t.us_path.removeprefix("US/")
         out[path] = pack_name_table(t, us_table(t.us_path), fields, reverse, label_addrs)
-    labels = json.loads((names_dir / f"{STATUS_WINDOW_TABLE}.json").read_text())["labels"]
+    labels = json.loads((names_dir / f"{STATUS_WINDOW_TABLE}.json").read_text(encoding="utf-8"))["labels"]
     out[STATUS_WINDOW_US_PATH] = pack_status_window(us_table(STATUS_WINDOW_US_PATH), labels, reverse)
-    ui = json.loads((ja_dir / "ui_strings.json").read_text())
+    ui = json.loads((ja_dir / "ui_strings.json").read_text(encoding="utf-8"))
     out["text/ui_strings.bin"] = pack_ui_texts(ui, reverse)
     return out

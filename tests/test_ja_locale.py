@@ -119,7 +119,10 @@ needs_ja = pytest.mark.skipif(
 def _load(dialogue_dir: Path) -> dict[str, list[tuple[str, list[dict]]]]:
     from ebtools.text_dsl.yaml_io import deserialize_dialogue_file
 
-    return {p.name: list(deserialize_dialogue_file(p.read_text()).items()) for p in sorted(dialogue_dir.glob("*.yml"))}
+    return {
+        p.name: list(deserialize_dialogue_file(p.read_text(encoding="utf-8")).items())
+        for p in sorted(dialogue_dir.glob("*.yml"))
+    }
 
 
 @cache
@@ -225,7 +228,7 @@ def test_font_and_glyph_range(packed):
     font = range(JA_FIRST_GLYPH, JA_FIRST_GLYPH + JA_GLYPH_COUNT)
     assert all(code in font for code in table)
 
-    inline = json.loads((JA / "inline_strings.json").read_text())
+    inline = json.loads((JA / "inline_strings.json").read_text(encoding="utf-8"))
     messages = [ops for files in _dialogue()[1].values() for _, ops in files]
     messages += [parse_inline_to_ops(text) for text in inline.values()]
     for ops in messages:
@@ -261,7 +264,7 @@ def test_interface_is_current_needs_every_file(tmp_path):
 
 @needs_ja
 def test_naming_data_from_the_rom():
-    naming = json.loads((JA / "naming.json").read_text())
+    naming = json.loads((JA / "naming.json").read_text(encoding="utf-8"))
     assert len(naming["prompts"]) == 7
     assert [g[0] for g in naming["dont_care_names"]] == [
         "ネス",

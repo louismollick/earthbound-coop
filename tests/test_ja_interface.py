@@ -35,7 +35,7 @@ def _config():
 
 
 def test_ui_text_enum_matches_the_c_header():
-    header = (ROOT / "src" / "game" / "ui_text.h").read_text()
+    header = (ROOT / "src" / "game" / "ui_text.h").read_text(encoding="utf-8")
     body = header.split("typedef enum {")[1].split("} UiText;")[0]
     names = re.findall(r"^\s*(UI_[A-Z0-9_]+),", body, re.MULTILINE)
     assert names[-1] == "UI_TEXT_COUNT"
@@ -49,7 +49,7 @@ def test_rom_symbols_cover_every_table():
 
 @pytest.mark.skipif(not MAP.exists(), reason="needs build/mother2.map (make mother2)")
 def test_rom_symbols_match_the_map():
-    assert rom_symbols_from_map(MAP.read_text(), rom_symbols_used()) == _config().romSymbols
+    assert rom_symbols_from_map(MAP.read_text(encoding="utf-8"), rom_symbols_used()) == _config().romSymbols
 
 
 @pytest.mark.parametrize("table", NAME_TABLES, ids=lambda t: t.name)

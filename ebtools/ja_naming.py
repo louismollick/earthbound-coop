@@ -97,7 +97,7 @@ def extract_interface(
         },
     }
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / NAMING_FILE).write_text(json.dumps(naming, ensure_ascii=False, indent=1) + "\n")
+    (out_dir / NAMING_FILE).write_text(json.dumps(naming, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
 
     saturn = export_mrsaturn_font(rom, config, main_glyphs, out_dir / "fonts")
     export_title_font(r["titleFont"].read(rom)[0], out_dir / "fonts" / "title.png")
@@ -202,7 +202,7 @@ def pack_interface(ja_dir: Path, out: Path, reverse: dict[str, int]) -> int:
 
     naming_path = ja_dir / NAMING_FILE
     if naming_path.exists():
-        n = json.loads(naming_path.read_text())
+        n = json.loads(naming_path.read_text(encoding="utf-8"))
         if len(n["prompts"]) != PROMPT_COUNT or len(n["dont_care_names"]) != DONT_CARE_GROUPS:
             raise ValueError(f"{naming_path}: expected {PROMPT_COUNT} prompts and {DONT_CARE_GROUPS} name groups")
         write("data/naming_prompts.bin", b"".join(_encode(s, PROMPT_SIZE, reverse) for s in n["prompts"]))
