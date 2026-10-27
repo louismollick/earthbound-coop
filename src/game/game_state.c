@@ -416,9 +416,8 @@ static uint16_t compute_xor_checksum(const SaveBlock *block) {
 #define SAVE_TAG_OFFSET (sizeof(((SaveBlock *)0)->padding) - 2)
 
 void save_block_set_locale(SaveBlock *block, Locale l) {
-    uint8_t *tag = block->padding + SAVE_TAG_OFFSET;
-    tag[0] = l == LOCALE_EN ? 0 : 'J';
-    tag[1] = l == LOCALE_EN ? 0 : 'A';
+    block->padding[SAVE_TAG_OFFSET] = l == LOCALE_EN ? 0 : 'J';
+    block->padding[SAVE_TAG_OFFSET + 1] = l == LOCALE_EN ? 0 : 'A';
 }
 
 Locale save_block_locale(const SaveBlock *block) {
@@ -503,7 +502,7 @@ bool save_slot_locked(int slot) {
 bool load_game(int slot) {
     if (slot < 0 || slot >= SAVE_COUNT) return false;
 
-    SaveBlock *block = &ert.save_scratch;
+    const SaveBlock *block = &ert.save_scratch;
     if (!read_valid_block(slot)) return false;
     /* A save of the other Language never reaches the live state. */
     if (!save_locale_compatible(save_block_locale(block), locale_get())) return false;
