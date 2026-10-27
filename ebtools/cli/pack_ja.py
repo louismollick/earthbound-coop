@@ -62,6 +62,10 @@ def pack_ja(
         shutil.rmtree(out)
     if not ja_dir.is_dir():
         return 0
+    if not us_label_addrs:
+        # No US dialogue packed (nothing for xlat or the tables' text pointers)
+        print("Warning: skipping the Japanese Locale, no US dialogue was packed", file=sys.stderr)
+        return 0
 
     reverse_table = {char: code for code, char in read_text_table(ja_dir / JA_TEXT_TABLE_FILE).items()}
 
