@@ -233,7 +233,7 @@ def test_font_and_glyph_range(packed):
 
 
 def test_interface_text_round_trip():
-    from ebtools.ja_interface import _decode, _encode
+    from ebtools.ja_naming import _decode, _encode
 
     table = {0x60: "あ", 0x62: "か", 0x20: " "}
     reverse = {v: k for k, v in table.items()}
@@ -247,7 +247,7 @@ def test_interface_text_round_trip():
 
 
 def test_interface_is_current_needs_every_file(tmp_path):
-    from ebtools.ja_interface import interface_is_current
+    from ebtools.ja_naming import interface_is_current
 
     assert not interface_is_current(tmp_path)
 

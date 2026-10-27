@@ -9,7 +9,7 @@ Called by ``pack-all`` after the US packers.  Writes ``<output>/JA/``:
   its Japanese address.
 - ``fonts/main.gfx`` / ``fonts/main.bin``: the 224 Mother 2 glyphs and the
   two marks (``JA_EXTRA_GLYPH_CODES``).
-- the naming data and the Mr. Saturn and title fonts (``ebtools.ja_interface``).
+- the naming data and the Mr. Saturn and title fonts (``ebtools.ja_naming``).
 
 Without ``<assets>/ja/`` it removes a stale ``<output>/JA/`` and writes nothing.
 """
@@ -68,7 +68,7 @@ def pack_ja(
     blob, ja_label_addrs = _compile_dialogue(
         all_dialogue, JA_DIALOGUE_BASE, reverse_table, build_reverse_names(common_data)
     )
-    from ebtools.ja_interface import interface_is_current
+    from ebtools.ja_naming import interface_is_current
 
     missing = [label for label in us_label_addrs if label not in ja_label_addrs]
     if not interface_is_current(ja_dir):
@@ -113,7 +113,7 @@ def pack_ja(
     _write(out / "fonts" / "main.gfx", gfx)
     _write(out / "fonts" / "main.bin", widths)
 
-    from ebtools.ja_interface import pack_interface
+    from ebtools.ja_naming import pack_interface
 
     interface_files = pack_interface(ja_dir, out, reverse_table)
 

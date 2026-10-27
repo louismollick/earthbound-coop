@@ -8,7 +8,7 @@ Writes ``<assets>/ja/`` only (docs/adr/0003-japanese-locale.md):
 - ``fonts/main.json`` + ``main.png``: the 224 Mother 2 text glyphs (codes
   0x20-0xFF) and the two marks below them (``JA_EXTRA_GLYPH_CODES``) in the US
   main-font format.
-- the naming data and the Mr. Saturn and title fonts (``ebtools.ja_interface``).
+- the naming data and the Mr. Saturn and title fonts (``ebtools.ja_naming``).
 - ``text_table.json``: the Japanese text table, for pack-all.
 """
 
@@ -127,7 +127,7 @@ def extract_ja(
 
     write_text_table(out_dir / JA_TEXT_TABLE_FILE, table)
     font_stats = export_ja_font(rom, m2_doc, out_dir / "fonts")
-    from ebtools.ja_interface import extract_interface
+    from ebtools.ja_naming import extract_interface
 
     interface_stats = extract_interface(rom, config, table, font_stats["glyphs"], out_dir)
     print(f"Interface: naming data, Mr. Saturn font ({interface_stats['mrsaturn_glyphs']} of his own glyphs), titles")
