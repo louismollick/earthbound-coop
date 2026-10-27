@@ -26,14 +26,14 @@ Play the C port in Japanese, with the text, fonts and graphics of the user's Mot
 
 ## J1 Locale switch and Japanese dialogue
 
-- [ ] `make mother2` builds a ROM identical to `mother2.sfc` (renamed labels in the JP-only files).
-- [ ] `ebtools extract-ja`: Japanese dialogue YAML (US logic, Mother 2 presentation), Japanese inline strings for item, enemy, PSI and action descriptions, the Japanese font.
-- [ ] Packing and embedding: `JA/` overrides, the Japanese dialogue and inline blobs, the address table.
-- [ ] Runtime Locale, `--lang`, `EB_LANG`, the launcher's Language row.
-- [ ] Text engine: glyph index, space, word wrap, bullet, text sounds and number printing follow the Locale; all variable-width fonts use the Japanese glyphs.
-- [ ] Save tag and locked slots, savestate Locale, online fingerprint.
-- [ ] Tests: logic invariant over every label; save tag round trip; an untagged save loads as English.
-- [ ] Playtest: Ness's house to the meteorite, a shop, a battle and an item description in Japanese.
+- [x] `make mother2` builds a ROM identical to `mother2.sfc` (renamed labels in the JP-only files).
+- [x] `ebtools extract-ja`: Japanese dialogue YAML (US logic, Mother 2 presentation), Japanese inline strings for item, enemy, PSI and action descriptions, the Japanese font.
+- [x] Packing and embedding: `JA/` overrides, the Japanese dialogue and inline blobs, the address table.
+- [x] Runtime Locale, `--lang`, `EB_LANG`, the launcher's Language row.
+- [x] Text engine: glyph index, space, word wrap, bullet, text sounds and number printing follow the Locale; all variable-width fonts use the Japanese glyphs.
+- [x] Save tag and locked slots, savestate Locale, online fingerprint.
+- [x] Tests: logic invariant over every label; save tag round trip; an untagged save loads as English.
+- [x] Playtest: Ness's house to the meteorite, a shop, a battle and an item description in Japanese.
 
 ## J2 Japanese interface
 
@@ -57,5 +57,10 @@ Play the C port in Japanese, with the text, fonts and graphics of the user's Mot
 - [ ] A checker test (skips without an override): control codes unchanged, every glyph in the font, and, with SudachiPy installed, the reading of every converted line equals the original kana.
 
 ## Decisions made during the build
+
+- J1: Japanese text is a fallthrough chain splice (labels the US added inside a Mother 2 message keep its text); Mother 2 `call_text` to logic-free text the US lacks is inlined. 144 US labels end up silent in Japanese, mostly English grammar helpers and the US-only item-give messages (J2 ports Mother 2's give flow).
+- J1: the Locale is folded into the savestate layout id (no format change); a locked slot reads `Japanese` in English and `えいご` in Japanese.
+- J1: `$` is 0x23 in Mother 2's encoding (0x24 is the `00` tile).
+- J1: pack-all skips the Japanese Locale (with a warning) when its dialogue lacks a US label or a message's logic drifted from the US; English always builds.
 
 ## Blocked
