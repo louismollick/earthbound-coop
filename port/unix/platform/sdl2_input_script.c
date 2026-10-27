@@ -290,9 +290,12 @@ static void sfx_trace(uint16_t sfx_id) {
 #define TT_LINES  16
 #define TT_GLYPHS 72
 
+/* letter: eb_char_to_ascii's char (as unsigned char), or LETTER_KANJI + a
+ * kanji index (text.h) */
+#define LETTER_KANJI 0x100u
 typedef struct {
     uint16_t x;
-    char c;
+    uint16_t letter;
 } Glyph;
 
 typedef struct {
@@ -323,17 +326,25 @@ static unsigned text_chars_printed;
 static char until_said[2048];
 static int until_said_len;
 
-/* Write a captured letter (eb_char_to_ascii's char) to `out` (room for 3):
- * itself in English. In Japanese, space, digits and A-Z as ASCII and any
- * other code as U+E000 + code in UTF-8, which pt.py turns into the letter
- * through the Japanese text table (src/assets/ja/text_table.json). */
-static int put_letter(char *out, char c) {
+/* Write a captured letter (a Glyph letter) to `out` (room for 3): itself in
+ * English. In Japanese, space, digits and A-Z as ASCII and any other code as
+ * U+E000 + code in UTF-8, which pt.py turns into the letter through the
+ * Japanese text table (src/assets/ja/text_table.json); a kanji as itself. */
+static int put_letter(char *out, uint16_t letter) {
+    char c = (char)(letter & 0xFF);
     if (!locale_is_ja())
         return out[0] = c, 1;
-    uint8_t eb = ascii_to_eb_char(c);
-    if (eb == ' ' || (eb >= '0' && eb <= '9') || (eb >= 'A' && eb <= 'Z'))
-        return out[0] = (char)eb, 1;
-    unsigned cp = 0xE000u + eb;
+    unsigned cp;
+    if (letter >= LETTER_KANJI) {
+        cp = ja_kanji_codepoint((uint16_t)(letter - LETTER_KANJI));
+        if (cp < 0x800)
+            return out[0] = '?', 1;
+    } else {
+        uint8_t eb = ascii_to_eb_char(c);
+        if (eb == ' ' || (eb >= '0' && eb <= '9') || (eb >= 'A' && eb <= 'Z'))
+            return out[0] = (char)eb, 1;
+        cp = 0xE000u + eb;
+    }
     out[0] = (char)(0xE0 | (cp >> 12));
     out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
     out[2] = (char)(0x80 | (cp & 0x3F));
@@ -365,13 +376,13 @@ static void tt_clear_slot(int slot) {
     tt_pos[slot].valid = false;
 }
 
-static void text_trace(int event, uint16_t window_id, uint8_t eb_char) {
+static void text_trace(int event, uint16_t window_id, uint16_t code) {
     int slot = window_slot(window_id);
     if (slot < 0)
         return;
     WindowInfo *w = &win.windows[slot];
 
-    if (event != TEXT_TRACE_CHAR) {
+    if (event != TEXT_TRACE_CHAR && event != TEXT_TRACE_KANJI) {
         if (slot == said_slot)
             said_flush();
         if (event == TEXT_TRACE_SCROLL) {
@@ -385,9 +396,15 @@ static void text_trace(int event, uint16_t window_id, uint8_t eb_char) {
     }
 
     /* Letters only: US 0x50-0xAF, Japanese 0x20-0xFF but EQUIPPED (kana read as '?') */
-    bool letter = locale_is_ja() ? eb_char_is_glyph(eb_char) : (eb_char >= 0x50 && eb_char <= 0xAF);
-    char c = letter ? eb_char_to_ascii(eb_char) : 0;
-    if (!c)
+    uint16_t letter;
+    if (event == TEXT_TRACE_KANJI) {
+        letter = (uint16_t)(LETTER_KANJI + code);
+    } else {
+        uint8_t eb_char = (uint8_t)code;
+        bool glyph = locale_is_ja() ? eb_char_is_glyph(eb_char) : (eb_char >= 0x50 && eb_char <= 0xAF);
+        letter = glyph ? (uint8_t)eb_char_to_ascii(eb_char) : 0;
+    }
+    if (!letter)
         return;
     int y = w->text_y;
     int x = w->cursor_pixel_x;
@@ -424,20 +441,20 @@ static void text_trace(int event, uint16_t window_id, uint8_t eb_char) {
                 ln->g[at] = ln->g[at - 1];
                 at--;
             }
-            ln->g[at] = (Glyph){ (uint16_t)x, c };
+            ln->g[at] = (Glyph){ (uint16_t)x, letter };
             ln->n++;
         }
     }
 
     /* Transcript, in print order; a '@' bullet starts a new statement */
-    if (slot != said_slot || y != said_y || x < said_last_x || c == '@')
+    if (slot != said_slot || y != said_y || x < said_last_x || letter == '@')
         said_flush();
     if (said_len > 0 && x > said_last_x + 14 && said_len < (int)sizeof(said_line) - 3) {
         said_line[said_len++] = ' ';
         said_line[said_len++] = ' ';
     }
     if (said_len < (int)sizeof(said_line) - 3)
-        said_len += put_letter(&said_line[said_len], c);
+        said_len += put_letter(&said_line[said_len], letter);
     said_slot = slot;
     said_y = y;
     said_window_id = (uint8_t)window_id;
@@ -446,11 +463,15 @@ static void text_trace(int event, uint16_t window_id, uint8_t eb_char) {
     if (until_active) {
         /* A sliding window over the printed text: said:WORD is checked every
          * frame, so when it fills, only the most recent text is kept */
-        if (until_said_len >= (int)sizeof(until_said) - 1) {
+        int need = letter >= LETTER_KANJI ? 3 : 1;
+        if (until_said_len + need >= (int)sizeof(until_said)) {
             memmove(until_said, until_said + until_said_len - UNTIL_SAID_KEEP, UNTIL_SAID_KEEP);
             until_said_len = UNTIL_SAID_KEEP;
         }
-        until_said[until_said_len++] = c;
+        if (letter >= LETTER_KANJI)
+            until_said_len += put_letter(&until_said[until_said_len], letter);
+        else
+            until_said[until_said_len++] = (char)letter;
         until_said[until_said_len] = '\0';
     }
 }
@@ -482,7 +503,7 @@ static void line_text(const WindowInfo *w, int y, const TextLine *ln, char *out,
             continue;
         if (prev_x >= 0 && ln->g[i].x > prev_x + 14)
             out[n++] = ' ', out[n++] = ' ';
-        n += (size_t)put_letter(&out[n], ln->g[i].c);
+        n += (size_t)put_letter(&out[n], ln->g[i].letter);
         prev_x = ln->g[i].x;
     }
     while (n > 0 && out[n - 1] == ' ')
@@ -498,7 +519,7 @@ static const char *letters_text(const char *s) {
     char *out = bufs[which ^= 1];
     size_t n = 0;
     for (; *s && n + 3 < sizeof(bufs[0]); s++)
-        n += (size_t)put_letter(&out[n], *s);
+        n += (size_t)put_letter(&out[n], (uint8_t)*s);
     out[n] = '\0';
     return out;
 }
@@ -598,7 +619,7 @@ static bool waiting_for_input(void) {
 static void print_eb(const uint8_t *s, int max) {
     for (int i = 0; i < max && s[i]; i++) {
         char buf[3] = {0};
-        fwrite(buf, 1, (size_t)put_letter(buf, eb_char_to_ascii(s[i])), stdout);
+        fwrite(buf, 1, (size_t)put_letter(buf, (uint8_t)eb_char_to_ascii(s[i])), stdout);
     }
 }
 

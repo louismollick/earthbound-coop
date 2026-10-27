@@ -178,7 +178,7 @@ def build_reverse_names(common_data: "CommonData") -> dict[ArgType, dict[str, in
 
 def compile_text_block(
     ops: list[dict],
-    reverse_text_table: dict[str, int],
+    reverse_text_table: "dict[str, int] | dict[str, int | bytes]",
     *,
     label_offsets: dict[str, int] | None = None,
     reverse_names: dict[ArgType, dict[str, int]] | None = None,
@@ -187,7 +187,8 @@ def compile_text_block(
 
     Args:
         ops: List of dicts, each with an "op" key and argument keys.
-        reverse_text_table: Mapping of character string -> byte value for literal text.
+        reverse_text_table: Mapping of character string -> byte value for literal text
+            (or byte string, for the Japanese kanji codes of text_dsl/kanji.py).
         label_offsets: Optional mapping of label name -> address for resolving
             string labels in LABEL and JUMP_TABLE args.
         reverse_names: Optional mapping of ArgType -> {name: value} for resolving
@@ -203,11 +204,16 @@ def compile_text_block(
         op_name = entry["op"]
 
         if op_name == "text":
-            # Encode each character via reverse_text_table.
+            # Encode each character via reverse_text_table: a byte, or a byte
+            # sequence (a kanji, text_dsl/kanji.py).
             for ch in entry["value"]:
-                if ch not in reverse_text_table:
+                code = reverse_text_table.get(ch)
+                if code is None:
                     raise ValueError(f"Character {ch!r} not in reverse_text_table")
-                buf.append(reverse_text_table[ch])
+                if isinstance(code, int):
+                    buf.append(code)
+                else:
+                    buf.extend(code)
             continue
 
         if op_name == "unknown":

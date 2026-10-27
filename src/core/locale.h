@@ -43,7 +43,7 @@ bool locale_parse(const char *code, Locale *out);
 /* The --lang spelling of `l` ("en", ...). */
 const char *locale_code(Locale l);
 
-/* The Language's English display name ("English", "Japanese", "Japanese kanji"),
+/* The Language's English display name ("English", "Japanese", "Japanese (kanji)"),
  * for the launcher and error messages. */
 const char *locale_name(Locale l);
 

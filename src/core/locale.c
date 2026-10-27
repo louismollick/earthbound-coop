@@ -12,7 +12,7 @@ static const struct {
 } k_locales[LOCALE_COUNT] = {
     [LOCALE_EN]       = { "en", "English" },
     [LOCALE_JA]       = { "ja", "Japanese" },
-    [LOCALE_JA_KANJI] = { "ja-kanji", "Japanese kanji" },
+    [LOCALE_JA_KANJI] = { "ja-kanji", "Japanese (kanji)" },
 };
 
 bool locale_available(Locale l) {

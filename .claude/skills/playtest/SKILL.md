@@ -354,6 +354,7 @@ When you reach a new scene that took effort to find, **add a row here** (save, e
 | Flyovers without the story | any town, idle | `npc 1 765` (ending: さらに夜もふけて), `npc 1 476` / `477` / `478` (intro 1-3), `npc 1 776` ("TO BE CONTINUED..." / "THE END...?"): the event plays at once |
 | Coffee break | 15-Desert | `teleport 448 7360 4; 40 RIGHT; 40 DOWN; 50 RIGHT`, talk to npc723, Yes, `until in:FLYOVER 3000 advance`; Japanese ~6000 frames, English ~11600 |
 | YOU WIN! | 02-Sharks | `teleport 2660 440 4; until battle 800 DOWN\|RIGHT\|LEFT\|UP`, Auto Fight, `until in:WINDOW_BORDER_ANIM 6000` |
+| Kanji script (`EB_LANG=ja-kanji`, needs `src/custom_assets/ja_kanji/`) | a kana-named Japanese save at the start (Ness's house, night) | mom npc15: `10 LEFT; 10 DOWN; press A; until input 60; press A; until input 400`; an item description: `give 49`, Goods, the yo-yo, せつめい; Onett: `teleport 1864 148 0; 8 UP; press L` (Lier's sign). Window text prints kanji as themselves |
 | Debug STAFF / CAST in Japanese | 36-CavePast | the debug menu is paged by "そのた": `debug on; 30 B+R; wait 30; press DOWN 5; wait 10`, `press A; wait 15` three times (page 4), then `press UP 5; wait 10; press DOWN 3` (STAFF) or `press DOWN` (CAST), A |
 
 ## Viewport and visual review (every shot)
