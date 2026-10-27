@@ -1,0 +1,31 @@
+# Japanese Locale (docs/adr/0003-japanese-locale.md): what `ebtools extract-ja`
+# needs beyond mother2.yml. Offsets and facts about the ROM only, no ROM bytes.
+
+# The donor ROM: unheadered Mother 2 (Japan).
+romSha1: 8738cff9e38a8b86ae30bfe0e5fbcb2828c2b16e
+
+# Mother 2 textTable entries added or corrected after reading the glyphs
+# (JP/graphics/text_window.gfx, two 8x8 tiles per code).
+textTable:
+  0x23: $
+  0x24: ¤   # two small zeros over a bar, next to the ATM number selector
+  0x26: ～
+  0x27: ／  # 0x2F ('/' in mother2.yml) is a blank spacer glyph in the keyboard
+  0x5E: .   # low dot: G.H. Pikaal
+  0x5F: 。  # mother2.yml has '.', the glyph is the full stop circle
+  0xEE: ヲ
+
+# US label -> Mother 2 label, for pairs that neither the same name nor the
+# reference propagation finds (the same message under a placeholder name).
+labels:
+  MSG_DBGTXT_EMPTY_STUB: TEXT_UNKNOWN_5_000000
+  MSG_DOOR_TONZURABUS_HOTSPOT: TEXT_UNKNOWN_4_0083E9
+  MSG_DOOR_SHACK_KEY_CHECK: TEXT_UNKNOWN_4_0085A8
+  MSG_DOOR_LOCKED: TEXT_UNKNOWN_4_0085EC
+  MSG_DOOR_EMPTY_611: TEXT_UNKNOWN_4_008604
+  MSG_DOOR_BAD_KEY_MACHINE_USE: TEXT_UNKNOWN_4_008605
+  MSG_DOOR_CHAOS_NOISE_COMPLAINT: TEXT_UNKNOWN_4_008ADE
+  MSG_DOOR_STAIRS_FALL: TEXT_UNKNOWN_4_008B5E
+  MSG_DOOR_EMPTY_12B6: TEXT_UNKNOWN_4_0090B2
+  MSG_DOOR_EMPTY_OPEN_CLOSE: TEXT_UNKNOWN_4_0095EA
+  MSG_UNK_JEFF_RESCUE_SKY_RUNNER_TRIP: TEXT_UNKNOWN_4_00DCB0
