@@ -76,7 +76,7 @@ def _packed_dir() -> Path:
     empty_custom = out / "_no_custom_assets"
     empty_custom.mkdir()
     with (
-        mock.patch.object(pack_all_mod, "_pack_dialogue", return_value={}),
+        mock.patch.object(pack_all_mod, "_pack_dialogue", return_value=({}, {})),
         contextlib.redirect_stdout(io.StringIO()),
     ):
         pack_all_mod.pack_all(
