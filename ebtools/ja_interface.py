@@ -289,11 +289,13 @@ _ROM_SYMBOLS_HEADER = "romSymbols:"
 
 
 def write_rom_symbols(config_path: Path, symbols: dict[str, tuple[int, int]]) -> None:
-    """Replace the ``romSymbols:`` block (the end of ``ja_locale.yml``)."""
+    """Replace the ``romSymbols:`` block of ``ja_locale.yml`` (up to the next top-level key)."""
     text = config_path.read_text()
-    head = text.split(_ROM_SYMBOLS_HEADER)[0].rstrip("\n")
+    head, rest = text.split("\n" + _ROM_SYMBOLS_HEADER + "\n")
+    tail = re.search(r"^\S", rest, re.MULTILINE)
     lines = [f"  {name}: [0x{off:06X}, {size}]" for name, (off, size) in sorted(symbols.items())]
-    config_path.write_text(head + "\n" + _ROM_SYMBOLS_HEADER + "\n" + "\n".join(lines) + "\n")
+    block = _ROM_SYMBOLS_HEADER + "\n" + "\n".join(lines) + "\n"
+    config_path.write_text(head + "\n" + block + ("\n" + rest[tail.start() :] if tail else ""))
 
 
 def ja_offsets(

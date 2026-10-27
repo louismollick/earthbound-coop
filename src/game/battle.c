@@ -955,16 +955,18 @@ check_flipout:
  * COPY_ENEMY_NAME (asm/text/copy_enemy_name.asm)
  *
  * Copies enemy name from source (enemy_data::name in ROM asset) to dest ert.buffer.
- * Handles NESS_PLACEHOLDER (0xAC) by substituting Ness's name from party_characters[0].
+ * Handles NESS_PLACEHOLDER (US 0xAC, Mother 2 0x3E: include/macros.asm) by
+ * substituting Ness's name from party_characters[0].
  * Stops at null byte or after 'length' characters.
  * Returns the position after the last character written.
  */
 uint16_t copy_enemy_name(const uint8_t *src, uint8_t *dest, uint16_t length, uint16_t dest_size) {
     uint16_t pos = 0;
+    const uint8_t placeholder = locale_is_ja() ? 0x3E : 0xAC;  /* CHAR::NESS_PLACEHOLDER */
     for (uint16_t i = 0; i < length; i++) {
         uint8_t ch = src[i];
         if (ch == 0) break;
-        if (ch == 0xAC) { /* CHAR::NESS_PLACEHOLDER (US) */
+        if (ch == placeholder) {
             for (uint16_t j = 0; j < sizeof(party_characters[0].name); j++) {
                 uint8_t nc = party_characters[0].name[j];
                 if (nc == 0) break;

@@ -584,7 +584,7 @@ StepResult ja_enter_name_step(ModeState *st) {
     if (s->param == 0 && pairs) {
         /* PROCESS_NAME_INPUT_STRING into TEMPORARY_TEXT_BUFFER, then MEMCPY16 of
          * sizeof mother2_playername */
-        uint8_t kana[3 * sizeof game_state.earthbound_playername + 1];
+        uint8_t kana[3 * sizeof game_state.earthbound_playername + 1] = {0};  /* all of it reaches game state */
         uint8_t romaji[sizeof game_state.earthbound_playername + 1] = {0};
         memcpy(romaji, game_state.earthbound_playername, sizeof game_state.earthbound_playername);
         ja_process_name_input(kana, romaji, pairs);
