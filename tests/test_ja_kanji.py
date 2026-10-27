@@ -8,6 +8,7 @@ local script in ``src/custom_assets/ja_kanji/`` and skips without one.
 
 import importlib.util
 import json
+import re
 import struct
 from pathlib import Path
 
@@ -199,6 +200,13 @@ def test_pack_kanji(tmp_path):
 
     # A broken script: no JA_KANJI/ (the kana Locale still builds)
     (over / "E01.yml").write_text(serialize_dialogue_file({"MSG_A": KANA["MSG_A"]}), encoding="utf-8")
+    assert pack_kanji(over, FONT, out, kana_dialogue, REVERSE, {}, us_addrs, {}, KANA_INLINE, ja) == 0
+    assert not out.exists()
+
+    # A text op that isn't a string (text: null): an error, never a crash
+    yml = re.sub(r"text: .*", "text: null", serialize_dialogue_file(converted()), count=1)
+    (over / "E01.yml").write_text(yml, encoding="utf-8")
+    assert any("not a string" in e for e in check_override(ja, over, FONT, readings=False).errors)
     assert pack_kanji(over, FONT, out, kana_dialogue, REVERSE, {}, us_addrs, {}, KANA_INLINE, ja) == 0
     assert not out.exists()
 

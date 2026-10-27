@@ -261,6 +261,17 @@ def parse_crop(text):
 _JA_TABLE: dict[int, str] | None = None
 
 
+def _ja_table() -> dict[int, str]:
+    """The Japanese text table (code -> letter), {} without the Japanese assets."""
+    global _JA_TABLE
+    if _JA_TABLE is None:
+        path = HERE.parent / "src" / "assets" / "ja" / "text_table.json"
+        _JA_TABLE = (
+            {int(k, 16): v for k, v in json.loads(path.read_text(encoding="utf-8")).items()} if path.exists() else {}
+        )
+    return _JA_TABLE
+
+
 def ja_letters(text: str) -> str:
     """Turn the game's U+E000 + code letters (Japanese window text) into kana.
 
@@ -268,16 +279,29 @@ def ja_letters(text: str) -> str:
     Japanese text table (src/assets/ja/text_table.json, `ebtools extract-ja`)
     names it.
     """
-    global _JA_TABLE
     if not any("\ue000" <= ch <= "\ue0ff" for ch in text):
         return text
-    if _JA_TABLE is None:
-        path = HERE.parent / "src" / "assets" / "ja" / "text_table.json"
-        _JA_TABLE = {int(k, 16): v for k, v in json.loads(path.read_text()).items()} if path.exists() else {}
+    table = _ja_table()
     return "".join(
-        _JA_TABLE.get(ord(ch) - 0xE000, f"{{{ord(ch) - 0xE000:02X}}}") if "\ue000" <= ch <= "\ue0ff" else ch
-        for ch in text
+        table.get(ord(ch) - 0xE000, f"{{{ord(ch) - 0xE000:02X}}}") if "\ue000" <= ch <= "\ue0ff" else ch for ch in text
     )
+
+
+def ja_said(cmd: str) -> str:
+    """Encode ``said:WORD`` in ``cmd`` the way the game captures Japanese text.
+
+    See :func:`ja_letters`: a letter of the Japanese text table as U+E000 +
+    code, space, digits and A-Z as themselves, a kanji as itself.
+    """
+    m = re.search(r"said:(\S+)", cmd)
+    if not m:
+        return cmd
+    reverse = {v: k for k, v in _ja_table().items() if len(v) == 1}
+    word = "".join(
+        ch if ch == " " or ch.isdigit() or "A" <= ch <= "Z" or ch not in reverse else chr(0xE000 + reverse[ch])
+        for ch in m.group(1)
+    )
+    return cmd[: m.start(1)] + word + cmd[m.end(1) :]
 
 
 def do(name, cmds, shot=True, sheet=False, scale=1, timeout=300.0, quiet=False, crop=None, zoom=1, tag=None):
@@ -290,6 +314,8 @@ def do(name, cmds, shot=True, sheet=False, scale=1, timeout=300.0, quiet=False, 
     seq_file.write_text(str(seq))
 
     user = split_commands(cmds)
+    if os.environ.get("EB_LANG", "").startswith("ja"):
+        user = [ja_said(c) for c in user]
     with (d / "history.play").open("a") as f:
         f.write(f"# {tag or f'do {seq}'}\n" + "".join(f"{c}\n" for c in user))
     # The game reads 255-byte lines: keep the echoed note short

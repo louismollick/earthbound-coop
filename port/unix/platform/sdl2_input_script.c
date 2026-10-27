@@ -329,7 +329,8 @@ static int until_said_len;
 /* Write a captured letter (a Glyph letter) to `out` (room for 3): itself in
  * English. In Japanese, space, digits and A-Z as ASCII and any other code as
  * U+E000 + code in UTF-8, which pt.py turns into the letter through the
- * Japanese text table (src/assets/ja/text_table.json); a kanji as itself. */
+ * Japanese text table (src/assets/ja/text_table.json); a kanji (any extended
+ * glyph) as itself in UTF-8. */
 static int put_letter(char *out, uint16_t letter) {
     char c = (char)(letter & 0xFF);
     if (!locale_is_ja())
@@ -337,8 +338,13 @@ static int put_letter(char *out, uint16_t letter) {
     unsigned cp;
     if (letter >= LETTER_KANJI) {
         cp = ja_kanji_codepoint((uint16_t)(letter - LETTER_KANJI));
-        if (cp < 0x800)
-            return out[0] = '?', 1;
+        if (cp < 0x80)
+            return out[0] = (char)cp, 1;
+        if (cp < 0x800) {
+            out[0] = (char)(0xC0 | (cp >> 6));
+            out[1] = (char)(0x80 | (cp & 0x3F));
+            return 2;
+        }
     } else {
         uint8_t eb = ascii_to_eb_char(c);
         if (eb == ' ' || (eb >= '0' && eb <= '9') || (eb >= 'A' && eb <= 'Z'))
@@ -463,15 +469,12 @@ static void text_trace(int event, uint16_t window_id, uint16_t code) {
     if (until_active) {
         /* A sliding window over the printed text: said:WORD is checked every
          * frame, so when it fills, only the most recent text is kept */
-        int need = letter >= LETTER_KANJI ? 3 : 1;
-        if (until_said_len + need >= (int)sizeof(until_said)) {
+        if (until_said_len + 3 >= (int)sizeof(until_said)) {
             memmove(until_said, until_said + until_said_len - UNTIL_SAID_KEEP, UNTIL_SAID_KEEP);
             until_said_len = UNTIL_SAID_KEEP;
         }
-        if (letter >= LETTER_KANJI)
-            until_said_len += put_letter(&until_said[until_said_len], letter);
-        else
-            until_said[until_said_len++] = (char)letter;
+        /* The same encoding as window text (pt.py encodes said:WORD to match) */
+        until_said_len += put_letter(&until_said[until_said_len], letter);
         until_said[until_said_len] = '\0';
     }
 }

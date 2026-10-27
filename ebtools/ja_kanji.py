@@ -31,6 +31,7 @@ from functools import cache
 from pathlib import Path
 from typing import Annotated
 
+import yaml
 from cyclopts import Parameter
 
 from ebtools.ja_locale import (
@@ -179,6 +180,9 @@ def _check_message(
         report.errors.append(f"{where}: ops differ from the kana message (only text may change)")
         return
     kana_texts, kanji_texts = _texts(kana_ops), _texts(kanji_ops)
+    if not all(isinstance(t, str) for t in kanji_texts):
+        report.errors.append(f"{where}: a text op's value is not a string")
+        return
     if kana_texts != kanji_texts:
         report.converted += 1
     for kana, text in zip(kana_texts, kanji_texts):
@@ -350,7 +354,12 @@ def pack_kanji(
         shutil.rmtree(out)
     if not override_files(override_dir):
         return 0
-    report = check_override(ja_dir, override_dir, font_path, readings=False)
+    try:
+        report = check_override(ja_dir, override_dir, font_path, readings=False)
+    except (ValueError, TypeError, KeyError, OSError, yaml.YAMLError) as exc:
+        # A broken script must not take the English and kana build down
+        print(f"Warning: skipping the Japanese kanji Locale, {override_dir} can't be read: {exc}", file=sys.stderr)
+        return 0
     if not report.ok:
         print(
             f"Warning: skipping the Japanese kanji Locale, {len(report.errors)} problems in "
