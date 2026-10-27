@@ -156,10 +156,19 @@ def pack_ja(
         packed = output_dir / rel
         return packed.read_bytes() if packed.exists() else (bin_dir / rel).read_bytes()
 
-    interface = pack_interface(ja_dir, us_table, reverse_table, us_label_addrs)
-    for rel, data in interface.items():
-        _write(out / rel, data)
-    naming_files = pack_naming(ja_dir, out, reverse_table)
+    try:
+        interface = pack_interface(ja_dir, us_table, reverse_table, us_label_addrs)
+        for rel, data in interface.items():
+            _write(out / rel, data)
+        naming_files = pack_naming(ja_dir, out, reverse_table)
+    except (ValueError, KeyError, OSError) as exc:
+        # e.g. a name table pointing at a US label deleted after extract-ja
+        shutil.rmtree(out, ignore_errors=True)
+        print(
+            f"Warning: skipping the Japanese Locale, its interface data is stale (rerun `ebtools extract-ja`): {exc}",
+            file=sys.stderr,
+        )
+        return 0
 
     print(
         f"  Packed Japanese Locale: dialogue {len(blob)} bytes, inline strings {len(inline_blob)} bytes, "
