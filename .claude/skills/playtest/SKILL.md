@@ -345,6 +345,17 @@ When you reach a new scene that took effort to find, **add a row here** (save, e
 | Topolla ticket → backstage → Runaway Five show | run-31 | ticket seller npc848 from 5041,5536 facing UP ($30; goes to the first member with room); usher npc849 from 4984,5529 facing UP, Use the Show ticket; hall via green doors 4808,5432; doorman npc840: `until text 300 LEFT` to 4489,5881, `8 RIGHT; 6 UP`, Talk to (flag 374); `UP+LEFT` → backstage 5608,6760; leaving through door 5616,6760 (walk UP from 5618,6776) plays the show (~5300 frames, `until idle 8000 advance`). Back in the lobby the usher blocks the counter gap: talk to him from 4978,5512 facing DOWN |
 | Monotoli Building lobby (walked) / Dept Store door | run-32 | from the Topolla exit 3016,4592: `20 DOWN+RIGHT; until text 300 UP+RIGHT\|RIGHT; 40 LEFT; until text 300 UP\|UP+RIGHT; 20 LEFT; 60 UP; until text 300 UP+RIGHT\|UP; 80 DOWN; 50 RIGHT; until text 400 UP+RIGHT\|RIGHT` → 3568,4295 (store front), `UP+LEFT\|UP` → lobby 5704,5416; receptionist npc859 from 5584,5393 facing UP; exit RIGHT from 5700,5416. Store door 3608,4280 (from 3588,4323 `UP+RIGHT`) says "Temporarily closed" until the Diamond frees the band (flag 146) |
 
+### Japanese (J3, `EB_LANG=ja`; English saves need `/tmp/jasaves/tag.py`-style tagging, their names print as garbage)
+
+| Scene | Save | Steps |
+|---|---|---|
+| Warp in Japanese | any | `warp NAME` takes the Japanese names; use the number (`warps` lists them) |
+| Use an item (Goods) | any | Mother 2's flow asks だれが? first: `press A; until input 60; wait 15; press RIGHT; wait 15; press A; wait 30; press A; wait 30`, then the item grid (`wait 15` between moves), A, つかう, and だれに? for some items |
+| Flyovers without the story | any town, idle | `npc 1 765` (ending: さらに夜もふけて), `npc 1 476` / `477` / `478` (intro 1-3), `npc 1 776` ("TO BE CONTINUED..." / "THE END...?"): the event plays at once |
+| Coffee break | 15-Desert | `teleport 448 7360 4; 40 RIGHT; 40 DOWN; 50 RIGHT`, talk to npc723, Yes, `until in:FLYOVER 3000 advance`; Japanese ~6000 frames, English ~11600 |
+| YOU WIN! | 02-Sharks | `teleport 2660 440 4; until battle 800 DOWN\|RIGHT\|LEFT\|UP`, Auto Fight, `until in:WINDOW_BORDER_ANIM 6000` |
+| Debug STAFF / CAST in Japanese | 36-CavePast | the debug menu is paged by "そのた": `debug on; 30 B+R; wait 30; press DOWN 5; wait 10`, `press A; wait 15` three times (page 4), then `press UP 5; wait 10; press DOWN 3` (STAFF) or `press DOWN` (CAST), A |
+
 ## Viewport and visual review (every shot)
 
 Correct game logic isn't enough: report anything ugly or not adapted to the wide viewport, even when it matches the asm. For every screenshot, look at the whole 320×240 frame, gutters included (x<32, x≥288, y<8, y≥232):

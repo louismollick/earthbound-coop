@@ -252,10 +252,13 @@ UI_TEXTS: tuple[tuple[str, str, int, int | None], ...] = (
 
 
 def rom_symbols_used() -> list[str]:
-    """Every Mother 2 symbol the interface reads (``ja_locale.yml`` ``romSymbols``)."""
+    """Every Mother 2 symbol the interface and ``ja_graphics`` read (``ja_locale.yml`` ``romSymbols``)."""
     names = {f.symbol for t in NAME_TABLES for f in t.fields}
     names |= {sym for _, sym, _, _ in UI_TEXTS}
     names.add(STATUS_WINDOW_SYMBOL)
+    from ebtools.ja_graphics import ROM_SYMBOLS
+
+    names |= set(ROM_SYMBOLS)
     return sorted(names)
 
 
