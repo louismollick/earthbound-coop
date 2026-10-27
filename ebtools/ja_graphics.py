@@ -12,7 +12,8 @@ Japanese):
   US spritemap address the C code subtracts), the sound stone, the gas station
   and Nintendo logo of the attract mode, the staff credits font, and the map
   tilesets (``MAP_DUMP_SUBDIRS``: graphics and arrangements, whose signs
-  have Mother 2's words). The map chunks stay US (two blocks the US moved,
+  have Mother 2's words; packed decompressed, as ``.gfx.raw`` / ``.arr.raw``,
+  which is what the map loader reads). The map chunks stay US (two blocks the US moved,
   collision included), and so do the map palettes (their colours are the same;
   only an embedded pointer moved).
 - Same meaning, Mother 2's format (Japanese C paths read them): the flyover and
@@ -27,8 +28,11 @@ Japanese):
 
 ``<assets>/ja/text_window_tiles.bin`` holds Mother 2's "YOU WIN!" tiles; pack-all
 patches them into the US text window graphics (whose other tiles stay US).
+``<assets>/ja/graphics_files.json`` lists the ``bin/`` files; pack-all skips the
+Japanese Locale unless all of them are there (:func:`graphics_are_current`).
 """
 
+import json
 import struct
 from pathlib import Path
 
@@ -36,6 +40,7 @@ from ebtools.config import DumpDoc
 
 BIN_SUBDIR = "bin"
 TEXT_WINDOW_TILES_FILE = "text_window_tiles.bin"
+MANIFEST_FILE = "graphics_files.json"  # the bin/ files extract_graphics wrote
 
 # (mother2.yml subdir, name, extension) -> asset path: raw Mother 2 ROM bytes
 # (compressed as stored) for the asset at that path.
@@ -64,6 +69,7 @@ RAW_DUMPS: dict[tuple[str, str, str], str] = {
 # Every Mother 2 dump in these mother2.yml subdirs replaces the US asset at
 # maps/<kind>/<name>.<ext>.lzhal (block ids, and so collision, are the same).
 MAP_DUMP_SUBDIRS = ("JP/maps/gfx", "JP/maps/arrangements")
+MAP_PACKED_DIRS = ("maps/gfx/", "maps/arrangements/")
 
 # The eight PLAY_FLYOVER_SCRIPT scripts, one asset each like the US
 # (src/game/flyover.c flyover_script_ids): mother2.yml flyoverLabels splits
@@ -234,6 +240,9 @@ def extract_graphics(
     files["ending/staff_text.bin"] = staff[: staff_text_length(staff)]
     files["data/text/lumine_hall_text.bin"] = rom_ranges["lumineHallText"].read(rom)[0]
 
+    missing = required_bin_files() - set(files)
+    if missing:
+        raise ValueError(f"extract_graphics wrote no {sorted(missing)}")
     bin_dir = out_dir / BIN_SUBDIR
     for path, data in files.items():
         dest = bin_dir / path
@@ -243,15 +252,42 @@ def extract_graphics(
         if stale.relative_to(bin_dir).as_posix() not in files:
             stale.unlink()
     (out_dir / TEXT_WINDOW_TILES_FILE).write_bytes(you_win_tiles(rom, doc))
+    (out_dir / MANIFEST_FILE).write_text(json.dumps(sorted(files), indent=1) + "\n", encoding="utf-8")
     return len(files) + 1
 
 
+# Files of ``bin/`` that are not RAW_DUMPS or flyovers (extract_graphics).
+DERIVED_FILES = (
+    "town_maps/icon_spritemaps.bin",
+    "town_maps/icon_spritemap_ptrs.bin",
+    "fonts/flyover_map.bin",
+    "ending/cast_names.bin",
+    "ending/cast_bg_palette.pal",
+    "ending/staff_text.bin",
+    "data/text/lumine_hall_text.bin",
+)
+
+
+def required_bin_files() -> set[str]:
+    """Every ``bin/`` file but the map tilesets (whose list comes from mother2.yml).
+
+    The Japanese C paths read all of them (the Japanese-only ones by their
+    ``ASSET_JA_*`` ids, which don't exist without them).
+    """
+    return {*RAW_DUMPS.values(), *(f"{label.lower()}.bin" for label in FLYOVER_LABELS), *DERIVED_FILES}
+
+
 def graphics_are_current(ja_dir: Path) -> bool:
-    """Whether ``ja_dir`` has this module's files (an older extraction lacks them)."""
-    bin_dir = ja_dir / BIN_SUBDIR
-    return (ja_dir / TEXT_WINDOW_TILES_FILE).exists() and all(
-        (bin_dir / p).exists() for p in [*RAW_DUMPS.values(), "ending/staff_text.bin", "fonts/flyover_map.bin"]
-    )
+    """Whether ``ja_dir`` has every file of this module (an older or damaged extraction doesn't).
+
+    ``extract_graphics`` lists what it wrote in ``MANIFEST_FILE``; every listed
+    file, every ``required_bin_files()`` file and the text window tiles must be there.
+    """
+    manifest = ja_dir / MANIFEST_FILE
+    if not manifest.exists() or not (ja_dir / TEXT_WINDOW_TILES_FILE).exists():
+        return False
+    listed = set(json.loads(manifest.read_text(encoding="utf-8")))
+    return required_bin_files() <= listed and all((ja_dir / BIN_SUBDIR / p).is_file() for p in listed)
 
 
 def patch_text_window(us_compressed: bytes, tiles: bytes) -> bytes:
@@ -268,12 +304,25 @@ def patch_text_window(us_compressed: bytes, tiles: bytes) -> bytes:
 
 
 def pack_graphics(ja_dir: Path, us_table) -> dict[str, bytes]:
-    """``{path under JA/: bytes}``: ``bin/`` as is, and the patched text window graphics.
+    """``{path under JA/: bytes}``: ``bin/``, and the patched text window graphics.
 
+    Files are copied as they are, but the map tilesets: the map loader reads
+    them decompressed (``.gfx.raw`` / ``.arr.raw``, pack-all's
+    ``RAW_DECOMPRESSED_FAMILIES``), so they are packed that way.
     ``us_table(path)`` returns a US asset (packed or extracted) by its ``US/`` path.
     """
+    from ebtools.hallz.decompress import decompress
+
     bin_dir = ja_dir / BIN_SUBDIR
-    out = {p.relative_to(bin_dir).as_posix(): p.read_bytes() for p in sorted(bin_dir.rglob("*")) if p.is_file()}
+    out = {}
+    for p in sorted(bin_dir.rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(bin_dir).as_posix()
+        if rel.startswith(MAP_PACKED_DIRS) and rel.endswith(".lzhal"):
+            out[rel.removesuffix(".lzhal") + ".raw"] = decompress(p.read_bytes())
+        else:
+            out[rel] = p.read_bytes()
     tiles = ja_dir / TEXT_WINDOW_TILES_FILE
     if tiles.exists():
         out[TEXT_WINDOW_US_PATH.removeprefix("US/")] = patch_text_window(

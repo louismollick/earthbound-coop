@@ -551,7 +551,7 @@ static uint16_t ja_prepare_cast_name_tilemap(uint16_t col, uint16_t max, const u
         uint16_t c = str[n];
         uint16_t tile = (uint16_t)((c & 0x000F) + ((c & 0x03F0) << 1) + (c & 0x1C00));
         uint16_t at = (uint16_t)(col + n);
-        if (at + JA_CAST_TILEMAP_ROW >= BUF_CREDITS_TILEMAP_SIZE / 2)
+        if (at >= JA_CAST_TILEMAP_ROW)   /* the top row's 32 words */
             break;
         tilemap[at] = (uint16_t)(tile + cast_tile_offset);
         tilemap[at + JA_CAST_TILEMAP_ROW] = (uint16_t)(tile + cast_tile_offset + 16);

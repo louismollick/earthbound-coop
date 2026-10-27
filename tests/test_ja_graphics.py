@@ -16,6 +16,7 @@ from ebtools.ja_graphics import (
     BIN_SUBDIR,
     CAST_NAME_COUNT,
     FLYOVER_LABELS,
+    MANIFEST_FILE,
     RAW_DUMPS,
     TEXT_WINDOW_TILES_FILE,
     US_TOWN_MAP_SPRITEMAP_BASE,
@@ -25,6 +26,7 @@ from ebtools.ja_graphics import (
     map_tilesets,
     pack_graphics,
     patch_text_window,
+    required_bin_files,
     split_flyovers,
     staff_text_length,
 )
@@ -137,6 +139,40 @@ def test_extract_and_pack_from_the_rom(tmp_path):
     us_window = BIN / "US" / "graphics" / "text_window.gfx.lzhal"
     if us_window.exists():
         packed = pack_graphics(out, lambda rel: (BIN / rel).read_bytes())
-        assert set(files) < set(packed)
+        # The map tilesets pack decompressed, under the names the map loader reads.
+        tilesets = map_tilesets(rom, doc)
+        raw = {p.removesuffix(".lzhal") + ".raw" for p in tilesets}
+        assert raw <= set(packed) and not set(tilesets) & set(packed)
+        assert set(files) - set(tilesets) < set(packed)
         assert len(decompress(packed["graphics/text_window.gfx.lzhal"])) == len(decompress(us_window.read_bytes()))
     assert len((out / TEXT_WINDOW_TILES_FILE).read_bytes()) == len(YOU_WIN_TILES) * 16
+
+
+@needs_rom
+@pytest.mark.parametrize(
+    "victim", ["ending/cast_names.bin", "flyover_intro1.bin", "maps/gfx/2.gfx.lzhal", MANIFEST_FILE]
+)
+def test_graphics_are_current_needs_every_file(tmp_path, victim):
+    """A damaged extraction makes pack-all skip the Japanese Locale (pack_ja)."""
+    doc = load_dump_doc(ROOT / "mother2.yml")
+    config = load_ja_locale(ROOT / "ja_locale.yml")
+    out = tmp_path / "ja"
+    extract_graphics(ROM.read_bytes(), doc, config.romSymbols, config.rom, out)
+    assert graphics_are_current(out)
+    (out / victim if victim == MANIFEST_FILE else out / BIN_SUBDIR / victim).unlink()
+    assert not graphics_are_current(out)
+
+
+def test_required_files_cover_the_c_references():
+    """Every Japanese-only asset the C code names is a required file."""
+    import re
+
+    src = ROOT / "src"
+    refs = set()
+    for path in [*src.rglob("*.c"), *src.rglob("*.h")]:
+        if "assets" in path.parts or "vendor" in path.parts:
+            continue
+        refs |= set(re.findall(r"ASSET_JA_([A-Z0-9_]+)", path.read_text(errors="replace")))
+    ours = {re.sub(r"[^A-Z0-9]", "_", p.upper()) for p in required_bin_files()}
+    graphics_refs = {r for r in refs if r.startswith(("FONTS_FLYOVER", "ENDING_", "GRAPHICS_MOTHER2"))}
+    assert graphics_refs and graphics_refs <= ours

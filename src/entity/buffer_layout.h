@@ -273,7 +273,10 @@ static inline uint8_t *buf_decomp_scratch(void) {
 #define BUF_CREDITS_PALETTE      0x0E00  /* CAST_NAMES_PALETTE, 8 × 32 B (decomp 0x100) */
 #define BUF_CREDITS_PALETTE_SIZE 0x0100
 #define BUF_CREDITS_TILEMAP      0x0F00  /* Cast name tilemap: 2 rows × 32 words */
-#define BUF_CREDITS_TILEMAP_SIZE 0x0080
+/* + 1 word: Mother 2's odd-width centring (ending.c ja_render_cast_name_vwf)
+ * pads a name one cell right, so a bottom row ending at column 31 writes
+ * word 64 (the asm writes on into BUFFER + $4080). */
+#define BUF_CREDITS_TILEMAP_SIZE 0x0082
 /* Offsets into the cast VRAM image (ending.c cast_vram[]), not ert.buffer. */
 #define BUF_CREDITS_GFX_1        0x0200
 #define BUF_CREDITS_GFX_2        0x0600

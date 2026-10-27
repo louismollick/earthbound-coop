@@ -2796,12 +2796,16 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
                 decode_planar_tilemap(lcps_code++, &lcps_dest);
         }
 
-        /* 30 blank trailing columns */
+        /* 30 blank trailing columns. Japanese: 32. The width is 4 per letter,
+         * so the half-step loop below (text width + 60 steps, each reading
+         * whole column j + 1) reads 2 columns past Mother 2's 29 + 4n + 30;
+         * the asm reads stale BUFFER there, the port blank columns. */
+        uint16_t lcps_trail = (uint16_t)(PORTRAIT_TRAIL_COLUMNS + (lcps_ja_letters ? 2 : 0));
         BUFFER_REGION_CHECK((size_t)(lcps_dest - ert.buffer),
-                            PORTRAIT_TRAIL_COLUMNS * PORTRAIT_COLUMN_CELLS,
+                            (size_t)lcps_trail * PORTRAIT_COLUMN_CELLS,
                             BUF_PORTRAIT_COLUMNS, BUF_PORTRAIT_COLUMNS_SIZE);
-        memset(lcps_dest, 0, PORTRAIT_TRAIL_COLUMNS * PORTRAIT_COLUMN_CELLS);
-        lcps_dest += PORTRAIT_TRAIL_COLUMNS * PORTRAIT_COLUMN_CELLS;
+        memset(lcps_dest, 0, (size_t)lcps_trail * PORTRAIT_COLUMN_CELLS);
+        lcps_dest += (size_t)lcps_trail * PORTRAIT_COLUMN_CELLS;
         uint16_t lcps_total_cols =
             (uint16_t)((lcps_dest - lcps_base) / PORTRAIT_COLUMN_CELLS);
 
